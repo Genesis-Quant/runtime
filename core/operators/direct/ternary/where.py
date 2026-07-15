@@ -1,0 +1,74 @@
+"""ternary.where 算符模型。"""
+
+from typing import ClassVar, Literal
+
+from pydantic import Field
+
+from core.dolphindb import DolphinDBFunction
+
+from core.operators.base import DirectOperator
+from core.operators.fields import TernaryFields
+from core.operators.schema import (
+    OutputKind,
+    StrictModel,
+)
+
+
+class DirectTernaryWhereParams(StrictModel):
+    """ternary.where 不接收参数。"""
+
+
+class DirectTernaryWhereOperator(DirectOperator):
+    """根据 BOOL 条件逐行选择值。"""
+
+    op: Literal['ternary.where'] = Field(..., description='根据 BOOL 条件逐行选择值。')
+    fields: TernaryFields = Field(..., description="该算符严格定义的输入字段。")
+    params: DirectTernaryWhereParams = Field(
+        default_factory=DirectTernaryWhereParams,
+        description="该算符严格定义的参数。",
+    )
+    output_kind: ClassVar[OutputKind] = 'ANY'
+    function: ClassVar[DolphinDBFunction] = DolphinDBFunction(
+        """
+        def direct_ternary_where(condition, if_true, if_false) {
+            /*
+            根据 condition 逐元素选择 if_true 或 if_false。
+
+            condition、if_true 和 if_false 按 DolphinDB 广播规则对齐；向量输入必须具有兼容长度。
+
+            Parameters
+            ----------
+            condition : scalar or vector[BOOL]
+                决定逐元素选择分支的布尔条件。
+            if_true : scalar or vector
+                条件为 true 时使用的值。
+            if_false : scalar or vector
+                条件为 false 时使用的值。
+
+            Returns
+            -------
+            result : scalar or vector
+                结果类型和形状由输入与算符语义决定。
+
+            Examples
+            --------
+            >>> condition = true false true false
+            >>> if_true = 1 2 3 4
+            >>> if_false = 10 20 30 40
+            >>> direct_ternary_where(condition, if_true, if_false)
+            [1, 20, 3, 40]
+
+            >>> values = 1 2 3 4
+
+            标量 true 选择完整真分支：
+            >>> direct_ternary_where(true, values, 0)
+            [1, 2, 3, 4]
+
+            标量 false 选择完整假分支：
+            >>> direct_ternary_where(false, values, 0)
+            0
+            */
+            return iif(condition, if_true, if_false)
+        }
+        """
+    )

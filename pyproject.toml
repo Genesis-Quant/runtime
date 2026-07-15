@@ -1,0 +1,19 @@
+[project]
+name = "core"
+version = "0.1.0"
+description = "Seminar factor DSL validation models and DolphinDB-native interpreter"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.11",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[dependency-groups]
+dev = [
+    "dolphindb>=3.0.4.2",
+    "pandas>=2.2",
+    "pytest>=9.1.1",
+]

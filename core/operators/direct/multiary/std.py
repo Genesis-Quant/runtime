@@ -1,0 +1,73 @@
+"""multiary.std 算符模型。"""
+
+from typing import ClassVar, Literal
+
+from pydantic import Field
+
+from core.dolphindb import DolphinDBFunction
+
+from core.operators.base import DirectOperator
+from core.operators.fields import MultiaryFields
+from core.operators.schema import (
+    OutputKind,
+    StrictModel,
+)
+
+
+class DirectMultiaryStdParams(StrictModel):
+    """multiary.std 参数。"""
+
+    ddof: Literal[0, 1] = Field(default=1, description="方差或标准差的自由度修正。")
+
+
+class DirectMultiaryStdOperator(DirectOperator):
+    """逐行多操作数 std 归约。"""
+
+    op: Literal['multiary.std'] = Field(..., description='逐行多操作数 std 归约。')
+    fields: MultiaryFields = Field(..., description="该算符严格定义的输入字段。")
+    params: DirectMultiaryStdParams = Field(
+        default_factory=DirectMultiaryStdParams,
+        description="该算符严格定义的参数。",
+    )
+    output_kind: ClassVar[OutputKind] = 'NUMBER'
+    function: ClassVar[DolphinDBFunction] = DolphinDBFunction(
+        """
+        def direct_multiary_std(cols, ddof) {
+            /*
+            按位置计算所有非 NULL 操作数的标准差。
+
+            计算在每个位置独立进行，NULL 不参与该位置的统计。有效操作数不足以满足自由度时返回 NULL。
+
+            Parameters
+            ----------
+            cols : ANY vector
+                按位置参与归约的操作数集合；其中的向量长度必须一致。
+            ddof : {0, 1}, default 1
+                自由度修正。0 使用总体统计量，分母为 N；1 使用样本统计量，分母为 N - 1。
+
+            Returns
+            -------
+            result : scalar or vector[NUMBER]
+                数值结果；向量输入按元素返回。
+
+            Examples
+            --------
+            >>> first = 1.0 2.0 3.0
+            >>> second = 10.0 20.0 30.0
+            >>> cols = array(ANY, 0)
+            >>> cols.append!(first)
+            >>> cols.append!(second)
+
+            总体统计量，ddof=0：
+            >>> direct_multiary_std(cols, 0)
+            [4.5, 9, 13.5]
+
+            样本统计量，ddof=1：
+            >>> direct_multiary_std(cols, 1)
+            [6.36396, 12.7279, 19.0919]
+            */
+            if (int(ddof) == 1) return unifiedCall(rowStd, cols)
+            return unifiedCall(rowStdp, cols)
+        }
+        """
+    )
