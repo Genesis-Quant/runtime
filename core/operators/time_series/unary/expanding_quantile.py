@@ -56,23 +56,30 @@ class TimeSeriesUnaryExpandingQuantileOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：累计统计忽略 NULL，min_periods 按非 NULL 观测数判断；达到门槛后，当前输入为
+            NULL 也可能返回已有历史形成的统计值。
+
+            扩展窗口：q 在每个累计窗口内独立应用，必须位于模型允许的分位数范围。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0
 
             min_periods=1：
             >>> ts_unary_expanding_quantile(col, 1, 0.5)
-            [1, 1.005, 1.01, 1.015, 1.02, 1.025, 1.03, 1.035]
+            [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5]
 
             min_periods=3：
             >>> ts_unary_expanding_quantile(col, 3, 0.5)
-            [NULL, NULL, 1.01, 1.015, 1.02, 1.025, 1.03, 1.035]
+            [NULL, NULL, 2, 2.5, 3, 3.5, 4, 4.5]
 
             min_periods=5：
             >>> ts_unary_expanding_quantile(col, 5, 0.5)
-            [NULL, NULL, NULL, NULL, 1.02, 1.025, 1.03, 1.035]
+            [NULL, NULL, NULL, NULL, 3, 3.5, 4, 4.5]
             */
-            result = cumpercentile(col, q)
+            result = cumpercentile(col, 100 * q)
             return mask_expanding_result(result, col, min_periods)
         }
         """,

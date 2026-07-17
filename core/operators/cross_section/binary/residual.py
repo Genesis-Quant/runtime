@@ -38,7 +38,7 @@ class CrossSectionBinaryResidualOperator(CrossSectionOperator):
             在当前截面回归 right 对 left，返回每个观测对应的残差。
 
             回归方向固定为 right 对 left：right 是因变量，left 是解释变量。斜率为 Cov(left, right) / Var(left)，截距为
-            mean(right) - beta * mean(left)。
+            pairMean(right) - beta * pairMean(left)，其中两个均值只使用同一组成对有效观测。
 
             协方差按成对有效观测计算。left 没有有效截面方差时斜率为 NULL，依赖该斜率的结果也为 NULL。
 
@@ -54,6 +54,14 @@ class CrossSectionBinaryResidualOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：回归系数只使用 left 与 right 同时非 NULL 的配对观测，有效配对不足时统计量为
+            NULL。
+
+            计算边界：逐行返回 right 对 left 的 OLS 残差；任一当前输入缺失或 left 零方差时相应残差为
+            NULL。
+
             Examples
             --------
             >>> left = 1.0 2.0 3.0 4.0 5.0
@@ -68,7 +76,7 @@ class CrossSectionBinaryResidualOperator(CrossSectionOperator):
 
             成对忽略缺失观测：
             >>> cs_binary_residual(left, right)
-            [2.72143, NULL, 1.33571, NULL, -0.25]
+            [-0.033333, NULL, 0.066667, NULL, -0.033333]
 
             >>> left = 1.0 1.0 1.0 1.0
             >>> right = 2.0 3.0 4.0 5.0
@@ -77,8 +85,11 @@ class CrossSectionBinaryResidualOperator(CrossSectionOperator):
             >>> cs_binary_residual(left, right)
             [NULL, NULL, NULL, NULL]
             */
+            valid = isValid(left) && isValid(right)
+            paired_left = iif(valid, double(left), double(NULL))
+            paired_right = iif(valid, double(right), double(NULL))
             slope = cross_section_slope(left, right)
-            intercept = avg(right) - slope * avg(left)
+            intercept = avg(paired_right) - slope * avg(paired_left)
             return right - intercept - slope * left
         }
         """,

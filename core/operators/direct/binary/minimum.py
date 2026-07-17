@@ -41,14 +41,20 @@ class DirectBinaryMinimumOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                逐元素最小值的第一个候选值。
             right : scalar or vector
-                右操作数。
+                逐元素最小值的第二个候选值。
 
             Returns
             -------
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
+
+            Notes
+            -----
+            NULL 处理：任一侧为 NULL 时结果显式设为 NULL，不像行聚合算符那样跳过缺失值。
+
+            平局与广播：两值相等时返回该值；标量可与向量广播，结果 dtype 使用两侧的公共类型。
 
             Examples
             --------
@@ -56,6 +62,10 @@ class DirectBinaryMinimumOperator(DirectOperator):
             >>> right = 3.0 2.0 1.0
             >>> direct_binary_minimum(left, right)
             [1, 2, 1]
+
+            二元极值不跳过 NULL：
+            >>> isNull(direct_binary_minimum(double([1, NULL]), double([2, 3])))
+            [false, true]
             */
             return iif(isNull(left) || isNull(right), NULL, iif(left <= right, left, right))
         }

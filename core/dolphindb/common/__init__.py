@@ -7,7 +7,7 @@ from .form import (
     IS_TABLE_FORM,
     IS_VECTOR_FORM,
 )
-from .numeric import CAST_VALUE, DIVIDE_OR_NULL, IS_FINITE_NUMBER
+from .numeric import CAST_VALUE, DIVIDE_OR_NULL, FLOOR_AS_DOUBLE, IS_FINITE_NUMBER
 from .time_series import (
     MASK_EXPANDING_RESULT,
     MASK_PAIR_EXPANDING_RESULT,
@@ -15,6 +15,7 @@ from .time_series import (
     ROLLING_MIN_PERIODS,
     ROLLING_SLOPE,
     ROLLING_TRUE_COUNT,
+    TALIB_MOVING_AVERAGE,
 )
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "CROSS_SECTION_RANK",
     "CROSS_SECTION_SLOPE",
     "DIVIDE_OR_NULL",
+    "FLOOR_AS_DOUBLE",
     "IS_FINITE_NUMBER",
     "IS_DICTIONARY_FORM",
     "IS_SCALAR_FORM",
@@ -34,4 +36,5 @@ __all__ = [
     "ROLLING_MIN_PERIODS",
     "ROLLING_SLOPE",
     "ROLLING_TRUE_COUNT",
+    "TALIB_MOVING_AVERAGE",
 ]

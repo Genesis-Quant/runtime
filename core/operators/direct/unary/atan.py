@@ -44,11 +44,22 @@ class DirectUnaryAtanOperator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：输入位置为 NULL 时，同位置结果为 NULL；本算符不做填充或缺失值替换。
+
+            形状与类型：标量输入返回标量，向量输入保持长度并逐元素计算；反正切结果以弧度返回，范围为 (-pi/2,
+            pi/2)。
+
             Examples
             --------
             >>> col = -2.5 -1.0 0.0 1.5 3.2
             >>> direct_unary_atan(col)
             [-1.19029, -0.785398, 0, 0.982794, 1.26791]
+
+            NULL 保持在原位置：
+            >>> isNull(direct_unary_atan(double([1, NULL])))
+            [false, true]
             */
             return atan(col)
         }

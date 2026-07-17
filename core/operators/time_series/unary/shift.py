@@ -50,6 +50,12 @@ class TimeSeriesUnaryShiftOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：原序列中的 NULL 随位移移动；移出边界的位置丢弃，移入边界的空位使用 typed NULL。
+
+            位置语义：periods 按观测位置而非自然日移动，不跳过 NULL，也不按日期间隔补齐缺失交易日。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0

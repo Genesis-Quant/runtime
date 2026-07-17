@@ -32,7 +32,8 @@ RESTORE_MASKED_ROWS = DolphinDBFunction(
 def restore_masked_rows(selected_result, mask, n) {
     // 把筛选后的结果按 mask 回填到原始 n 行位置，未选中的行保持 NULL。
     result = array(type(selected_result), n, n, NULL)
-    if (n == 0 || sum(mask) == 0) return result
+    if (n == 0) return result
+    if (sum(mask) == 0) return result
     indices = (0..(n - 1))[mask]
     result[indices] = selected_result
     return result
@@ -45,7 +46,10 @@ SAMPLE_OPERANDS = DolphinDBFunction(
 def sample_operands(operands) {
     // 从每个操作数取一个样本，供空筛选分支推断算符返回类型。
     result = array(ANY, 0)
-    for (operand in operands) result.append!(take(operand, 1))
+    for (operand in operands) {
+        if (size(operand) == 0) result.append!(array(type(operand), 1, 1, NULL))
+        else result.append!(take(operand, 1))
+    }
     return result
 }
 """
@@ -64,10 +68,11 @@ def select_operands(operands, mask) {
 
 APPLY_TIME_SERIES = DolphinDBFunction(
     """
-def apply_time_series(func, operands, on, code, time) {
+def apply_time_series(func, operands, on, code, time, empty_result) {
     // 仅对 on=true 的行按 code 分组、time 排序执行时序函数，再恢复原始行位置。
     n = size(operands[0])
     mask = normalize_on(on, n)
+    if (n == 0) return empty_result
     if (sum(mask) == 0) {
         sample = unifiedCall(func, sample_operands(operands))
         return restore_masked_rows(sample, mask, n)
@@ -86,10 +91,11 @@ def apply_time_series(func, operands, on, code, time) {
 
 APPLY_CROSS_SECTION = DolphinDBFunction(
     """
-def apply_cross_section(func, operands, on, time) {
+def apply_cross_section(func, operands, on, time, empty_result) {
     // 仅对 on=true 的行按 time 分组执行截面函数，再恢复原始行位置。
     n = size(operands[0])
     mask = normalize_on(on, n)
+    if (n == 0) return empty_result
     if (sum(mask) == 0) {
         sample = unifiedCall(func, sample_operands(operands))
         return restore_masked_rows(sample, mask, n)
@@ -108,10 +114,11 @@ def apply_cross_section(func, operands, on, time) {
 
 APPLY_GROUPED_CROSS_SECTION = DolphinDBFunction(
     """
-def apply_grouped_cross_section(func, operands, on, time, by) {
+def apply_grouped_cross_section(func, operands, on, time, by, empty_result) {
     // 排除 on=false 和 by=NULL 的行，按 time 与 by 联合分组执行截面函数。
     n = size(operands[0])
     mask = normalize_on(on, n) && !isNull(by)
+    if (n == 0) return empty_result
     if (sum(mask) == 0) {
         sample = unifiedCall(func, sample_operands(operands))
         return restore_masked_rows(sample, mask, n)
@@ -135,6 +142,7 @@ def apply_controlled_cross_section(func, target, controls, on, time) {
     n = size(target)
     mask = normalize_on(on, n)
     result = array(DOUBLE, n, n, NULL)
+    if (n == 0) return result
     if (sum(mask) == 0) return result
 
     selected_indices = (0..(n - 1))[mask]
@@ -153,11 +161,10 @@ BUILD_CONTROL_TABLE = DolphinDBFunction(
     """
 def build_control_table(values) {
     // 将按顺序给出的控制变量向量组装成 control0、control1 等命名列的表。
+    if (size(values) == 0) throw "控制变量至少包含一列"
     columns = dict(STRING, ANY)
-    if (size(values) > 0) {
-        for (index in 0..(size(values) - 1)) {
-            columns["control" + string(index)] = values[index]
-        }
+    for (index in 0..(size(values) - 1)) {
+        columns["control" + string(index)] = values[index]
     }
     return transpose(columns)
 }
@@ -181,9 +188,10 @@ def require_key(object, key, location) {
 REQUIRE_VECTOR = DolphinDBFunction(
     """
 def require_vector(value, n, location) {
-    // 将标量广播为 n 行，并拒绝长度或数据形态不符合要求的结果。
+    // 将标量或单元素向量广播为 n 行，并拒绝其他长度或数据形态不符合要求的结果。
     result = value
     if (is_scalar_form(result)) result = take(result, n)
+    if (is_vector_form(result) && size(result) == 1 && n != 1) result = take(result, n)
     if (!is_vector_form(result) || size(result) != n) {
         throw location + " 必须返回长度为 " + string(n) + " 的向量，实际为 " + typestr(result)
     }
@@ -230,7 +238,11 @@ EVALUATE_OPERAND = DolphinDBFunction(
 def evaluate_operand(evaluator, source, definitions, mutable cache, mutable states, operand) {
     // 将操作数解析为嵌套 DSL、命名因子、输入列或原样返回的标量。
     if (is_dictionary_form(operand)) {
-        return evaluator(source, definitions, cache, states, operand)
+        result = evaluator(source, definitions, cache, states, operand)
+        if (is_vector_form(result) && size(result) == 1 && source.rows() != 1) {
+            return take(result, source.rows())
+        }
+        return result
     }
     if (is_scalar_form(operand) && type(operand) == STRING) {
         if (operand in definitions) {
@@ -243,7 +255,7 @@ def evaluate_operand(evaluator, source, definitions, mutable cache, mutable stat
     throw "DSL 操作数必须是列名、命名因子、嵌套节点或标量，实际为 " + typestr(operand)
 }
 """,
-    dependencies=(IS_DICTIONARY_FORM, IS_SCALAR_FORM),
+    dependencies=(IS_DICTIONARY_FORM, IS_SCALAR_FORM, IS_VECTOR_FORM),
 )
 
 EVALUATE_OPERANDS = DolphinDBFunction(

@@ -10,3 +10,8 @@ wheels/
 .venv
 .idea
 .env
+
+# Coverage reports
+.coverage
+output/python-coverage.xml
+output/python-coverage/

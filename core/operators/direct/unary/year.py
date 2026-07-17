@@ -44,11 +44,22 @@ class DirectUnaryYearOperator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：时间值为 NULL 时，同位置结果为 NULL；布尔日期谓词也不会把缺失日期当作 false。
+
+            输入约束：输入应为 DolphinDB temporal 类型。本算符不解析日期字符串，也不改变时区；结果采用对应
+            DolphinDB 日历访问器的自然日定义，而不是交易日历。
+
             Examples
             --------
             >>> col = 2024.01.01 2024.02.29 2024.12.31
             >>> direct_unary_year(col)
             [2024, 2024, 2024]
+
+            缺失日期不会被解释为某个日历值：
+            >>> isNull(direct_unary_year(date([2024.01.01, NULL])))
+            [false, true]
             */
             return year(col)
         }

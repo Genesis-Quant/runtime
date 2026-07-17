@@ -44,12 +44,22 @@ class DirectUnaryNotNullOperator(DirectOperator):
             result : scalar or vector[BOOL]
                 布尔结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：NULL 返回 false，所有非 NULL 值返回 true；输出自身不包含 NULL。
+
+            形状与类型：输出为与输入同形状的 BOOL，可直接用于 TS/CS 节点的 on 表达式。
+
             Examples
             --------
             >>> col = 1.0 2.0 3.0
             >>> col[1] = NULL
             >>> direct_unary_not_null(col)
             [true, false, true]
+
+            识别有效位置：
+            >>> direct_unary_not_null(double([1, NULL]))
+            [true, false]
             */
             return !isNull(col)
         }

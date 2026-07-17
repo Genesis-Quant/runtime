@@ -48,7 +48,15 @@ class DirectTernaryWhereOperator(DirectOperator):
             Returns
             -------
             result : scalar or vector
-                结果类型和形状由输入与算符语义决定。
+                真值和假值分支的公共类型；形状由三个输入广播后确定。
+
+            Notes
+            -----
+            NULL 处理：condition 为 NULL 时结果为 NULL；condition
+            有效时只返回被选中分支的值，被选中分支为 NULL 则结果为 NULL。
+
+            广播与类型：condition、if_true 和 if_false 可按 DolphinDB iif
+            规则进行标量广播，两分支会转换到公共结果类型。
 
             Examples
             --------

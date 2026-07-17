@@ -63,6 +63,12 @@ class CrossSectionGroupedRankPctOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：排名忽略 NULL，缺失输入位置的排名仍为 NULL；百分位分母只包含有效值。
+
+            分组内语义：ascending 和 ties_method 在每组独立应用，百分位分母只计有效值。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0

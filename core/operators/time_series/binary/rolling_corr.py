@@ -52,9 +52,9 @@ class TimeSeriesBinaryRollingCorrOperator(TimeSeriesOperator):
             Parameters
             ----------
             left : vector
-                左操作数。
+                第一条按时间升序排列的数值序列。
             right : vector
-                右操作数。
+                与 left 等长的第二条数值序列。
             window : int
                 正整数窗口长度。窗口包含当前位置以及此前 window - 1 个观测。
             min_periods : int or NULL, default NULL
@@ -64,6 +64,14 @@ class TimeSeriesBinaryRollingCorrOperator(TimeSeriesOperator):
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：二元窗口统计只使用两侧同时有效的观测；有效配对不足、解释变量零方差或当前位置无法形成残差时返回
+            NULL。
+
+            窗口边界：窗口右对齐并包含当前位置；min_periods 为 NULL 时要求完整 window
+            个有效观测，window 和 min_periods 均按观测行数而非日期跨度解释。
 
             Examples
             --------

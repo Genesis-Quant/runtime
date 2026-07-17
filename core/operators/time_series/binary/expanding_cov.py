@@ -44,9 +44,9 @@ class TimeSeriesBinaryExpandingCovOperator(TimeSeriesOperator):
             Parameters
             ----------
             left : vector
-                左操作数。
+                第一条按时间升序排列的数值序列。
             right : vector
-                右操作数。
+                与 left 等长的第二条数值序列。
             min_periods : int, default 1
                 产生结果所需的累计非 NULL 观测数。未达到该数量的位置返回 NULL。
 
@@ -54,6 +54,12 @@ class TimeSeriesBinaryExpandingCovOperator(TimeSeriesOperator):
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：协方差、相关系数和 beta 只使用两侧同时有效的观测；有效配对不足时结果为 NULL。
+
+            扩展窗口：二元统计始终使用截至当前位置的累计有效配对，不单独填充任一侧。
 
             Examples
             --------

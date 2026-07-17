@@ -55,6 +55,12 @@ class TimeSeriesBinaryExpandingBetaOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：协方差、相关系数和 beta 只使用两侧同时有效的观测；有效配对不足时结果为 NULL。
+
+            扩展窗口：二元统计始终使用截至当前位置的累计有效配对，不单独填充任一侧。
+
             Examples
             --------
             >>> left = 1.0 2.5 2.0 4.0 3.5 5.0 4.5 6.0

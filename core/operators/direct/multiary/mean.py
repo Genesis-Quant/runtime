@@ -46,6 +46,12 @@ class DirectMultiaryMeanOperator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：逐行数值聚合忽略 NULL，只使用该行的有效输入；整行全部为 NULL 时返回 NULL。
+
+            形状与类型：输入在执行前广播为等长向量，输出每行一个数值。该语义不同于普通二元算术算符的 NULL 传播。
+
             Examples
             --------
             >>> first = 1.0 2.0 3.0

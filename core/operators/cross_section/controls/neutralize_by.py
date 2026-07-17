@@ -60,6 +60,15 @@ class CrossSectionControlsNeutralizeByOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与 target 等长的 DOUBLE 残差向量；未参加回归的行保持 NULL。
 
+            Notes
+            -----
+            NULL 处理：target 或任一控制变量为 NULL 的行不进入回归，并在结果同位置返回 NULL；数值列中的
+            NaN 和正负无穷同样排除，分类控制的 NULL 不会自动创建为一个类别。若有效控制矩阵退化为无控制列，则对有效
+            target 去均值。
+
+            回归边界：分类列展开为去掉首类的哑变量，连续列直接作为数值控制；intercept 控制是否添加常数项。有效样本不足
+            、秩亏或单样本截面通过最小二乘或去均值规则得到残差，函数不自动取对数、去极值或标准化。
+
             Examples
             --------
             >>> target = 2.0 4.0 3.0 7.0 5.0 9.0
@@ -143,7 +152,8 @@ class CrossSectionControlsNeutralizeByOperator(CrossSectionOperator):
                 encoded_names = columnNames(encoded)
                 for (name in category_names) {
                     candidates = encoded_names[startsWith(encoded_names, name + "_")]
-                    if (size(candidates) > 0) drop_names.append!(candidates[0])
+                    baseline_name = name + "_" + string(min(x_table[name]))
+                    if (baseline_name in candidates) drop_names.append!(baseline_name)
                 }
                 if (size(drop_names) == columns(encoded)) {
                     result[valid] = y - avg(y)

@@ -17,7 +17,7 @@ from core.operators.schema import (
 class TimeSeriesTalibAroonOscParams(StrictModel):
     """talib.aroonOsc 参数。"""
 
-    time_period: int = Field(..., ge=1, description="技术指标观察周期。")
+    time_period: int = Field(..., ge=2, description="技术指标观察周期。")
 
 
 class TimeSeriesTalibAroonOscOperator(TimeSeriesOperator):
@@ -52,6 +52,15 @@ class TimeSeriesTalibAroonOscOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充；TA 函数缺少形成当前指标所需的有效历史时返回 NULL，后续何时恢复由该 ta
+            内置函数的窗口状态决定。
+
+            计算定义：返回 Aroon Up 减 Aroon Down，用正负号表达上涨或下跌趋势占优。
+
+            预热与输出：满足指标所需回看周期前返回前置 NULL；周期越长，首个有效结果通常越晚，输出始终与输入序列等长。
+
             Examples
             --------
             >>> close = 10.0 10.5 10.2 10.8 11.1 10.9 11.4 11.8 11.5 12.0 12.3 12.1
@@ -70,7 +79,12 @@ class TimeSeriesTalibAroonOscOperator(TimeSeriesOperator):
             >>> tail(ts_talib_aroonOsc(high, low, 5), 3)
             [80, 100, 80]
             */
-            return ta::aroonOsc(high, low, int(time_period))
+            result = ta::aroonOsc(high, low, int(time_period))
+            valid = isValid(high) && isValid(low)
+            first = ifirstNot(iif(valid, 1, int(NULL)))
+            if (first < 0) return result
+            positions = 0..(size(result) - 1)
+            return iif(positions < first + int(time_period), double(NULL), result)
         }
         """
     )

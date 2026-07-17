@@ -63,6 +63,14 @@ class TimeSeriesUnaryRollingStdOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：窗口聚合跳过 NULL，min_periods 按窗口内非 NULL
+            数量判断；达到门槛后，当前位置为 NULL 也可能由同一窗口的其他有效观测产生结果。
+
+            窗口边界：窗口右对齐并包含当前位置；min_periods 为 NULL 时要求完整 window
+            个有效观测，window 和 min_periods 均按观测行数而非日期跨度解释。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0

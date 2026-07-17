@@ -46,6 +46,13 @@ class DirectMultiaryOrOperator(DirectOperator):
             result : scalar or vector[BOOL]
                 布尔结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：逐行逻辑聚合会跳过 NULL；只要存在有效 BOOL 就由有效值决定结果，整行全部为 NULL
+            时返回 NULL。
+
+            逻辑边界：非空行使用 false 作为归约初始值。所有输入必须具有 BOOL 语义并在广播后等长。
+
             Examples
             --------
             >>> first = true true false false
@@ -55,6 +62,11 @@ class DirectMultiaryOrOperator(DirectOperator):
             >>> cols.append!(second)
             >>> direct_multiary_or(cols)
             [true, true, true, false]
+
+            逐行跳过 NULL，整行缺失才返回 NULL：
+            >>> a = bool([true, false]); b = take(bool(NULL), 2)
+            >>> direct_multiary_or([a, b])
+            [true, false]
             */
             return unifiedCall(rowOr, cols)
         }

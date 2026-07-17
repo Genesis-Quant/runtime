@@ -64,6 +64,14 @@ class TimeSeriesUnaryRollingAllOperator(TimeSeriesOperator):
             result : vector[BOOL]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：BOOL NULL 不计入有效观测分母；所有有效观测均为 true 且有效数量达到
+            min_periods 时返回 true。
+
+            窗口边界：窗口右对齐并包含当前位置；min_periods 为 NULL 时要求完整 window
+            个有效观测，window 和 min_periods 均按观测行数而非日期跨度解释。
+
             Examples
             --------
             >>> col = false true true false true true true false

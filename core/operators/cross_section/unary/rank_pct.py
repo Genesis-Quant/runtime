@@ -63,6 +63,12 @@ class CrossSectionUnaryRankPctOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：排名忽略 NULL，原输入为 NULL 的位置返回 NULL；百分位分母只包含有效值。
+
+            排名语义：返回 (0, 1] 内百分位；ascending 和 ties_method 控制排名。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0

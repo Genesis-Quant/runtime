@@ -9,7 +9,7 @@ IS_FINITE_NUMBER = DolphinDBFunction(
     """
 def is_finite_number(value) {
     // 逐元素判断有限数值，同时排除 NULL、NaN 和正负无穷。
-    return isValid(value) && !isNanInf(value, true)
+    return isValid(value) && !isNanInf(double(value), true)
 }
 """
 )
@@ -19,6 +19,17 @@ DIVIDE_OR_NULL = DolphinDBFunction(
 def divide_or_null(left, right) {
     // 执行安全除法；分母为 0 或 NULL 的位置返回 NULL。
     return iif(isNull(right) || right == 0, NULL, left / right)
+}
+"""
+)
+
+FLOOR_AS_DOUBLE = DolphinDBFunction(
+    """
+def floor_as_double(value) {
+    // 以 DOUBLE 返回向下取整值，避免绝对值超过 LONG 范围时 floor 溢出为 NULL。
+    threshold = 9007199254740992.0
+    non_finite = isNanInf(double(value), false)
+    return iif(non_finite || abs(value) >= threshold, double(value), double(floor(value)))
 }
 """
 )
@@ -35,7 +46,7 @@ def cast_value(value, dtype) {
     if (dtype == "string") return string(value)
     if (dtype == "symbol") {
         text = string(value)
-        if (is_scalar_form(text)) return symbol(enlist(text))[0]
+        if (is_scalar_form(text)) return symbol(enlist(text))
         return symbol(text)
     }
     if (dtype == "date") {
@@ -60,4 +71,4 @@ def cast_value(value, dtype) {
 )
 
 
-__all__ = ["CAST_VALUE", "DIVIDE_OR_NULL", "IS_FINITE_NUMBER"]
+__all__ = ["CAST_VALUE", "DIVIDE_OR_NULL", "FLOOR_AS_DOUBLE", "IS_FINITE_NUMBER"]

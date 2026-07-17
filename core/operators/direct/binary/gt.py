@@ -39,14 +39,21 @@ class DirectBinaryGtOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                大于比较的左侧操作数。
             right : scalar or vector
-                右操作数。
+                大于比较的右侧操作数。
 
             Returns
             -------
             result : scalar or vector[BOOL]
                 布尔结果；向量输入按元素返回。
+
+            Notes
+            -----
+            NULL 处理：有序比较采用 DolphinDB 的排序语义，NULL 小于任意同类型非 NULL 值，两个同类型
+            NULL 相等；因此结果是确定的 BOOL，不传播 NULL。
+
+            广播与类型：标量可与向量广播，两个向量必须等长；比较前的类型兼容性由 DolphinDB 判断。
 
             Examples
             --------
@@ -54,6 +61,10 @@ class DirectBinaryGtOperator(DirectOperator):
             >>> right = 3.0 2.0 1.0
             >>> direct_binary_gt(left, right)
             [false, false, true]
+
+            NULL 按最小值参与有序比较：
+            >>> direct_binary_gt(int([1, NULL, NULL]), int([0, 1, NULL]))
+            [true, false, false]
             */
             return left > right
         }

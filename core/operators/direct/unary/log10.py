@@ -46,11 +46,22 @@ class DirectUnaryLog10Operator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：仅正数有定义；0、负数和 NULL 都返回 NULL。函数不会填充、删除或重排输入位置。
+
+            形状与数值：标量输入返回标量，向量输入保持长度并逐元素计算。结果使用 DolphinDB
+            浮点数学函数的精度和溢出规则。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 8.0
             >>> direct_unary_log10(col)
             [0, 0.30103, 0.60206, 0.90309]
+
+            非法定义域和 NULL 都产生缺失结果：
+            >>> isNull(direct_unary_log10(double([-1, NULL, 1])))
+            [true, true, false]
             */
             return log10(col)
         }

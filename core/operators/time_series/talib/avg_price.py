@@ -52,6 +52,14 @@ class TimeSeriesTalibAvgPriceOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：每行所需的任一价格输入为 NULL 时，该行结果为 NULL；函数不前向填充 OHLC 输入。
+
+            计算定义：逐行计算 (open + high + low + close) / 4。
+
+            输出边界：这是逐行价格变换，不需要预热期；结果与输入等长，数值公式由 ta::avgPrice 定义。
+
             Examples
             --------
             >>> close = 10.0 10.5 10.2 10.8 11.1 10.9 11.4 11.8 11.5 12.0 12.3 12.1
@@ -60,6 +68,11 @@ class TimeSeriesTalibAvgPriceOperator(TimeSeriesOperator):
             >>> low = close - 0.5
             >>> tail(ts_talib_avgPrice(open, high, low, close), 3)
             [12, 12.3, 12.1]
+
+            NULL 输入示例：
+            >>> open=double([1,NULL]); high=double([2,3]); low=double([0,1]); close=double([1,2])
+            >>> ts_talib_avgPrice(open, high, low, close)
+            [1, NULL]
             */
             return ta::avgPrice(open, high, low, close)
         }

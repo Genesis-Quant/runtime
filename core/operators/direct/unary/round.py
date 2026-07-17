@@ -48,6 +48,13 @@ class DirectUnaryRoundOperator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：NULL 位置保持 NULL。
+
+            数值边界：digits 控制小数位数并使用 DolphinDB round
+            的舍入规则；舍入改变数值而不改变向量长度，浮点表示仍可能包含机器精度误差。
+
             Examples
             --------
             >>> col = -2.5 -1.0 0.0 1.5 3.2

@@ -42,14 +42,20 @@ class CrossSectionBinaryCovOperator(CrossSectionOperator):
             Parameters
             ----------
             left : vector
-                左操作数。
+                截面协方差的第一条数值向量。
             right : vector
-                右操作数。
+                与 left 成对观测的第二条截面数值向量。
 
             Returns
             -------
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
+
+            Notes
+            -----
+            NULL 处理：只使用 left 与 right 同时非 NULL 的配对观测，有效配对不足时统计量为 NULL。
+
+            计算边界：使用 DolphinDB 截面协方差口径；标量结果广播到整个截面。
 
             Examples
             --------

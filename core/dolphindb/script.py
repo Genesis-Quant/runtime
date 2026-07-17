@@ -58,8 +58,23 @@ def _partial_function(model: Type[OperatorBase]) -> str:
     operands, parameters = _argument_names(model)
     if not parameters:
         return model.function.name
-    values = ", ".join(f'params["{name}"]' for name in parameters)
+    params_type = model.model_fields["params"].annotation
+    values = ", ".join(
+        _bound_parameter(name, params_type.model_fields[name].annotation)
+        for name in parameters
+    )
     return f"{model.function.name}{{{',' * len(operands)} {values}}}"
+
+
+def _bound_parameter(name: str, annotation: object) -> str:
+    """为部分应用中的可空参数补充类型，避免 NULL 被解释为未绑定占位符。"""
+    expression = f'params["{name}"]'
+    members = get_args(annotation)
+    if type(None) not in members:
+        return expression
+    value_type = next(member for member in members if member is not type(None))
+    cast = {bool: "bool", float: "double", int: "int", str: "string"}[value_type]
+    return f"{cast}({expression})"
 
 
 def _required_operands(model: Type[OperatorBase]) -> list[str]:
@@ -77,6 +92,16 @@ def _operand_collection(model: Type[OperatorBase]) -> str:
     if len(operands) == 1:
         return f"enlist({operands[0]})"
     return f"({', '.join(operands)})"
+
+
+def _empty_result(model: Type[OperatorBase]) -> str:
+    """根据静态输出类型生成零行结果；ANY 输出沿用首个操作数类型。"""
+    if model.output_kind == "BOOL":
+        return "bool([])"
+    if model.output_kind == "NUMBER":
+        return "double([])"
+    operands, _ = _argument_names(model)
+    return f"array(type({operands[0]}), 0)"
 
 
 def _render_function(name: str, parameters: str, lines: list[str]) -> DolphinDBFunction:
@@ -126,7 +151,7 @@ def _time_series_evaluator(models: list[Type[OperatorBase]]) -> DolphinDBFunctio
         lines.extend(f"    {line}" for line in _required_operands(model))
         lines.append(f"    handler = {_partial_function(model)}")
         lines.append(
-            f"    return apply_time_series(handler, {_operand_collection(model)}, on, code, time)"
+            f"    return apply_time_series(handler, {_operand_collection(model)}, on, code, time, {_empty_result(model)})"
         )
         lines.append("}")
     lines.append('throw "未实现 TS 算符 " + op')
@@ -166,7 +191,7 @@ def _grouped_branch(model: Type[OperatorBase]) -> list[str]:
         f"handler = {_partial_function(model)}",
         (
             f"return apply_grouped_cross_section(handler, {_operand_collection(model)}, "
-            "on, time, by)"
+            f"on, time, by, {_empty_result(model)})"
         ),
     ]
 
@@ -197,7 +222,7 @@ def _cross_section_evaluator(models: list[Type[OperatorBase]]) -> DolphinDBFunct
                 f"handler = {_partial_function(model)}",
                 (
                     f"return apply_cross_section(handler, {_operand_collection(model)}, "
-                    "on, time)"
+                    f"on, time, {_empty_result(model)})"
                 ),
             ]
         lines.extend(f"    {line}" for line in branch)

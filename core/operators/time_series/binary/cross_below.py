@@ -39,14 +39,21 @@ class TimeSeriesBinaryCrossBelowOperator(TimeSeriesOperator):
             Parameters
             ----------
             left : vector
-                左操作数。
+                需要检测交叉的主序列。
             right : vector
-                右操作数。
+                用于比较的基准或阈值序列。
 
             Returns
             -------
             result : vector[BOOL]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：当前或前一期任一输入为 NULL 时，交叉条件不成立并返回 false；输出不传播 NULL。
+
+            边界语义：首行没有前一期，因此返回 false。只有从非目标侧跨到目标侧才返回
+            true，连续停留在目标侧不会重复触发。
 
             Examples
             --------
@@ -54,8 +61,15 @@ class TimeSeriesBinaryCrossBelowOperator(TimeSeriesOperator):
             >>> right = 1.5 2.0 2.5 3.0 4.0 4.5 5.0 5.5
             >>> ts_binary_cross_below(left, right)
             [true, false, true, false, true, false, true, false]
+
+            缺失的当前值或前值不会触发交叉：
+            >>> ts_binary_cross_below(double([1, NULL, 3, 5]), double([2, 2, 2, NULL]))
+            [false, false, false, false]
             */
-            return (left < right) && (move(left, 1) >= move(right, 1))
+            previous_left = move(left, 1)
+            previous_right = move(right, 1)
+            valid = isValid(left) && isValid(right) && isValid(previous_left) && isValid(previous_right)
+            return valid && (left < right) && (previous_left >= previous_right)
         }
         """
     )

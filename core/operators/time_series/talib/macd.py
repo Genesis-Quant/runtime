@@ -17,7 +17,7 @@ from core.operators.schema import (
 class TimeSeriesTalibMacdParams(StrictModel):
     """talib.macd 参数。"""
 
-    fast_period: int = Field(default=12, ge=1, description="快线周期。")
+    fast_period: int = Field(default=12, ge=2, description="快线周期。")
     slow_period: int = Field(default=26, ge=2, description="慢线周期。")
     signal_period: int = Field(default=9, ge=1, description="信号线周期。")
     output: Literal["macd", "signal", "hist"] = Field(default="macd", description="需要返回的单个输出。")
@@ -70,6 +70,17 @@ class TimeSeriesTalibMacdOperator(TimeSeriesOperator):
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充；TA 函数缺少形成当前指标所需的有效历史时返回 NULL，后续何时恢复由该 ta
+            内置函数的窗口状态决定。
+
+            计算定义：以快 EMA 减慢 EMA 得到 MACD，signal 为 MACD 的 EMA，hist 为 MACD
+            减 signal。
+
+            预热与输出：满足回看周期前返回前置 NULL；函数只返回 output
+            指定的分量，选择分量不会改变底层多输出指标的计算。
 
             Examples
             --------

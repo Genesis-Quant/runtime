@@ -53,6 +53,13 @@ class TimeSeriesUnaryExpandingSemOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：累计统计忽略 NULL，min_periods 按非 NULL 观测数判断；达到门槛后，当前输入为
+            NULL 也可能返回已有历史形成的统计值。
+
+            扩展窗口：每个位置使用从序列起点到当前位置的全部历史，旧观测不会滚出窗口。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0

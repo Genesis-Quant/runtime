@@ -17,7 +17,7 @@ from core.operators.schema import (
 class TimeSeriesTalibRsiParams(StrictModel):
     """talib.rsi 参数。"""
 
-    time_period: int = Field(..., ge=1, description="技术指标观察周期。")
+    time_period: int = Field(..., ge=2, description="技术指标观察周期。")
 
 
 class TimeSeriesTalibRsiOperator(TimeSeriesOperator):
@@ -49,6 +49,16 @@ class TimeSeriesTalibRsiOperator(TimeSeriesOperator):
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充；TA 函数缺少形成当前指标所需的有效历史时返回 NULL，后续何时恢复由该 ta
+            内置函数的窗口状态决定。
+
+            计算定义：根据 Wilder 平滑的平均上涨和平均下跌计算 100 - 100/(1+RS)，结果通常位于 0 到
+            100。
+
+            预热与输出：满足指标所需回看周期前返回前置 NULL；周期越长，首个有效结果通常越晚，输出始终与输入序列等长。
 
             Examples
             --------

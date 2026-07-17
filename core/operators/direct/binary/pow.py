@@ -39,14 +39,22 @@ class DirectBinaryPowOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                幂运算的底数。
             right : scalar or vector
-                右操作数。
+                幂运算的指数。
 
             Returns
             -------
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
+
+            Notes
+            -----
+            NULL 处理：任一操作数在某位置为 NULL 时，该位置结果为
+            NULL；本算符不会跳过缺失值。负底数配非整数指数等无实数结果的位置也会返回 NULL。
+
+            广播与类型：标量可与向量逐元素广播，两个向量必须等长；结果 dtype 使用 DolphinDB
+            的数值类型提升规则。
 
             Examples
             --------
@@ -54,6 +62,10 @@ class DirectBinaryPowOperator(DirectOperator):
             >>> right = 2.0 3.0 0.5
             >>> direct_binary_pow(left, right)
             [4, 27, 2]
+
+            任一侧为 NULL 时传播缺失：
+            >>> isNull(direct_binary_pow(double([1, NULL]), double([2, 3])))
+            [false, true]
             */
             return pow(left, right)
         }

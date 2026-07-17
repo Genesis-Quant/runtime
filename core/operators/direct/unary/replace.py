@@ -59,7 +59,14 @@ class DirectUnaryReplaceOperator(DirectOperator):
             Returns
             -------
             result : scalar or vector
-                结果类型和形状由输入与算符语义决定。
+                与 col 同形状；dtype 由原值和 replacement 值的公共类型确定。
+
+            Notes
+            -----
+            NULL 处理：未被 old 明确匹配的 NULL 保持为 NULL；替换按 old/new
+            的对应顺序依次执行，后一次替换会看到前一次替换的结果。
+
+            形状与类型：输出保持输入长度。old 与 new 必须一一对应，替换值可能触发 DolphinDB 的公共类型提升。
 
             Examples
             --------
@@ -83,7 +90,16 @@ class DirectUnaryReplaceOperator(DirectOperator):
             [1, 0, 3]
             */
             result = col
-            for (index in 0..(size(old) - 1)) result = replace(result, old[index], new[index])
+            target_type = type(col)
+            for (index in 0..(size(old) - 1)) {
+                old_value = old[index]
+                new_value = new[index]
+                if (target_type != SYMBOL) {
+                    old_value = cast(old_value, target_type)
+                    new_value = cast(new_value, target_type)
+                }
+                result = replace(result, old_value, new_value)
+            }
             return result
         }
         """

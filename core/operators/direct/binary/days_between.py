@@ -39,14 +39,20 @@ class DirectBinaryDaysBetweenOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                起始日期或时间值。
             right : scalar or vector
-                右操作数。
+                结束日期或时间值。
 
             Returns
             -------
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
+
+            Notes
+            -----
+            NULL 处理：任一日期为 NULL 时结果为 NULL。
+
+            日期语义：两个输入先转换为 DATE，再计算自然日差；时间戳的时分秒部分会被截去，结果不使用交易日历。
 
             Examples
             --------
@@ -54,6 +60,10 @@ class DirectBinaryDaysBetweenOperator(DirectOperator):
             >>> right = 2024.01.03 2024.03.01 2025.01.02
             >>> direct_binary_days_between(left, right)
             [-2, -2, -3]
+
+            任一日期缺失时结果缺失：
+            >>> isNull(direct_binary_days_between(date([2024.01.01, NULL]), date([2024.01.03, 2024.01.03])))
+            [false, true]
             */
             return temporalDiff(date(left), date(right), "d")
         }

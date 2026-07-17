@@ -69,6 +69,13 @@ class DirectUnaryBetweenOperator(DirectOperator):
             result : scalar or vector[BOOL]
                 布尔结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：col 为 NULL 时两个边界比较均不成立，结果为 false，而不是 NULL。
+
+            边界行为：inclusive 分别控制左右端点使用闭区间还是开区间；lower 和 upper
+            本身不参与自动排序，调用者必须提供正确顺序。
+
             Examples
             --------
             >>> col = 1 2 3 4 5

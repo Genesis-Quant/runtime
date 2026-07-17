@@ -5,6 +5,7 @@ from typing import ClassVar, Literal
 from pydantic import Field
 
 from core.dolphindb import DolphinDBFunction
+from core.dolphindb.common import TALIB_MOVING_AVERAGE
 
 from core.operators.base import TimeSeriesOperator
 from core.operators.fields import UnaryFields
@@ -18,7 +19,10 @@ class TimeSeriesTalibMaParams(StrictModel):
     """talib.ma 参数。"""
 
     time_period: int = Field(..., ge=1, description="技术指标观察周期。")
-    ma_type: int = Field(default=0, ge=0, le=8, description="TA-Lib 移动平均类型编号。")
+    ma_type: Literal[0, 1, 2, 3, 4, 5, 6, 8] = Field(
+        default=0,
+        description="TA-Lib 移动平均类型编号；当前 DolphinDB 不支持 MAMA(7)。",
+    )
 
 
 class TimeSeriesTalibMaOperator(TimeSeriesOperator):
@@ -46,12 +50,22 @@ class TimeSeriesTalibMaOperator(TimeSeriesOperator):
             time_period : int
                 技术指标观察周期，必须为正整数；预热期通常返回 NULL。
             ma_type : int, default 0
-                TA-Lib 移动平均类型编号：0=SMA、1=EMA、2=WMA、3=DEMA、4=TEMA、5=TRIMA、6=KAMA、7=MAMA、8=T3。
+                TA-Lib 移动平均类型编号：0=SMA、1=EMA、2=WMA、3=DEMA、4=TEMA、5=TRIMA、6=KAMA、8=T3。
+                当前 DolphinDB 后端不支持 7=MAMA，模型会在构造阶段拒绝；T3 使用 TA-Lib 标准的 0.7 成交量因子。
 
             Returns
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充；TA 函数缺少形成当前指标所需的有效历史时返回 NULL，后续何时恢复由该 ta
+            内置函数的窗口状态决定。
+
+            计算定义：按 ma_type 选择 TA 移动平均算法，并使用 time_period 作为回看周期。
+
+            预热与输出：满足指标所需回看周期前返回前置 NULL；周期越长，首个有效结果通常越晚，输出始终与输入序列等长。
 
             Examples
             --------
@@ -97,7 +111,8 @@ class TimeSeriesTalibMaOperator(TimeSeriesOperator):
             >>> tail(ts_talib_ma(close, 2, 8), 3)
             [11.9171, 12.2516, 12.23]
             */
-            return ta::ma(col, int(time_period), int(ma_type))
+            return talib_moving_average(col, time_period, ma_type)
         }
-        """
+        """,
+        dependencies=(TALIB_MOVING_AVERAGE,),
     )

@@ -50,6 +50,13 @@ class TimeSeriesUnaryChangedOperator(TimeSeriesOperator):
             result : vector[BOOL]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：当前值与前值一空一非空时视为发生变化；两者均为 NULL 时由 null_equal
+            决定是否视为相同。首个观测始终返回 true。
+
+            比较语义：逐位置与紧邻前一观测比较，不跨过 NULL，也不对浮点数使用容差。
+
             Examples
             --------
             >>> col = 1.0 1.0 2.0 3.0 4.0 4.0

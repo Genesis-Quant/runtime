@@ -35,7 +35,7 @@ class CrossSectionUnaryMadOperator(CrossSectionOperator):
         """
         def cs_unary_mad(col) {
             /*
-            计算当前截面的平均绝对离差并广播结果。
+            计算当前截面的中位数绝对离差（MAD）并广播结果。
 
             统计时忽略 NULL，并把单个截面统计值广播为与 col 等长的向量。
 
@@ -49,11 +49,22 @@ class CrossSectionUnaryMadOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：截面统计忽略 NULL，并把单个统计量广播到截面全部位置，包括原输入为 NULL
+            的位置；没有足够有效样本时广播 NULL。
+
+            输出形状：结果与输入等长，每个位置保存相同统计量。输出为截面中位数绝对偏差的广播向量，而不是逐元素变换。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0
             >>> cs_unary_mad(col)
             [1, 1, 1, 1, 1]
+
+            有效样本足够时，NULL 不阻断截面统计：
+            >>> all(!isNull(cs_unary_mad(double([1, NULL, 2, 3, 4, 5]))))
+            true
             */
             return broadcast_like(mad(col, true), col)
         }

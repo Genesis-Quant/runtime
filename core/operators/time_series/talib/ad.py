@@ -52,6 +52,17 @@ class TimeSeriesTalibAdOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充，而是原样交给 TA 状态函数；缺失行可能保持上一累计状态，而不保证在同位置返回
+            NULL。需要完整输入时应通过 on 显式排除不完整行。
+
+            计算定义：按资金流乘数 ((close-low)-(high-close))/(high-low) 乘
+            volume，并对资金流量累计求和。
+
+            状态边界：这是累计状态指标，不需要固定窗口预热；当前输出可能依赖此前全部观测，因此中间缺失值的影响可能延续到后续位置
+            。
+
             Examples
             --------
             >>> close = 10.0 10.5 10.2 10.8 11.1 10.9 11.4 11.8 11.5 12.0 12.3 12.1
@@ -60,6 +71,11 @@ class TimeSeriesTalibAdOperator(TimeSeriesOperator):
             >>> volume = long(1000 1200 900 1300 1400 1100 1500 1600 1250 1700 1800 1550)
             >>> tail(ts_talib_ad(high, low, close, volume), 3)
             [-1177.27, -1340.91, -1481.82]
+
+            NULL 输入示例：
+            >>> high=double([2,3,NULL]); low=double([0,1,1]); close=double([1,2,2]); volume=long([10,20,30])
+            >>> ts_talib_ad(high, low, close, volume)
+            [0, 0, 0]
             */
             return ta::ad(high, low, close, volume)
         }

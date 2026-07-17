@@ -64,6 +64,14 @@ class TimeSeriesUnaryRollingTrueCountOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：BOOL NULL 在计数前转换为 false，因此不增加 true 的数量；有效观测数仍必须达到
+            min_periods。
+
+            窗口边界：窗口右对齐并包含当前位置；min_periods 为 NULL 时要求完整 window
+            个有效观测，window 和 min_periods 均按观测行数而非日期跨度解释。
+
             Examples
             --------
             >>> col = false true true false true true true false

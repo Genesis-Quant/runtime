@@ -62,6 +62,13 @@ class DirectUnaryClipOperator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：col 为 NULL 的位置保持 NULL；边界不会用于填充缺失值。
+
+            边界行为：小于 lower 的值替换为 lower，大于 upper 的值替换为
+            upper，恰好等于边界的值保持不变。模型要求 lower 不大于 upper。
+
             Examples
             --------
             >>> col = 1 2 3 4 5
@@ -79,8 +86,12 @@ class DirectUnaryClipOperator(DirectOperator):
             [1, 2, 3, 4, 4]
             */
             result = col
-            if (!isNull(lower)) result = iif(result < lower, lower, result)
-            if (!isNull(upper)) result = iif(result > upper, upper, result)
+            if (!isNull(lower)) {
+                result = iif(isNull(result), result, iif(result < lower, lower, result))
+            }
+            if (!isNull(upper)) {
+                result = iif(isNull(result), result, iif(result > upper, upper, result))
+            }
             return result
         }
         """

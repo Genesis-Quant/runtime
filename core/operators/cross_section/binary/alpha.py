@@ -39,7 +39,7 @@ class CrossSectionBinaryAlphaOperator(CrossSectionOperator):
             在当前截面回归 right 对 left，并把截距项广播到整个截面。
 
             回归方向固定为 right 对 left：right 是因变量，left 是解释变量。斜率为 Cov(left, right) / Var(left)，截距为
-            mean(right) - beta * mean(left)。
+            pairMean(right) - beta * pairMean(left)，其中两个均值只使用同一组成对有效观测。
 
             协方差按成对有效观测计算。left 没有有效截面方差时斜率为 NULL，依赖该斜率的结果也为 NULL。
 
@@ -55,6 +55,13 @@ class CrossSectionBinaryAlphaOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：回归系数只使用 left 与 right 同时非 NULL 的配对观测，有效配对不足时统计量为
+            NULL。
+
+            计算边界：先计算 beta，再使用成对有效样本的均值计算截距，并将截距广播到整个截面。
+
             Examples
             --------
             >>> left = 1.0 2.0 3.0 4.0 5.0
@@ -69,7 +76,7 @@ class CrossSectionBinaryAlphaOperator(CrossSectionOperator):
 
             成对忽略缺失观测：
             >>> cs_binary_alpha(left, right)
-            [-3.36429, -3.36429, -3.36429, -3.36429, -3.36429]
+            [0.133333, 0.133333, 0.133333, 0.133333, 0.133333]
 
             >>> left = 1.0 1.0 1.0 1.0
             >>> right = 2.0 3.0 4.0 5.0
@@ -78,8 +85,11 @@ class CrossSectionBinaryAlphaOperator(CrossSectionOperator):
             >>> cs_binary_alpha(left, right)
             [NULL, NULL, NULL, NULL]
             */
+            valid = isValid(left) && isValid(right)
+            paired_left = iif(valid, double(left), double(NULL))
+            paired_right = iif(valid, double(right), double(NULL))
             slope = cross_section_slope(left, right)
-            return broadcast_like(avg(right) - slope * avg(left), left)
+            return broadcast_like(avg(paired_right) - slope * avg(paired_left), left)
         }
         """,
         dependencies=(BROADCAST_LIKE, CROSS_SECTION_SLOPE)

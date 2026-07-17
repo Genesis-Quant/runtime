@@ -53,6 +53,13 @@ class CrossSectionUnaryVarOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：截面统计忽略 NULL，并把单个统计量广播到截面全部位置，包括原输入为 NULL
+            的位置；没有足够有效样本时广播 NULL。 std/var 的有效样本数必须大于 ddof。
+
+            输出形状：结果与输入等长，每个位置保存相同统计量。ddof 决定总体或样本估计口径；结果广播到整个截面。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0

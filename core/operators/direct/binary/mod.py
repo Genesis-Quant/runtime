@@ -7,6 +7,7 @@ from pydantic import Field
 from core.dolphindb import DolphinDBFunction
 from core.dolphindb.common import (
     DIVIDE_OR_NULL,
+    FLOOR_AS_DOUBLE,
 )
 
 from core.operators.base import DirectOperator
@@ -44,14 +45,22 @@ class DirectBinaryModOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                取模运算的被除数。
             right : scalar or vector
-                右操作数。
+                取模运算的除数；不能为 0。
 
             Returns
             -------
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
+
+            Notes
+            -----
+            NULL 处理：left 或 right 为 NULL，以及 right 为 0 的位置都返回
+            NULL。floor_div 和 mod 复用同一安全商，因此不会产生除零无穷值。
+
+            广播与符号：标量可与向量广播。floor_div 对商向负无穷取整，mod 按 left -
+            floor(left/right) * right 计算，负数结果遵循该定义。
 
             Examples
             --------
@@ -67,8 +76,9 @@ class DirectBinaryModOperator(DirectOperator):
             >>> direct_binary_mod(left, right)
             [1, NULL, 3]
             */
-            return left - floor(divide_or_null(left, right)) * right
+            quotient = divide_or_null(left, right)
+            return left - floor_as_double(quotient) * right
         }
         """,
-        dependencies=(DIVIDE_OR_NULL,)
+        dependencies=(DIVIDE_OR_NULL, FLOOR_AS_DOUBLE)
     )

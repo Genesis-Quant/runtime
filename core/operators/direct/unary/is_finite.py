@@ -47,12 +47,23 @@ class DirectUnaryIsFiniteOperator(DirectOperator):
             result : scalar or vector[BOOL]
                 布尔结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：NULL、NaN、正无穷和负无穷都返回 false，普通有限数返回 true；输出自身不包含
+            NULL。
+
+            类型与形状：输出为 BOOL 且保持输入形状，适合在数值变换后显式过滤无效值。
+
             Examples
             --------
             >>> col = 1.0 2.0 3.0
             >>> col[1] = NULL
             >>> direct_unary_is_finite(col)
             [true, false, true]
+
+            NULL 不是有限数：
+            >>> direct_unary_is_finite(double([1, NULL]))
+            [true, false]
             */
             return is_finite_number(col)
         }

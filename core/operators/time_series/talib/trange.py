@@ -50,6 +50,16 @@ class TimeSeriesTalibTrangeOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：首行因缺少前收盘价返回 NULL；当前 high/low 或参与比较的前收盘价为 NULL
+            时，相应位置也无法形成真实波幅。
+
+            计算定义：计算 max(high-low, abs(high-prevClose),
+            abs(low-prevClose))。
+
+            输出边界：结果依赖当前 high/low 和前一期 close，因此首个位置没有真实波幅；输出与输入等长。
+
             Examples
             --------
             >>> close = 10.0 10.5 10.2 10.8 11.1 10.9 11.4 11.8 11.5 12.0 12.3 12.1
@@ -57,6 +67,11 @@ class TimeSeriesTalibTrangeOperator(TimeSeriesOperator):
             >>> low = close - 0.5
             >>> tail(ts_talib_trange(high, low, close), 3)
             [1.1, 1.1, 1.1]
+
+            NULL 输入示例：
+            >>> high=double([2,NULL,4]); low=double([0,1,2]); close=double([1,2,3])
+            >>> ts_talib_trange(high, low, close)
+            [NULL, NULL, 2]
             */
             return ta::trange(high, low, close)
         }

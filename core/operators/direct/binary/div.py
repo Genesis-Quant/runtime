@@ -44,14 +44,22 @@ class DirectBinaryDivOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                被除数；标量或数值向量。
             right : scalar or vector
-                右操作数。
+                除数；0 和 NULL 会使对应结果为 NULL。
 
             Returns
             -------
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
+
+            Notes
+            -----
+            NULL 处理：left 或 right 为 NULL，以及 right 为 0 的位置都返回
+            NULL。floor_div 和 mod 复用同一安全商，因此不会产生除零无穷值。
+
+            广播与符号：标量可与向量广播。floor_div 对商向负无穷取整，mod 按 left -
+            floor(left/right) * right 计算，负数结果遵循该定义。
 
             Examples
             --------

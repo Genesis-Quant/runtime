@@ -44,9 +44,12 @@ def rolling_slope(left, right, window, min_periods) {
 ROLLING_INTERCEPT = DolphinDBFunction(
     """
 def rolling_intercept(left, right, window, min_periods) {
-    // 根据滚动均值和斜率计算 right 关于 left 的 OLS 截距。
+    // 仅使用左右两列同时有效的样本均值计算 right 关于 left 的 OLS 截距。
+    valid = isValid(left) && isValid(right)
+    paired_left = iif(valid, double(left), double(NULL))
+    paired_right = iif(valid, double(right), double(NULL))
     slope = rolling_slope(left, right, window, min_periods)
-    return mavg(right, int(window), int(min_periods)) - slope * mavg(left, int(window), int(min_periods))
+    return mavg(paired_right, int(window), int(min_periods)) - slope * mavg(paired_left, int(window), int(min_periods))
 }
 """,
     dependencies=(ROLLING_SLOPE,),
@@ -61,6 +64,16 @@ def rolling_true_count(value, window, min_periods) {
 """
 )
 
+TALIB_MOVING_AVERAGE = DolphinDBFunction(
+    """
+def talib_moving_average(value, time_period, ma_type) {
+    // 按 TA-Lib MAType 计算均线；T3 显式使用标准默认参数 vfactor=0.7。
+    if (int(ma_type) == 8) return ta::t3(value, int(time_period), 0.7)
+    return ta::ma(value, int(time_period), int(ma_type))
+}
+"""
+)
+
 
 __all__ = [
     "MASK_EXPANDING_RESULT",
@@ -69,4 +82,5 @@ __all__ = [
     "ROLLING_MIN_PERIODS",
     "ROLLING_SLOPE",
     "ROLLING_TRUE_COUNT",
+    "TALIB_MOVING_AVERAGE",
 ]

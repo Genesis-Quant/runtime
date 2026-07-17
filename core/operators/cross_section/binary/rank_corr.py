@@ -44,14 +44,20 @@ class CrossSectionBinaryRankCorrOperator(CrossSectionOperator):
             Parameters
             ----------
             left : vector
-                左操作数。
+                先转换为排名的第一条截面数值向量。
             right : vector
-                右操作数。
+                与 left 成对排名的第二条截面数值向量。
 
             Returns
             -------
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
+
+            Notes
+            -----
+            NULL 处理：先分别对有效值排名，再计算秩相关系数，有效配对不足时统计量为 NULL。
+
+            计算边界：并列值按 DolphinDB 默认排名处理；秩相关系数广播到整个截面。
 
             Examples
             --------

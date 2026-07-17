@@ -53,7 +53,15 @@ class DirectUnaryCastOperator(DirectOperator):
             Returns
             -------
             result : scalar or vector
-                结果类型和形状由输入与算符语义决定。
+                与 col 同形状、元素转换为 dtype 指定 DolphinDB 类型的结果。
+
+            Notes
+            -----
+            NULL 处理：NULL 会转换为目标 dtype 的 typed NULL，不会被转换为 0、false
+            或空字符串。
+
+            转换边界：整数转换可能截断小数，窄类型转换可能损失精度；不支持的 dtype
+            会抛出异常，DATE/TIMESTAMP 不负责时区转换。
 
             Examples
             --------

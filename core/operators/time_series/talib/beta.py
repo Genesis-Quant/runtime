@@ -41,9 +41,9 @@ class TimeSeriesTalibBetaOperator(TimeSeriesOperator):
             Parameters
             ----------
             high : vector
-                最高价向量。
+                第一条按时间升序排列的数值序列；参数名沿用 TA 接口。
             low : vector
-                最低价向量。
+                与 high 等长的第二条数值序列；参数名沿用 TA 接口。
             time_period : int
                 技术指标观察周期，必须为正整数；预热期通常返回 NULL。
 
@@ -51,6 +51,16 @@ class TimeSeriesTalibBetaOperator(TimeSeriesOperator):
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充；TA 函数缺少形成当前指标所需的有效历史时返回 NULL，后续何时恢复由该 ta
+            内置函数的窗口状态决定。
+
+            计算定义：在滚动窗口内计算 covar(left,right) / var(left)，衡量 right 对
+            left 的敏感度。
+
+            预热与输出：满足指标所需回看周期前返回前置 NULL；周期越长，首个有效结果通常越晚，输出始终与输入序列等长。
 
             Examples
             --------

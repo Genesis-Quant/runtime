@@ -38,8 +38,8 @@ class CrossSectionBinaryBetaOperator(CrossSectionOperator):
             /*
             在当前截面回归 right 对 left，并把斜率项广播到整个截面。
 
-            回归方向固定为 right 对 left：right 是因变量，left 是解释变量。斜率为 Cov(left, right) / Var(left)，截距为
-            mean(right) - beta * mean(left)。
+            回归方向固定为 right 对 left：right 是因变量，left 是解释变量。斜率为 Cov(left, right) / Var(left)；
+            协方差和方差均只使用 left 与 right 同时有效的同一组观测。
 
             协方差按成对有效观测计算。left 没有有效截面方差时斜率为 NULL，依赖该斜率的结果也为 NULL。
 
@@ -55,6 +55,13 @@ class CrossSectionBinaryBetaOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：回归系数只使用 left 与 right 同时非 NULL 的配对观测，有效配对不足时统计量为
+            NULL。
+
+            计算边界：beta 的分母是 left 的截面方差，零方差时结果为 NULL 并广播。
+
             Examples
             --------
             >>> left = 1.0 2.0 3.0 4.0 5.0
@@ -69,7 +76,7 @@ class CrossSectionBinaryBetaOperator(CrossSectionOperator):
 
             成对忽略缺失观测：
             >>> cs_binary_beta(left, right)
-            [2.74286, 2.74286, 2.74286, 2.74286, 2.74286]
+            [2, 2, 2, 2, 2]
 
             >>> left = 1.0 1.0 1.0 1.0
             >>> right = 2.0 3.0 4.0 5.0

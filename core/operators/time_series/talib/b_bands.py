@@ -5,6 +5,7 @@ from typing import ClassVar, Literal
 from pydantic import Field
 
 from core.dolphindb import DolphinDBFunction
+from core.dolphindb.common import TALIB_MOVING_AVERAGE
 
 from core.operators.base import TimeSeriesOperator
 from core.operators.fields import UnaryFields
@@ -17,10 +18,13 @@ from core.operators.schema import (
 class TimeSeriesTalibBBandsParams(StrictModel):
     """talib.bBands 参数。"""
 
-    time_period: int = Field(..., ge=1, description="技术指标观察周期。")
+    time_period: int = Field(..., ge=2, description="技术指标观察周期。")
     nbdev_up: float = Field(default=2.0, gt=0, allow_inf_nan=False, description="上轨标准差倍数。")
     nbdev_down: float = Field(default=2.0, gt=0, allow_inf_nan=False, description="下轨标准差倍数。")
-    ma_type: int = Field(default=0, ge=0, le=8, description="TA-Lib 移动平均类型编号。")
+    ma_type: Literal[0, 1, 2, 3, 4, 5, 6, 8] = Field(
+        default=0,
+        description="TA-Lib 移动平均类型编号；当前 DolphinDB 不支持 MAMA(7)。",
+    )
     output: Literal["upper", "middle", "lower"] = Field(default="middle", description="需要返回的单个输出。")
 
 
@@ -55,7 +59,8 @@ class TimeSeriesTalibBBandsOperator(TimeSeriesOperator):
             nbdev_down : float, default 2.0
                 布林带下轨相对中轨的标准差倍数。
             ma_type : int, default 0
-                TA-Lib 移动平均类型编号：0=SMA、1=EMA、2=WMA、3=DEMA、4=TEMA、5=TRIMA、6=KAMA、7=MAMA、8=T3。
+                TA-Lib 移动平均类型编号：0=SMA、1=EMA、2=WMA、3=DEMA、4=TEMA、5=TRIMA、6=KAMA、8=T3。
+                当前 DolphinDB 后端不支持 7=MAMA，模型会在构造阶段拒绝；T3 使用 TA-Lib 标准的 0.7 成交量因子。
             output : {"upper", "middle", "lower"}, default "middle"
                 每次调用只返回一个输出向量：
                 * "upper"：上轨。
@@ -66,6 +71,17 @@ class TimeSeriesTalibBBandsOperator(TimeSeriesOperator):
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充；TA 函数缺少形成当前指标所需的有效历史时返回 NULL，后续何时恢复由该 ta
+            内置函数的窗口状态决定。
+
+            计算定义：middle 为指定类型的移动平均，upper/lower 为 middle 加减相应 nbdev
+            倍滚动标准差。
+
+            预热与输出：满足回看周期前返回前置 NULL；函数只返回 output
+            指定的分量，选择分量不会改变底层多输出指标的计算。
 
             Examples
             --------
@@ -99,10 +115,13 @@ class TimeSeriesTalibBBandsOperator(TimeSeriesOperator):
             >>> tail(ts_talib_bBands(close, 3, 2.0, 2.0, 2, "middle"), 3)
             [11.8, 12.0667, 12.15]
             */
-            values = ta::bBands(col, int(time_period), nbdev_up, nbdev_down, int(ma_type))
+            middle = talib_moving_average(col, time_period, ma_type)
+            deviation = ta::stddev(col, int(time_period), 1)
+            values = (middle + nbdev_up * deviation, middle, middle - nbdev_down * deviation)
             if (output == "upper") return values[0]
             if (output == "middle") return values[1]
             return values[2]
         }
-        """
+        """,
+        dependencies=(TALIB_MOVING_AVERAGE,),
     )

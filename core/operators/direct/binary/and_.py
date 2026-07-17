@@ -39,14 +39,21 @@ class DirectBinaryAndOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                左侧 BOOL 操作数。
             right : scalar or vector
-                右操作数。
+                右侧 BOOL 操作数。
 
             Returns
             -------
             result : scalar or vector[BOOL]
                 布尔结果；向量输入按元素返回。
+
+            Notes
+            -----
+            NULL 处理：任一侧为 BOOL NULL 时，该位置结果为 NULL；这里不使用 SQL 的三值短路化简，例如
+            false && NULL 仍为 NULL。
+
+            广播与类型：标量可与向量广播，输出保持输入广播后的形状且 dtype 为 BOOL。
 
             Examples
             --------
@@ -54,6 +61,10 @@ class DirectBinaryAndOperator(DirectOperator):
             >>> right = true false true false
             >>> direct_binary_and(left, right)
             [true, false, false, false]
+
+            BOOL NULL 传播到结果：
+            >>> isNull(direct_binary_and(bool([true, NULL]), bool([false, true])))
+            [false, true]
             */
             return left && right
         }

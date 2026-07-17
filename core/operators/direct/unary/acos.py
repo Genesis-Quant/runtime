@@ -44,11 +44,23 @@ class DirectUnaryAcosOperator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：有效定义域为 [-1, 1]；超出定义域的有限值与 NULL 都返回
+            NULL。函数不会填充、删除或重排输入位置。
+
+            形状与数值：标量输入返回标量，向量输入保持长度并逐元素计算。结果使用 DolphinDB
+            浮点数学函数的精度和溢出规则。
+
             Examples
             --------
             >>> col = -1.0 -0.5 0.0 0.5 1.0
             >>> direct_unary_acos(col)
             [3.14159, 2.0944, 1.5708, 1.0472, 0]
+
+            非法定义域和 NULL 都产生缺失结果：
+            >>> isNull(direct_unary_acos(double([-2, NULL, 1])))
+            [true, true, false]
             */
             return acos(col)
         }

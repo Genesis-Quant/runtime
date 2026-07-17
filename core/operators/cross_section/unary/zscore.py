@@ -50,6 +50,13 @@ class CrossSectionUnaryZscoreOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：均值和标准差忽略 NULL，原输入缺失位置仍返回 NULL；标准差为 0 或有效样本数不满足
+            ddof 时整个有效截面也返回 NULL。
+
+            尺度语义：使用均值中心化，由 ddof 选择总体或样本标准差。结果只在当前截面内标准化。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0

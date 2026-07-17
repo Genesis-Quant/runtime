@@ -53,6 +53,12 @@ class CrossSectionUnaryRankDenseOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：排名忽略 NULL，原输入为 NULL 的位置返回 NULL。
+
+            排名语义：密集排名从 1 开始，并列组之间不跳号；ascending 控制方向。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0

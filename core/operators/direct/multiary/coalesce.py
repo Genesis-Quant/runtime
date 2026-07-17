@@ -44,7 +44,13 @@ class DirectMultiaryCoalesceOperator(DirectOperator):
             Returns
             -------
             result : scalar or vector
-                结果类型和形状由输入与算符语义决定。
+                按优先级得到的公共类型结果；向量输入返回广播后的等长向量。
+
+            Notes
+            -----
+            NULL 处理：按 cols 顺序返回每一行第一个非 NULL 值；该行所有输入均为 NULL 时结果为 NULL。
+
+            顺序与类型：列顺序决定优先级，后续列只填补前面仍为空的位置；结果 dtype 由所有候选输入的公共类型决定。
 
             Examples
             --------
@@ -57,6 +63,10 @@ class DirectMultiaryCoalesceOperator(DirectOperator):
             >>> cols.append!(second)
             >>> direct_multiary_coalesce(cols)
             [1, 20, 3]
+
+            整行都缺失时保留 NULL：
+            >>> direct_multiary_coalesce([double([1, NULL, NULL]), double([4, 5, NULL])])
+            [1, 5, NULL]
             */
             result = cols[size(cols) - 1]
             if (size(cols) > 1) {

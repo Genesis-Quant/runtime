@@ -50,6 +50,13 @@ class CrossSectionGroupedZscoreOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：组均值和标准差忽略 NULL，缺失输入位置仍返回 NULL；有效标准差为 0 或无法按 ddof
+            估计时，整组结果为 NULL。
+
+            分组内语义：ddof 在每组独立应用；组内有效样本不足或尺度为 0 时返回 NULL。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0

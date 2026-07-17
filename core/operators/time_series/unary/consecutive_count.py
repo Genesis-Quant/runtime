@@ -46,11 +46,23 @@ class TimeSeriesUnaryConsecutiveCountOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：BOOL NULL 不会新增 true，也不会把已有连续计数清零，而是保持上一计数；false
+            才会将计数重置为 0。
+
+            计数语义：true 在上一状态上加 1，结果按观测行计数。若需要 NULL 直接中断连续段，应先把 NULL
+            显式转换为 false。
+
             Examples
             --------
             >>> col = false true true false true true true false
             >>> ts_unary_consecutive_count(col)
             [0, 1, 2, 0, 1, 2, 3, 0]
+
+            NULL 保持已有连续计数：
+            >>> ts_unary_consecutive_count(bool([true, NULL, true, true, false]))
+            [1, 1, 2, 3, 0]
             */
             return cumPositiveStreak(col)
         }

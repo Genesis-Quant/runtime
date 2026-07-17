@@ -46,6 +46,12 @@ class DirectMultiaryCountOperator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：逐行只统计非 NULL 输入；全部为 NULL 的行返回 0。
+
+            形状与类型：所有向量必须等长，标量由执行层广播后参与计算；输出为整数计数向量。
+
             Examples
             --------
             >>> first = 1.0 2.0 3.0
@@ -57,6 +63,10 @@ class DirectMultiaryCountOperator(DirectOperator):
             >>> cols.append!(second)
             >>> direct_multiary_count(cols)
             [2, 1, 1]
+
+            只统计非 NULL 输入：
+            >>> direct_multiary_count([double([1, NULL, NULL]), double([4, 5, NULL])])
+            [2, 1, 0]
             */
             return unifiedCall(rowCount, cols)
         }

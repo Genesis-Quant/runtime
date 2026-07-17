@@ -50,6 +50,14 @@ class CrossSectionUnaryBottomNOperator(CrossSectionOperator):
             result : vector[BOOL]
                 与 col 等长的 BOOL 选择标记。
 
+            Notes
+            -----
+            NULL 处理：排名只使用非 NULL 观测，原输入为 NULL 的位置明确返回
+            false，不会占用顶部或底部的选择名额。全 NULL 截面返回全 false。
+
+            选择边界：按升序选择最多 n 个有效观测；n 超过有效样本数时全体有效值入选。并列值以 first
+            规则按原顺序打破。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0
@@ -66,7 +74,7 @@ class CrossSectionUnaryBottomNOperator(CrossSectionOperator):
             >>> cs_unary_bottom_n(col, 3)
             [true, true, true, false, false]
             */
-            return rank(col, true, , true, `first, false) < int(n)
+            return !isNull(col) && (rank(col, true, , true, `first, false) < int(n))
         }
         """
     )

@@ -41,14 +41,21 @@ class DirectBinaryNullIfOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                需要保留或置空的源值。
             right : scalar or vector
-                右操作数。
+                与 left 比较的值；相等时返回 NULL。
 
             Returns
             -------
             result : scalar or vector
-                结果类型和形状由输入与算符语义决定。
+                与广播后的 left 同形状和类型；匹配 right 的位置替换为 typed NULL。
+
+            Notes
+            -----
+            NULL 处理：left 与 right 相等时返回 typed NULL；left 本身为 NULL 时结果也为
+            NULL。NULL 与 NULL 按 DolphinDB 相等语义处理。
+
+            广播与类型：输出类型跟随 left，right 仅用于比较；标量可与向量广播。
 
             Examples
             --------
@@ -56,6 +63,10 @@ class DirectBinaryNullIfOperator(DirectOperator):
             >>> right = 0 2 0 4
             >>> direct_binary_null_if(left, right)
             [1, NULL, 3, NULL]
+
+            相等值和缺失左值均返回 NULL：
+            >>> direct_binary_null_if(double([1, NULL, 3]), double([1, 2, NULL]))
+            [NULL, NULL, 3]
             */
             return iif(left == right, NULL, left)
         }

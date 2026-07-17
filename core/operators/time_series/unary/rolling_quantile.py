@@ -66,36 +66,44 @@ class TimeSeriesUnaryRollingQuantileOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：窗口聚合跳过 NULL，min_periods 按窗口内非 NULL
+            数量判断；达到门槛后，当前位置为 NULL 也可能由同一窗口的其他有效观测产生结果。
+
+            窗口边界：窗口右对齐并包含当前位置；min_periods 为 NULL 时要求完整 window
+            个有效观测，window 和 min_periods 均按观测行数而非日期跨度解释。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0
 
             min_periods=NULL 时要求完整窗口：
             >>> ts_unary_rolling_quantile(col, 3, int(NULL), 0.5)
-            [NULL, NULL, 1.01, 2.01, 3.01, 3.02, 5.01, 6.01]
+            [NULL, NULL, 2, 3, 4, 5, 6, 7]
 
             min_periods=1 时首个有效观测即可产生结果：
             >>> ts_unary_rolling_quantile(col, 3, 1, 0.5)
-            [1, 1.005, 1.01, 2.01, 3.01, 3.02, 5.01, 6.01]
+            [1, 1.5, 2, 3, 4, 5, 6, 7]
 
             min_periods=2：
             >>> ts_unary_rolling_quantile(col, 3, 2, 0.5)
-            [NULL, 1.005, 1.01, 2.01, 3.01, 3.02, 5.01, 6.01]
+            [NULL, 1.5, 2, 3, 4, 5, 6, 7]
 
             扩大到 4 期窗口：
             >>> ts_unary_rolling_quantile(col, 4, 2, 0.5)
-            [NULL, 1.005, 1.01, 1.015, 2.015, 3.015, 3.03, 5.015]
+            [NULL, 1.5, 2, 2.5, 3.5, 4.5, 5.5, 6.5]
 
             25% 分位数：
             >>> ts_unary_rolling_quantile(col, 3, 2, 0.25)
-            [NULL, 1.0025, 1.005, 2.005, 3.005, 3.01, 5.005, 6.005]
+            [NULL, 1.25, 1.5, 2.5, 3.5, 4, 5.5, 6.5]
 
             75% 分位数：
             >>> ts_unary_rolling_quantile(col, 3, 2, 0.75)
-            [NULL, 1.0075, 1.015, 2.015, 3.015, 3.03, 5.015, 6.015]
+            [NULL, 1.75, 3, 3.5, 4.5, 6, 6.5, 7.5]
             */
             minimum = rolling_min_periods(window, min_periods)
-            return mpercentile(col, q, int(window), "linear", minimum)
+            return mpercentile(col, 100 * q, int(window), "linear", minimum)
         }
         """,
         dependencies=(ROLLING_MIN_PERIODS,)

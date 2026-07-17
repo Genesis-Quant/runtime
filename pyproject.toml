@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Seminar factor DSL validation models and DolphinDB-native interpreter"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "dotenv>=0.9.9",
     "pydantic>=2.11",
 ]
 
@@ -14,6 +15,31 @@ default = true
 [dependency-groups]
 dev = [
     "dolphindb>=3.0.4.2",
+    "hypothesis>=6.156.6",
     "pandas>=2.2",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ta-lib>=0.7.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "--cov=core",
+    "--cov-branch",
+    "--cov-report=term-missing",
+    "--cov-report=html:output/python-coverage",
+    "--cov-report=xml:output/python-coverage.xml",
+    "--cov-fail-under=100",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["core"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 100

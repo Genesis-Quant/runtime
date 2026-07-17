@@ -53,6 +53,14 @@ class TimeSeriesUnaryPctChangeOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：当前值或滞后值为 NULL，以及滞后值为 0 时结果为
+            NULL。本算符不跨越缺失观测寻找更早的有效值。
+
+            位置语义：periods 表示序列中的观测间隔，不表示日历天数；前 periods 个位置通常因缺少滞后值而为
+            NULL。
+
             Examples
             --------
             >>> col = 10.0 10.5 10.2 10.8 11.1 10.9 11.4 11.8

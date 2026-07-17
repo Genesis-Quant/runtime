@@ -81,6 +81,20 @@ class TimeSeriesUnaryEwmVarOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Raises
+            ------
+            DolphinDB exception
+                未提供任何 EWM 衰减参数时抛出异常。正常 DSL 构造会在 Python 校验阶段阻止该输入。
+
+            Notes
+            -----
+            NULL 处理：输入 NULL 不会被填充。ignore_na=false
+            时缺失位置仍影响后续权重距离，ignore_na=true 时仅按有效观测的相对位置累计权重；min_periods
+            统计非 NULL 观测。
+
+            衰减与边界：com、span、half_life、alpha 必须且只能提供一个。bias
+            控制是否使用有偏估计；有效样本不足以估计尺度时返回 NULL。四种衰减参数只是 alpha 的不同表达。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0

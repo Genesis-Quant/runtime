@@ -49,11 +49,22 @@ class CrossSectionUnaryMedianOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：截面统计忽略 NULL，并把单个统计量广播到截面全部位置，包括原输入为 NULL
+            的位置；没有足够有效样本时广播 NULL。
+
+            输出形状：结果与输入等长，每个位置保存相同统计量。输出为截面中位数的广播向量，而不是逐元素变换。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0
             >>> cs_unary_median(col)
             [2, 2, 2, 2, 2]
+
+            中位数跳过 NULL 并广播：
+            >>> cs_unary_median(double([1, NULL, 3]))
+            [2, 2, 2]
             */
             return broadcast_like(med(col), col)
         }

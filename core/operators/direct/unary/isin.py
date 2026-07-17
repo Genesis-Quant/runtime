@@ -49,6 +49,13 @@ class DirectUnaryIsinOperator(DirectOperator):
             result : scalar or vector[BOOL]
                 布尔结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：DolphinDB 将同类型 NULL 视为可匹配值；values 包含 NULL 时，col 中的
+            NULL 返回 true，否则返回 false。输出不包含 NULL。
+
+            类型与形状：逐元素执行集合成员判断并返回同形状 BOOL，不做字符串或数值之间的隐式业务类型转换。
+
             Examples
             --------
             >>> col = 1 2 3 4 5

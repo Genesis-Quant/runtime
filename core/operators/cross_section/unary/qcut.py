@@ -50,6 +50,13 @@ class CrossSectionUnaryQcutOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：分箱只使用非 NULL 观测，原输入为 NULL 的位置返回
+            NULL；有效样本数量决定可形成的分箱。
+
+            排名语义：按有效值排名后划分 q 个整数分箱；有效样本过少时部分箱可能为空。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0

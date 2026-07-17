@@ -53,6 +53,13 @@ class TimeSeriesUnaryCumCountOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：NULL 不计入累计有效值数量，当前位置返回截至该行的非 NULL 计数。
+
+            累计边界：统计从序列首个观测开始，状态不会自动重置；输出与输入等长，数值类型和溢出行为由对应 DolphinDB
+            累计函数决定。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0

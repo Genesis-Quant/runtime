@@ -65,6 +65,13 @@ class TimeSeriesUnaryExpandingRankPctOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：历史统计会忽略 NULL，但当前位置为 NULL 时排名结果仍为 NULL；min_periods
+            按累计非 NULL 数量判断。
+
+            扩展窗口：ascending 和 ties_method 决定当前值在累计有效样本中的排名方式。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0

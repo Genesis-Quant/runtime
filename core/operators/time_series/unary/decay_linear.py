@@ -64,6 +64,14 @@ class TimeSeriesUnaryDecayLinearOperator(TimeSeriesOperator):
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
 
+            Notes
+            -----
+            NULL 处理：加权窗口平均跳过 NULL，并对剩余有效权重重新归一化；有效观测少于 min_periods 时返回
+            NULL。
+
+            权重语义：窗口内权重从最旧观测的 1 线性增加到当前观测的 window，窗口右对齐；min_periods 为
+            NULL 时要求完整窗口。
+
             Examples
             --------
             >>> col = 1.0 2.0 4.0 3.0 5.0 7.0 6.0 8.0

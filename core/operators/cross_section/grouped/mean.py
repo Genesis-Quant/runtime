@@ -49,11 +49,22 @@ class CrossSectionGroupedMeanOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：组均值忽略 NULL，并把同一均值广播到组内全部位置，包括原输入为 NULL
+            的位置；整组无有效值时返回 NULL。
+
+            分组内语义：每组均值独立计算并广播，不使用其他组观测。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0
             >>> cs_grouped_mean(col)
             [3.4, 3.4, 3.4, 3.4, 3.4]
+
+            均值会广播到原缺失位置：
+            >>> cs_grouped_mean(double([1, NULL, 3]))
+            [2, 2, 2]
             */
             return broadcast_like(avg(col), col)
         }

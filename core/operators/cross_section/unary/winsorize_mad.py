@@ -53,6 +53,13 @@ class CrossSectionUnaryWinsorizeMadOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：计算中位数和 MAD 时忽略 NULL，原输入为 NULL 的位置保持
+            NULL；截面没有有效尺度时无法产生有效截断边界。
+
+            截断语义：仅把边界外数值替换为边界值，不删除行、不改变边界内排序，也不在截断后自动执行标准化。
+
             Examples
             --------
             >>> col = 1.0 2.0 3.0 4.0 100.0
@@ -71,7 +78,8 @@ class CrossSectionUnaryWinsorizeMadOperator(CrossSectionOperator):
             */
             center = med(col)
             distance = mad(col, true) * scale * n
-            return iif(col < center - distance, center - distance, iif(col > center + distance, center + distance, col))
+            clipped = iif(col < center - distance, center - distance, iif(col > center + distance, center + distance, col))
+            return iif(isNull(col), col, clipped)
         }
         """
     )

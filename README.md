@@ -156,9 +156,19 @@ uv run python -m core.dolphindb.script
 
 该命令从已登记的 Operator 收集函数及其直接依赖，生成 [operators.dos](output/operators.dos)。算符函数不在 DOS 中重复维护，DOS 是 Python 定义的生成结果；`output` 目录不存在时会自动创建。
 
-每个 Operator 的 `DolphinDBFunction.definition` 都在函数体内直接维护 pandas DataFrame API 风格文档，包含计算规则、参数约束、返回值以及带真实输出的示例。脚本生成器只按章节原样汇总函数，不动态拼接算符文档；复杂算符会分别示范主要参数模式、缺失值行为和边界分支。
+每个 Operator 的 `DolphinDBFunction.definition` 都在函数体内直接维护 pandas DataFrame API 风格文档，按 `Parameters`、`Returns`、`Notes` 和 `Examples` 组织。`Notes` 必须明确说明该算符自己的 NULL 处理、数值或窗口边界及输出语义；每个函数至少提供两个带真实输出的调用示例，复杂算符还会分别示范主要参数模式和边界分支。脚本生成器只按章节原样汇总函数，不动态拼接算符文档。
 
 工具函数和 derive 执行层函数同样在函数体开头说明职责、筛选规则或错误语义，生成测试会拒绝任何缺少函数体注释的 DOS 函数。
+
+## 测试与覆盖度
+
+```powershell
+uv run pytest
+```
+
+完整测试只连接现有 DolphinDB 服务，不会自行启动或重启服务。测试会加载生成脚本，并直接执行工具函数、DIRECT/TS/CS 算符及 derive 执行层。算符清单测试要求已登记模型与独立参考实现完全对应；数值结果由 pandas、NumPy、TA-Lib 参考结果以及 Hypothesis 随机输入与 DolphinDB 实际结果逐项比较，同时覆盖 NULL、空输入、全 false `on`、标量广播、退化截面和多阶段依赖等边界。
+
+测试结束后，由 `pytest-cov` 生成 [Python coverage](output/python-coverage/index.html) 和 [python-coverage.xml](output/python-coverage.xml)，并同时检查 Python 行覆盖率和分支覆盖率达到 100%。DolphinDB 脚本没有伪造的行覆盖率统计；其有效性由函数清单完整性、真实数据库执行和独立结果差分共同验证。
 
 加载脚本后，可在 DolphinDB 中计算命名因子：
 
@@ -177,13 +187,3 @@ result = compute_factors(source, definitions)
 ```
 
 `compute_factors` 解析命名因子依赖、检测循环、缓存已计算结果，并返回原表加全部结果列。
-
-## 测试
-
-测试连接已经运行的 DolphinDB `127.0.0.1:8848`，不会自行启动服务：
-
-```powershell
-uv run pytest -q
-```
-
-每个 Operator DolphinDB 函数、每个公共 DolphinDB 函数和执行层函数均至少执行 10 个输入输出场景。

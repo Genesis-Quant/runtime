@@ -44,11 +44,22 @@ class DirectUnaryAbsOperator(DirectOperator):
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
 
+            Notes
+            -----
+            NULL 处理：输入位置为 NULL 时，同位置结果为 NULL；本算符不做填充或缺失值替换。
+
+            形状与类型：标量输入返回标量，向量输入保持长度并逐元素计算；数值类型按 DolphinDB
+            对应内置函数的类型提升规则确定。
+
             Examples
             --------
             >>> col = -2.5 -1.0 0.0 1.5 3.2
             >>> direct_unary_abs(col)
             [2.5, 1, 0, 1.5, 3.2]
+
+            NULL 保持在原位置：
+            >>> isNull(direct_unary_abs(double([1, NULL])))
+            [false, true]
             */
             return abs(col)
         }

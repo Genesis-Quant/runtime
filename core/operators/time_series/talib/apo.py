@@ -5,6 +5,7 @@ from typing import ClassVar, Literal
 from pydantic import Field, model_validator
 
 from core.dolphindb import DolphinDBFunction
+from core.dolphindb.common import TALIB_MOVING_AVERAGE
 
 from core.operators.base import TimeSeriesOperator
 from core.operators.fields import UnaryFields
@@ -17,9 +18,12 @@ from core.operators.schema import (
 class TimeSeriesTalibApoParams(StrictModel):
     """talib.apo 参数。"""
 
-    fast_period: int = Field(default=12, ge=1, description="快线周期。")
+    fast_period: int = Field(default=12, ge=2, description="快线周期。")
     slow_period: int = Field(default=26, ge=2, description="慢线周期。")
-    ma_type: int = Field(default=0, ge=0, le=8, description="TA-Lib 移动平均类型编号。")
+    ma_type: Literal[0, 1, 2, 3, 4, 5, 6, 8] = Field(
+        default=0,
+        description="TA-Lib 移动平均类型编号；当前 DolphinDB 不支持 MAMA(7)。",
+    )
 
     @model_validator(mode="after")
     def validate_periods(self) -> "TimeSeriesTalibApoParams":
@@ -56,12 +60,22 @@ class TimeSeriesTalibApoOperator(TimeSeriesOperator):
             slow_period : int, default 26
                 慢线周期，必须大于 fast_period。
             ma_type : int, default 0
-                TA-Lib 移动平均类型编号：0=SMA、1=EMA、2=WMA、3=DEMA、4=TEMA、5=TRIMA、6=KAMA、7=MAMA、8=T3。
+                TA-Lib 移动平均类型编号：0=SMA、1=EMA、2=WMA、3=DEMA、4=TEMA、5=TRIMA、6=KAMA、8=T3。
+                当前 DolphinDB 后端不支持 7=MAMA，模型会在构造阶段拒绝；T3 使用 TA-Lib 标准的 0.7 成交量因子。
 
             Returns
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充；TA 函数缺少形成当前指标所需的有效历史时返回 NULL，后续何时恢复由该 ta
+            内置函数的窗口状态决定。
+
+            计算定义：以指定 ma_type 计算快慢移动平均，并返回快线减慢线的绝对价格振荡值。
+
+            预热与输出：满足指标所需回看周期前返回前置 NULL；周期越长，首个有效结果通常越晚，输出始终与输入序列等长。
 
             Examples
             --------
@@ -83,7 +97,10 @@ class TimeSeriesTalibApoOperator(TimeSeriesOperator):
             >>> tail(ts_talib_apo(close, 2, 4, 2), 3)
             [0.0833333, 0.2, 0.0866667]
             */
-            return ta::apo(col, int(fast_period), int(slow_period), int(ma_type))
+            fast = talib_moving_average(col, fast_period, ma_type)
+            slow = talib_moving_average(col, slow_period, ma_type)
+            return fast - slow
         }
-        """
+        """,
+        dependencies=(TALIB_MOVING_AVERAGE,),
     )

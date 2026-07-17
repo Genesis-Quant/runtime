@@ -39,14 +39,21 @@ class DirectBinaryMulOperator(DirectOperator):
             Parameters
             ----------
             left : scalar or vector
-                左操作数。
+                乘法的第一个因子。
             right : scalar or vector
-                右操作数。
+                乘法的第二个因子。
 
             Returns
             -------
             result : scalar or vector[NUMBER]
                 数值结果；向量输入按元素返回。
+
+            Notes
+            -----
+            NULL 处理：任一操作数在某位置为 NULL 时，该位置结果为 NULL；本算符不会跳过缺失值。
+
+            广播与类型：标量可与向量逐元素广播，两个向量必须等长；结果 dtype 使用 DolphinDB
+            的数值类型提升规则。
 
             Examples
             --------
@@ -54,6 +61,10 @@ class DirectBinaryMulOperator(DirectOperator):
             >>> right = 3.0 2.0 1.0
             >>> direct_binary_mul(left, right)
             [3, 4, 4]
+
+            任一侧为 NULL 时传播缺失：
+            >>> isNull(direct_binary_mul(double([1, NULL]), double([2, 3])))
+            [false, true]
             */
             return left * right
         }

@@ -31,8 +31,15 @@ CROSS_SECTION_SLOPE = DolphinDBFunction(
     """
 def cross_section_slope(left, right) {
     // 计算 right 关于 left 的截面 OLS 斜率；自变量无方差时返回 NULL。
-    variance = covar(left, left)
-    return iif(isNull(variance) || variance == 0, NULL, covar(left, right) / variance)
+    valid = isValid(left) && isValid(right)
+    paired_left = iif(valid, double(left), double(NULL))
+    paired_right = iif(valid, double(right), double(NULL))
+    variance = covar(paired_left, paired_left)
+    return iif(
+        isNull(variance) || variance == 0,
+        NULL,
+        covar(paired_left, paired_right) / variance
+    )
 }
 """
 )

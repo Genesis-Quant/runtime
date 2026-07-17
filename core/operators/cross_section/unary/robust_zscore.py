@@ -50,6 +50,14 @@ class CrossSectionUnaryRobustZscoreOperator(CrossSectionOperator):
             result : vector[NUMBER]
                 与输入等长的截面数值向量。
 
+            Notes
+            -----
+            NULL 处理：中位数和 MAD 忽略 NULL，原输入缺失位置仍返回 NULL；MAD 乘以 scale 后为 0
+            时整个有效截面也返回 NULL。
+
+            尺度语义：使用中位数中心化，并以 MAD * scale 作为尺度；scale 通常取 1.4826
+            以兼容正态分布下的标准差估计。结果只在当前截面内标准化。
+
             Examples
             --------
             >>> col = 1.0 2.0 2.0 4.0 8.0

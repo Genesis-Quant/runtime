@@ -58,9 +58,9 @@ class TimeSeriesBinaryEwmCovOperator(TimeSeriesOperator):
             Parameters
             ----------
             left : vector
-                左操作数。
+                第一条按时间升序排列的数值序列。
             right : vector
-                右操作数。
+                与 left 等长的第二条数值序列。
             com : float or NULL, default NULL
                 指数加权衰减参数；四个参数必须且只能提供一个。alpha = 1 / (1 + com)，com >= 0。
             span : float or NULL, default NULL
@@ -82,6 +82,20 @@ class TimeSeriesBinaryEwmCovOperator(TimeSeriesOperator):
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Raises
+            ------
+            DolphinDB exception
+                未提供任何 EWM 衰减参数时抛出异常。正常 DSL 构造会在 Python 校验阶段阻止该输入。
+
+            Notes
+            -----
+            NULL 处理：输入 NULL 不会被填充。ignore_na=false
+            时缺失位置仍影响后续权重距离，ignore_na=true 时仅按有效观测的相对位置累计权重；min_periods
+            统计非 NULL 观测。
+
+            衰减与边界：com、span、half_life、alpha 必须且只能提供一个。只使用 left 与 right
+            同时有效的配对观测；bias 控制协方差估计口径，有效配对不足或尺度为 0 时返回 NULL。
 
             Examples
             --------

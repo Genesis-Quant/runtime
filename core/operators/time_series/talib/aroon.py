@@ -17,7 +17,7 @@ from core.operators.schema import (
 class TimeSeriesTalibAroonParams(StrictModel):
     """talib.aroon 参数。"""
 
-    time_period: int = Field(..., ge=1, description="技术指标观察周期。")
+    time_period: int = Field(..., ge=2, description="技术指标观察周期。")
     output: Literal["down", "up"] = Field(default="up", description="需要返回的单个输出。")
 
 
@@ -58,6 +58,17 @@ class TimeSeriesTalibAroonOperator(TimeSeriesOperator):
             -------
             result : vector[NUMBER]
                 与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：输入不在算符内填充；TA 函数缺少形成当前指标所需的有效历史时返回 NULL，后续何时恢复由该 ta
+            内置函数的窗口状态决定。
+
+            计算定义：根据 time_period 内距最近最高价和最低价的期数，分别得到 0 到 100 的 Aroon
+            Up/Down。
+
+            预热与输出：满足回看周期前返回前置 NULL；函数只返回 output
+            指定的分量，选择分量不会改变底层多输出指标的计算。
 
             Examples
             --------

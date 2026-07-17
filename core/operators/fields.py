@@ -24,8 +24,14 @@ class UnaryFields(StrictModel):
 class BinaryFields(StrictModel):
     """包含左右两个操作数。"""
 
-    left: Operand = Field(..., description="左操作数。")
-    right: Operand = Field(..., description="右操作数。")
+    left: Operand = Field(
+        ...,
+        description="左侧列名、命名因子、嵌套 DSL 或数值/布尔常量。",
+    )
+    right: Operand = Field(
+        ...,
+        description="右侧列名、命名因子、嵌套 DSL 或数值/布尔常量。",
+    )
 
 
 class TernaryFields(StrictModel):

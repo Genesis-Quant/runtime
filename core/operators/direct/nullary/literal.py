@@ -46,7 +46,8 @@ class DirectNullaryLiteralParams(StrictModel):
                 raise ValueError("dtype='date' 时 params.value 必须为 YYYY-MM-DD") from error
         if self.dtype == "timestamp" and self.value is not None:
             if re.fullmatch(
-                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?",
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?"
+                r"(?:Z|[+-]\d{2}:\d{2})?",
                 self.value,
             ) is None:
                 raise ValueError(
@@ -91,7 +92,15 @@ class DirectNullaryLiteralOperator(DirectOperator):
             Returns
             -------
             result : Any
-                结果类型和形状由输入与算符语义决定。
+                一个推断类型或 dtype 指定类型的 DolphinDB 标量。
+
+            Notes
+            -----
+            NULL 处理：value 为 NULL 时必须显式指定 dtype，结果是该 DolphinDB
+            类型的空标量；dtype 为 NULL 只适用于可由 value 推断类型的非空字面量。
+
+            类型与形状：该函数返回一个标量且不负责广播。数值转换可能发生精度收窄，DATE/TIMESTAMP 字符串格式在
+            Python 模型构造阶段校验。
 
             Examples
             --------
