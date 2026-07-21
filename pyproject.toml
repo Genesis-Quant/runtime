@@ -1,11 +1,15 @@
 [project]
 name = "core"
 version = "0.1.0"
-description = "Seminar factor DSL validation models and DolphinDB-native interpreter"
+description = "Unified factor data ingestion and DolphinDB-native factor DSL"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "dotenv>=0.9.9",
+    "dolphindb>=3.0.4.2",
+    "numpy>=2.0",
+    "pandas>=2.2",
     "pydantic>=2.11",
+    "python-dotenv>=1.1",
+    "tushare>=1.4.29",
 ]
 
 [[tool.uv.index]]
@@ -14,9 +18,7 @@ default = true
 
 [dependency-groups]
 dev = [
-    "dolphindb>=3.0.4.2",
     "hypothesis>=6.156.6",
-    "pandas>=2.2",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ta-lib>=0.7.0",

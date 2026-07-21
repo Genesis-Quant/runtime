@@ -73,8 +73,28 @@ class DirectMultiaryVarOperator(DirectOperator):
             >>> direct_multiary_var(cols, 1)
             [40.5, 162, 364.5]
             */
-            if (int(ddof) == 1) return unifiedCall(rowVar, cols)
-            return unifiedCall(rowVarp, cols)
+            if (all(each(form, cols) == SCALAR)) {
+                if (int(ddof) == 1) return var(cols)
+                return varp(cols)
+            }
+            means = unifiedCall(rowAvg, cols)
+            counts = unifiedCall(rowCount, cols)
+            denominator = counts - int(ddof)
+            centered = eachLeft(sub, cols, means)
+
+            // 先中心化再平方，避免 rowVar/rowVarp 对极小差值发生消减误差。
+            if (form(means) == SCALAR) {
+                return iif(
+                    denominator > 0,
+                    sum(centered * centered) / denominator,
+                    NULL
+                )
+            }
+            return iif(
+                denominator > 0,
+                rowSum(centered * centered) / denominator,
+                NULL
+            )
         }
         """
     )
