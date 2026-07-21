@@ -1,7 +1,5 @@
 """定义四个财报接口各自独立的数据更新 Worker。"""
 
-from typing import ClassVar
-
 import numpy as np
 import pandas as pd
 
@@ -9,11 +7,10 @@ from core.utils import pro
 
 from .base import StockWorker
 
-
 FLOW_SUFFIXES = ("ttm", "1", "2", "3", "4")
-BALANCE_SHEET_FACTORS = tuple(
+BALANCE_FACTORS = tuple(
     """
-    total_share cap_rese undistr_porfit surplus_rese special_rese money_cap
+    cap_rese undistr_porfit surplus_rese special_rese money_cap
     trad_asset notes_receiv accounts_receiv oth_receiv prepayment div_receiv
     int_receiv inventories amor_exp nca_within_1y sett_rsrv loanto_oth_bank_fi
     premium_receiv reinsur_receiv reinsur_res_receiv pur_resale_fa oth_cur_assets
@@ -88,7 +85,7 @@ CASHFLOW_RAW_FACTORS = tuple(
     oth_loss_asset end_bal_cash beg_bal_cash end_bal_cash_equ beg_bal_cash_equ
     """.split()
 )
-FINA_INDICATOR_FACTORS = tuple(
+INDICATOR_FACTORS = tuple(
     """
     eps dt_eps total_revenue_ps revenue_ps capital_rese_ps surplus_rese_ps
     undist_profit_ps extra_item profit_dedt gross_margin current_ratio quick_ratio
@@ -121,314 +118,247 @@ CASHFLOW_FACTORS = tuple(
 )
 
 
-class FinancialData:
-    """提供四个财报 Worker 共用的公告日和报告期转换。"""
-
-    REPORT_TYPES: ClassVar[dict[str, int]] = {
-        "0331": 1,
-        "0630": 2,
-        "0930": 3,
-        "1231": 4,
-    }
-
-    @staticmethod
-    def empty(factors: tuple[str, ...]) -> pd.DataFrame:
-        """返回包含 time 和固定因子的空宽表。"""
-        return pd.DataFrame(columns=["time", *factors])
-
-    @staticmethod
-    def lookback(start_date: pd.Timestamp, years: int) -> str:
-        """把增量起点回退指定年数并对齐到当月首日。"""
-        return pd.Timestamp(
-            year=start_date.year - years,
-            month=start_date.month,
-            day=1,
-        ).strftime("%Y%m%d")
-
-    @staticmethod
-    def first_announcement(
+def first_shoot(
         data: pd.DataFrame,
-        announcement_column: str,
-    ) -> pd.DataFrame:
-        """按公告时间保留新报告期首次出现，同日只保留最新报告期。"""
-        result = data.copy()
-        if len(result) == 0:
-            return result
-        periods = result["end_date"].to_numpy()
-        keep = np.ones(len(result), dtype=bool)
-        latest = periods[0]
-        for index in range(1, len(periods)):
-            if periods[index] > latest:
-                latest = periods[index]
-            else:
-                keep[index] = False
-        return (
-            result[keep]
-            .reset_index(drop=True)
-            .groupby(announcement_column, as_index=False)
-            .last()
-        )
+        end_date_col: str = "end_date",
+        ann_date_col: str = "f_ann_date",
+) -> pd.DataFrame:
+    """按报告期递增筛选公告，并保留同日公告中的最后一条。"""
+    data = data.copy()
+    if len(data) == 0:
+        return data
 
-    @classmethod
-    def prepare(
-        cls,
-        endpoint: str,
-        data: pd.DataFrame | None,
-        factors: tuple[str, ...],
-        announcement_column: str,
-    ) -> pd.DataFrame:
-        """校验财报响应、识别标准报告期并应用首次公告筛选。"""
-        columns = [announcement_column, "end_date", *factors, "end_type"]
-        if data is None:
-            return pd.DataFrame(columns=columns)
-        if not isinstance(data, pd.DataFrame):
-            raise TypeError(f"{endpoint} 返回值不是 DataFrame")
-        if data.empty:
-            return pd.DataFrame(columns=columns)
-        required = {announcement_column, "end_date", *factors}
-        if missing := required - set(data.columns):
-            raise ValueError(f"{endpoint} 返回结果缺少列：{sorted(missing)}")
-        result = data.iloc[::-1].sort_values(
-            by=announcement_column,
-            kind="mergesort",
-        )
-        result = result.loc[
-            :, [announcement_column, "end_date", *factors]
-        ].copy()
-        result["end_type"] = (
-            result["end_date"].astype("string").str.slice(4).map(cls.REPORT_TYPES)
-        )
-        result = result.dropna(subset=["end_type"])
-        result["end_type"] = result["end_type"].astype(int)
-        result[announcement_column] = pd.to_datetime(
-            result[announcement_column]
-        )
-        result["end_date"] = pd.to_datetime(result["end_date"])
-        return cls.first_announcement(result, announcement_column)
+    dates = data[end_date_col].values
+    keep = np.ones(len(dates), dtype=bool)
+    current_max = dates[0]
+    for index in range(1, len(dates)):
+        if dates[index] > current_max:
+            current_max = dates[index]
+        else:
+            keep[index] = False
 
-    @staticmethod
-    def process_flow(
+    return (
+        data[keep]
+        .reset_index(drop=True)
+        .groupby(ann_date_col, as_index=False)
+        .last()
+    )
+
+
+def process_flow(
         data: pd.DataFrame,
         factors: tuple[str, ...],
-    ) -> pd.DataFrame:
-        """把累计利润或现金流展开为报告期列并计算滚动十二个月值。"""
-        result = data.copy()
-        result = result.sort_values(
-            ["end_date", "f_ann_date"]
-        ).reset_index(drop=True)
-        if result.empty:
-            return result
-        years = result["end_date"].dt.year.to_numpy()
-        report_types = result["end_type"].to_numpy()
-        previous_years = years - 1
-        masks = {value: report_types == value for value in (1, 2, 3, 4)}
-        generated: dict[str, np.ndarray] = {}
-        for factor in factors:
-            values = pd.to_numeric(result[factor], errors="coerce").to_numpy(
-                dtype=float
-            )
-            for report_type, mask in masks.items():
-                column = np.full(len(result), np.nan)
-                column[mask] = values[mask]
-                generated[f"{factor}_{report_type}"] = column
-            lookups = {
-                report_type: (
-                    pd.Series(values[mask], index=years[mask])
-                    .groupby(level=0)
-                    .first()
-                    .to_dict()
-                    if mask.any()
-                    else {}
-                )
-                for report_type, mask in masks.items()
-            }
-            previous = {
-                report_type: np.fromiter(
-                    (
-                        lookups[report_type].get(year, np.nan)
-                        for year in previous_years
-                    ),
-                    dtype=float,
-                    count=len(result),
-                )
-                for report_type in (1, 2, 3, 4)
-            }
-            generated[f"{factor}_ttm"] = np.select(
-                [masks[4], masks[3], masks[2], masks[1]],
-                [
-                    values,
-                    values + previous[4] - previous[3],
-                    values + previous[4] - previous[2],
-                    values + previous[4] - previous[1],
-                ],
-                default=np.nan,
-            )
-        return pd.concat(
-            [result, pd.DataFrame(generated, index=result.index)],
-            axis=1,
+        ann_date_col: str = "f_ann_date",
+        end_date_col: str = "end_date",
+        end_type_col: str = "end_type",
+) -> pd.DataFrame:
+    """把累计财报值展开为报告期列并计算 TTM。"""
+    data = data.copy().sort_values(
+        [end_date_col, ann_date_col]
+    ).reset_index(drop=True)
+    years = data[end_date_col].dt.year.to_numpy()
+    end_types = data[end_type_col].to_numpy()
+    previous_years = years - 1
+    masks = {value: end_types == value for value in (1, 2, 3, 4)}
+    columns: dict[str, np.ndarray] = {}
+
+    for factor in factors:
+        if factor not in data.columns:
+            continue
+        values = pd.to_numeric(data[factor], errors="coerce").to_numpy(
+            dtype=float
         )
+        for end_type, mask in masks.items():
+            column = np.full(len(data), np.nan)
+            column[mask] = values[mask]
+            columns[f"{factor}_{end_type}"] = column
+
+        maps = {
+            end_type: (
+                pd.Series(values[mask], index=years[mask])
+                .groupby(level=0)
+                .first()
+                .to_dict()
+                if mask.any()
+                else {}
+            )
+            for end_type, mask in masks.items()
+        }
+        previous = {
+            end_type: np.fromiter(
+                (
+                    maps[end_type].get(year, np.nan)
+                    for year in previous_years
+                ),
+                dtype=float,
+                count=len(data),
+            )
+            for end_type in (1, 2, 3, 4)
+        }
+        columns[f"{factor}_ttm"] = np.select(
+            [masks[4], masks[3], masks[2], masks[1]],
+            [
+                values,
+                values + previous[4] - previous[3],
+                values + previous[4] - previous[2],
+                values + previous[4] - previous[1],
+            ],
+            default=np.nan,
+        )
+
+    return pd.concat([data, pd.DataFrame(columns, index=data.index)], axis=1)
+
+
+def prepare(df: pd.DataFrame, ann_date_col) -> pd.DataFrame:
+    data = df.iloc[::-1].sort_values(by=ann_date_col, kind="mergesort")
+    data["end_type"] = data["end_date"].str.slice(4).map({"0331": 1, "0630": 2, "0930": 3, "1231": 4})
+    data = data.dropna(subset=["end_type"])
+    data[ann_date_col] = pd.to_datetime(data[ann_date_col])
+    data["end_date"] = pd.to_datetime(data["end_date"])
+    data = first_shoot(data, ann_date_col=ann_date_col)
+    return data
 
 
 class StockBalanceSheetWorker(StockWorker):
     """通过 balancesheet 接口更新资产负债表。"""
 
-    factors = BALANCE_SHEET_FACTORS
-
     @property
-    def last_date_factors(self) -> tuple[str, ...]:
-        """排除由 daily_basic 同时写入的 total_share。"""
-        return tuple(factor for factor in self.factors if factor != "total_share")
+    def factors(self) -> tuple[str, ...]:
+        """返回资产负债表因子。"""
+        return BALANCE_FACTORS
 
     def fetch_one(
-        self,
-        code: str,
-        *,
-        start_date: pd.Timestamp,
-        end_date: pd.Timestamp,
+            self,
+            code: str,
+            *,
+            start_date: pd.Timestamp,
+            end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的资产负债表。"""
+        ann_date_col = "f_ann_date"
+
         response = pro.balancesheet(
             ts_code=code,
-            start_date=FinancialData.lookback(start_date, 1),
+            start_date=pd.Timestamp(
+                year=start_date.year - 1,
+                month=start_date.month,
+                day=1,
+            ).strftime("%Y%m%d"),
             end_date=end_date.strftime("%Y%m%d"),
         )
-        result = FinancialData.prepare(
-            "balancesheet",
-            response,
-            self.factors,
-            "f_ann_date",
-        )
-        if result.empty:
-            data = FinancialData.empty(self.factors)
-        else:
-            data = result.rename(columns={"f_ann_date": "time"}).loc[
-                :, ["time", *self.factors]
-            ]
-        return self.to_long(
-            code,
-            data,
-            start_date=start_date,
-            end_date=end_date,
-        )
+
+        if response is None or response.empty:
+            return self.EMPTY
+
+        data = prepare(response, ann_date_col)
+        data = data.rename(columns={ann_date_col: "time"})[["time", *self.factors]]
+        return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
 class StockIncomeWorker(StockWorker):
     """通过 income 接口更新利润表报告期值和 TTM 值。"""
 
-    factors = INCOME_FACTORS
+    @property
+    def factors(self) -> tuple[str, ...]:
+        """返回利润表报告期和 TTM 因子。"""
+        return INCOME_FACTORS
 
     def fetch_one(
-        self,
-        code: str,
-        *,
-        start_date: pd.Timestamp,
-        end_date: pd.Timestamp,
+            self,
+            code: str,
+            *,
+            start_date: pd.Timestamp,
+            end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的利润表并计算报告期和 TTM 因子。"""
+        ann_date_col = "f_ann_date"
+
         response = pro.income(
             ts_code=code,
-            start_date=FinancialData.lookback(start_date, 2),
+            start_date=pd.Timestamp(
+                year=start_date.year - 2,
+                month=start_date.month,
+                day=1,
+            ).strftime("%Y%m%d"),
             end_date=end_date.strftime("%Y%m%d"),
         )
-        result = FinancialData.prepare(
-            "income",
-            response,
-            INCOME_RAW_FACTORS,
-            "f_ann_date",
-        )
-        if result.empty:
-            data = FinancialData.empty(self.factors)
-        else:
-            result = FinancialData.process_flow(result, INCOME_RAW_FACTORS)
-            data = result.rename(columns={"f_ann_date": "time"}).loc[
-                :, ["time", *self.factors]
-            ]
-        return self.to_long(
-            code,
-            data,
-            start_date=start_date,
-            end_date=end_date,
-        )
+        if response is None or response.empty:
+            return self.EMPTY
+
+        data = prepare(response, ann_date_col)
+        data = process_flow(data, INCOME_RAW_FACTORS)
+        data = data.rename(columns={ann_date_col: "time"})[["time", *self.factors]]
+        return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
 class StockCashflowWorker(StockWorker):
     """通过 cashflow 接口更新现金流报告期值和 TTM 值。"""
 
-    factors = CASHFLOW_FACTORS
+    @property
+    def factors(self) -> tuple[str, ...]:
+        """返回现金流报告期和 TTM 因子。"""
+        return CASHFLOW_FACTORS
 
     def fetch_one(
-        self,
-        code: str,
-        *,
-        start_date: pd.Timestamp,
-        end_date: pd.Timestamp,
+            self,
+            code: str,
+            *,
+            start_date: pd.Timestamp,
+            end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的现金流量表并计算报告期和 TTM 因子。"""
+        ann_date_col = "f_ann_date"
+
         response = pro.cashflow(
             ts_code=code,
-            start_date=FinancialData.lookback(start_date, 2),
+            start_date=pd.Timestamp(
+                year=start_date.year - 2,
+                month=start_date.month,
+                day=1,
+            ).strftime("%Y%m%d"),
             end_date=end_date.strftime("%Y%m%d"),
         )
-        result = FinancialData.prepare(
-            "cashflow",
-            response,
-            CASHFLOW_RAW_FACTORS,
-            "f_ann_date",
-        )
-        if result.empty:
-            data = FinancialData.empty(self.factors)
-        else:
-            result = FinancialData.process_flow(result, CASHFLOW_RAW_FACTORS)
-            data = result.rename(columns={"f_ann_date": "time"}).loc[
-                :, ["time", *self.factors]
-            ]
-        return self.to_long(
-            code,
-            data,
-            start_date=start_date,
-            end_date=end_date,
-        )
+
+        if response is None or response.empty:
+            return self.EMPTY
+
+        data = prepare(response, ann_date_col)
+        data = process_flow(data, CASHFLOW_RAW_FACTORS)
+        data = data.rename(columns={ann_date_col: "time"})[["time", *self.factors]]
+        return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
 class StockFinaIndicatorWorker(StockWorker):
     """通过 fina_indicator 接口更新财务指标。"""
 
-    factors = FINA_INDICATOR_FACTORS
+    @property
+    def factors(self) -> tuple[str, ...]:
+        """返回财务指标因子。"""
+        return INDICATOR_FACTORS
 
     def fetch_one(
-        self,
-        code: str,
-        *,
-        start_date: pd.Timestamp,
-        end_date: pd.Timestamp,
+            self,
+            code: str,
+            *,
+            start_date: pd.Timestamp,
+            end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的财务指标。"""
+        ann_date_col = "ann_date"
+
         response = pro.fina_indicator(
             ts_code=code,
-            start_date=FinancialData.lookback(start_date, 1),
+            start_date=pd.Timestamp(
+                year=start_date.year - 1,
+                month=start_date.month,
+                day=1,
+            ).strftime("%Y%m%d"),
             end_date=end_date.strftime("%Y%m%d"),
         )
-        result = FinancialData.prepare(
-            "fina_indicator",
-            response,
-            self.factors,
-            "ann_date",
-        )
-        if result.empty:
-            data = FinancialData.empty(self.factors)
-        else:
-            data = result.rename(columns={"ann_date": "time"}).loc[
-                :, ["time", *self.factors]
-            ]
-        return self.to_long(
-            code,
-            data,
-            start_date=start_date,
-            end_date=end_date,
-        )
 
+        if response is None or response.empty:
+            return self.EMPTY
 
-stock_balance_sheet_worker = StockBalanceSheetWorker(threads=8, throttle=8)
-stock_income_worker = StockIncomeWorker(threads=8, throttle=8)
-stock_cashflow_worker = StockCashflowWorker(threads=8, throttle=8)
-stock_fina_indicator_worker = StockFinaIndicatorWorker(threads=8, throttle=8)
+        data = prepare(response, ann_date_col)
+        data = data.rename(columns={ann_date_col: "time"})[["time", *self.factors]]
+        return self.melt(code, data, start_date=start_date, end_date=end_date)

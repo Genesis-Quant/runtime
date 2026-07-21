@@ -2,4 +2,4 @@
 
 from .dates import DateLike, normalize_date, normalize_date_range
 from .rate_limit import RateLimiter
-from .ts_api import codes, pro, ts
+from .ts_api import CODES, pro, ts

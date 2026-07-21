@@ -9,8 +9,9 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
+from config import DATA_START_DATE
+from core.utils import DateLike, CODES
 from core.database import CORE_TABLE, create_session
-from core.utils import DateLike, codes, normalize_date
 
 from .worker import BaseWorker
 
@@ -18,45 +19,36 @@ from .worker import BaseWorker
 class StockWorker(BaseWorker, ABC):
     """按股票并发调用单个固定数据接口。"""
 
-    @property
-    def last_date_factors(self) -> tuple[str, ...]:
-        """返回用于判断该接口最近更新日期的因子集合。"""
-        return self.factors
+    def __init__(
+            self,
+            codes: Sequence[str] = CODES,
+            *,
+            start_date: DateLike = DATA_START_DATE,
+            end_date: DateLike | None = None,
+            threads: int = 3,
+            throttle: int = 8,
+            max_retries: int = 3,
+            retry_interval: float = 1.0,
+            batch_size: int = 200_000,
+    ):
+        super().__init__(
+            start_date=start_date,
+            end_date=end_date,
+            threads=threads,
+            throttle=throttle,
+            max_retries=max_retries,
+            retry_interval=retry_interval,
+            batch_size=batch_size
+        )
+        self.codes = codes
 
-    @abstractmethod
-    def fetch_one(
-        self,
-        code: str,
-        *,
-        start_date: pd.Timestamp,
-        end_date: pd.Timestamp,
-    ) -> pd.DataFrame:
-        """获取并转换一只股票在增量区间内的数据。"""
-        raise NotImplementedError
-
-    def get_last_dates(
-        self,
-        codes: Sequence[str],
-    ) -> dict[str, pd.Timestamp]:
-        """返回每只股票固定回执因子最近有数据的日期。"""
-        last_date_factors = self.last_date_factors
-        if not last_date_factors:
-            raise ValueError(
-                f"{type(self).__name__}.last_date_factors 不能为空"
-            )
-        if invalid := set(last_date_factors) - set(self.factors):
-            raise ValueError(
-                f"{type(self).__name__}.last_date_factors 包含未声明因子："
-                f"{sorted(invalid)}"
-            )
+    def get_last_dates(self) -> dict[str, pd.Timestamp]:
         session = create_session()
         try:
             session.upload(
                 {
-                    "stockWorkerCodes": np.asarray(codes, dtype=str),
-                    "stockWorkerLastDateFactors": np.asarray(
-                        last_date_factors, dtype=str
-                    ),
+                    "stockWorkerCodes": np.asarray(self.codes, dtype=str),
+                    "stockWorkerLastDateFactors": np.asarray(self.factors, dtype=str),
                 }
             )
             result = session.run(
@@ -78,20 +70,63 @@ class StockWorker(BaseWorker, ABC):
             if not pd.isna(row.time)
         }
 
-    def fetch_all(
-        self,
-        current_date: DateLike | None = None,
-    ) -> Iterable[pd.DataFrame]:
-        """根据每只股票的最近数据日并发调用 fetch_one(code)。"""
-        last_dates = self.get_last_dates(codes)
-        end_date = normalize_date(
-            pd.Timestamp.today() if current_date is None else current_date,
-            "current_date",
+    def melt(
+            self,
+            code: str,
+            data: pd.DataFrame,
+            *,
+            start_date: pd.Timestamp,
+            end_date: pd.Timestamp,
+    ) -> pd.DataFrame:
+        """把单只股票的接口宽表转换为统一四列长表。"""
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError(f"{type(self).__name__}[{code}] 返回值不是 DataFrame")
+        if data.empty:
+            return self.EMPTY
+        required = {"time", *self.factors}
+        if missing := required - set(data.columns):
+            raise ValueError(f"{type(self).__name__}[{code}] 返回结果缺少列：{sorted(missing)}")
+        result = data.loc[:, ["time", *self.factors]].copy()
+        result["time"] = pd.to_datetime(result["time"], errors="coerce")
+        if result["time"].isna().any():
+            raise ValueError(f"{type(self).__name__}[{code}] 返回了无效 time")
+        result = result[result["time"].between(start_date, end_date)]
+        result["code"] = code
+        result = result.melt(
+            id_vars=["time", "code"],
+            value_vars=list(self.factors),
+            var_name="factor",
+            value_name="value",
         )
+        result["value"] = pd.to_numeric(result["value"], errors="coerce")
+        return (
+            result.replace([np.inf, -np.inf], np.nan)
+            .dropna(subset=["value"])
+            .drop_duplicates(["time", "code", "factor"], keep="last")
+            .sort_values(["factor", "time"])
+            .reset_index(drop=True)
+        )
+
+    @abstractmethod
+    def fetch_one(
+            self,
+            code: str,
+            *,
+            start_date: pd.Timestamp,
+            end_date: pd.Timestamp,
+    ) -> pd.DataFrame:
+        """获取并转换一只股票在增量区间内的数据。"""
+        raise NotImplementedError
+
+    def fetch_all(self) -> Iterable[pd.DataFrame]:
+        """根据每只股票的最近数据日并发调用 fetch_one(code)。"""
+        last_dates = self.get_last_dates()
+        end_date = self.end_date
+
         failures: list[str] = []
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             futures = {}
-            for code in codes:
+            for code in self.codes:
                 last_date = last_dates.get(code)
                 start_date = (
                     self.start_date
@@ -115,11 +150,12 @@ class StockWorker(BaseWorker, ABC):
                 code = futures[future]
                 try:
                     frame = future.result()
+                    self.check(frame)
                 except Exception as error:
                     failures.append(f"{code}: {error}")
                     continue
-                if not frame.empty:
-                    yield frame
+
+                yield frame
         if failures:
             raise RuntimeError(
                 f"{type(self).__name__} 更新失败：" + "；".join(failures)
