@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 import json
+import time
 from typing import Any
 
 import numpy as np
@@ -11,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from config import DOLPHIN
 from core.dolphindb.script import build_script
 from core.operators import Derivative
-from core.utils import normalize_date_range
+from core.utils import logger, normalize_date_range
 from .session import CORE_TABLE, IS_ST_FACTOR, WEIGHT_PREFIX, create_session
 
 
@@ -279,6 +280,7 @@ def query_source(
     required_factors: list[str] | None = None,
 ) -> pd.DataFrame:
     """查询并返回宽表 source；可额外指定 DSL 内部依赖 factors。"""
+    started = time.perf_counter()
     query = (
         request
         if isinstance(request, FactorQuery)
@@ -288,6 +290,11 @@ def query_source(
     factors = _normalize_names(
         [*query.factors, *(required_factors or [])],
         "factors",
+    )
+    code_count = "全部" if query.codes is None else f"{len(query.codes):,}"
+    logger.info(
+        f"查询 source：{start:%Y-%m-%d} 至 {end:%Y-%m-%d}，"
+        f"股票={code_count}，factor={factors}"
     )
     owns_session = session is None
     current_session = create_session() if owns_session else session
@@ -299,7 +306,7 @@ def query_source(
             codes=query.codes,
             factors=factors,
         )
-        return build_source(
+        result = build_source(
             current,
             baseline,
             universe,
@@ -307,6 +314,11 @@ def query_source(
             start=start,
             end=end,
         )
+        elapsed = time.perf_counter() - started
+        logger.success(
+            f"source 查询完成，结果={result.shape}，耗时 {elapsed:.2f} 秒"
+        )
+        return result
     finally:
         if owns_session:
             current_session.close()
@@ -318,12 +330,17 @@ def execute_query(
     session: Any | None = None,
 ) -> pd.DataFrame:
     """将查询宽表作为 source，在同一 DolphinDB 会话执行命名 DSL。"""
+    started = time.perf_counter()
     query = (
         request
         if isinstance(request, FactorQuery)
         else FactorQuery.model_validate(request)
     )
     dependencies = sorted(derivative_factors(query.derivatives))
+    logger.info(
+        f"执行因子查询：原始 factor={query.factors}，"
+        f"派生 factor={list(query.derivatives)}，依赖={dependencies}"
+    )
     owns_session = session is None
     current_session = create_session() if owns_session else session
     try:
@@ -334,36 +351,47 @@ def execute_query(
         )
         output_columns = ["time", "code", *query.factors, *query.derivatives]
         if source.empty:
-            return pd.DataFrame(columns=output_columns)
-        if not query.derivatives:
-            return source.loc[:, output_columns]
-
-        definitions = {
-            name: derivative.model_dump(mode="json")
-            for name, derivative in query.derivatives.items()
-        }
-        current_session.run(build_script())
-        current_session.upload(
-            {
-                "coreDslSource": source,
-                "coreDslDefinitionsJson": json.dumps(
-                    definitions,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ),
+            result = pd.DataFrame(columns=output_columns)
+        elif not query.derivatives:
+            result = source.loc[:, output_columns]
+        else:
+            definitions = {
+                name: derivative.model_dump(mode="json")
+                for name, derivative in query.derivatives.items()
             }
-        )
-        result = current_session.run(
-            """
+            logger.debug(
+                f"加载 DolphinDB DSL 并计算 {len(definitions):,} 个派生 factor"
+            )
+            current_session.run(build_script())
+            current_session.upload(
+                {
+                    "coreDslSource": source,
+                    "coreDslDefinitionsJson": json.dumps(
+                        definitions,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                }
+            )
+            computed = current_session.run(
+                """
 coreDslDefinitions = fromStdJson(coreDslDefinitionsJson)
 compute_factors(coreDslSource, coreDslDefinitions)
 """
+            )
+            result = (
+                computed.loc[:, output_columns]
+                .sort_values(["code", "time"])
+                .reset_index(drop=True)
+            )
+        elapsed = time.perf_counter() - started
+        logger.success(
+            f"因子查询完成，结果={result.shape}，耗时 {elapsed:.2f} 秒"
         )
-        return (
-            result.loc[:, output_columns]
-            .sort_values(["code", "time"])
-            .reset_index(drop=True)
-        )
+        return result
+    except Exception as error:
+        logger.exception(f"因子查询失败：{error}")
+        raise
     finally:
         if owns_session:
             current_session.close()
@@ -378,8 +406,11 @@ def available_factors(*, session: Any | None = None) -> list[str]:
             f"select distinct factor from {CORE_TABLE} order by factor"
         )
         if result is None or result.empty:
+            logger.debug("DolphinDB 当前没有已存储 factor")
             return []
-        return result["factor"].astype(str).tolist()
+        factors = result["factor"].astype(str).tolist()
+        logger.debug(f"DolphinDB 当前存储 {len(factors):,} 个 factor")
+        return factors
     finally:
         if owns_session:
             current_session.close()

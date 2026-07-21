@@ -42,7 +42,7 @@ BALANCE_FACTORS = tuple(
 )
 INCOME_RAW_FACTORS = tuple(
     """
-    total_revenue revenue int_income prem_earned comm_income n_commis_income
+    basic_eps diluted_eps total_revenue revenue int_income prem_earned comm_income n_commis_income
     n_oth_income n_oth_b_income prem_income out_prem une_prem_reser reins_income
     n_sec_tb_income n_sec_uw_income n_asset_mg_income oth_b_income
     fv_value_chg_gain invest_income ass_invest_income forex_gain total_cogs oper_cost
@@ -89,7 +89,7 @@ INDICATOR_FACTORS = tuple(
     """
     eps dt_eps total_revenue_ps revenue_ps capital_rese_ps surplus_rese_ps
     undist_profit_ps extra_item profit_dedt gross_margin current_ratio quick_ratio
-    cash_ratio ar_turn ca_turn fa_turn assets_turn op_income ebit ebitda fcff fcfe
+    cash_ratio ar_turn ca_turn fa_turn assets_turn op_income fcff fcfe
     current_exint noncurrent_exint interestdebt netdebt tangible_asset working_capital
     networking_capital invest_capital retained_earnings diluted2_eps bps ocfps
     retainedps cfps ebit_ps fcff_ps fcfe_ps netprofit_margin grossprofit_margin
@@ -139,9 +139,8 @@ def first_shoot(
 
     return (
         data[keep]
+        .drop_duplicates(ann_date_col, keep="last")
         .reset_index(drop=True)
-        .groupby(ann_date_col, as_index=False)
-        .last()
     )
 
 
@@ -222,6 +221,10 @@ def prepare(df: pd.DataFrame, ann_date_col) -> pd.DataFrame:
 class StockBalanceSheetWorker(StockWorker):
     """通过 balancesheet 接口更新资产负债表。"""
 
+    def __str__(self) -> str:
+        """返回资产负债表 Worker 标识。"""
+        return "<StockBalanceSheetWorker>"
+
     @property
     def factors(self) -> tuple[str, ...]:
         """返回资产负债表因子。"""
@@ -257,6 +260,10 @@ class StockBalanceSheetWorker(StockWorker):
 
 class StockIncomeWorker(StockWorker):
     """通过 income 接口更新利润表报告期值和 TTM 值。"""
+
+    def __str__(self) -> str:
+        """返回利润表 Worker 标识。"""
+        return "<StockIncomeWorker>"
 
     @property
     def factors(self) -> tuple[str, ...]:
@@ -294,6 +301,10 @@ class StockIncomeWorker(StockWorker):
 class StockCashflowWorker(StockWorker):
     """通过 cashflow 接口更新现金流报告期值和 TTM 值。"""
 
+    def __str__(self) -> str:
+        """返回现金流量表 Worker 标识。"""
+        return "<StockCashflowWorker>"
+
     @property
     def factors(self) -> tuple[str, ...]:
         """返回现金流报告期和 TTM 因子。"""
@@ -330,6 +341,10 @@ class StockCashflowWorker(StockWorker):
 
 class StockFinaIndicatorWorker(StockWorker):
     """通过 fina_indicator 接口更新财务指标。"""
+
+    def __str__(self) -> str:
+        """返回财务指标 Worker 标识。"""
+        return "<StockFinaIndicatorWorker>"
 
     @property
     def factors(self) -> tuple[str, ...]:

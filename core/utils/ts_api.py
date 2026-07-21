@@ -4,6 +4,7 @@ import pandas as pd
 import tushare as ts
 
 from config import TUSHARE_TOKEN
+from .logging import logger
 
 
 if not TUSHARE_TOKEN:
@@ -44,3 +45,5 @@ stock_values = (
 CODES = tuple(dict.fromkeys(value for value in stock_values if value))
 if not CODES:
     raise RuntimeError("stock_basic 没有返回有效股票代码")
+
+logger.success(f"Tushare Pro 初始化完成，共加载 {len(CODES):,} 只股票")

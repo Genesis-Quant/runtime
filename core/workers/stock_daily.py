@@ -10,6 +10,10 @@ from .base import DateWorker, StockWorker
 class StockDailyWorker(DateWorker):
     """通过 daily 接口按自然日更新全市场未复权行情。"""
 
+    def __str__(self) -> str:
+        """返回未复权日行情 Worker 标识。"""
+        return "<StockDailyWorker>"
+
     @property
     def factors(self) -> tuple[str, ...]:
         return (
@@ -41,12 +45,17 @@ class StockDailyWorker(DateWorker):
 class StockDailyBasicWorker(DateWorker):
     """通过 daily_basic 接口按自然日更新全市场估值和市值指标。"""
 
+    def __str__(self) -> str:
+        """返回每日指标 Worker 标识。"""
+        return "<StockDailyBasicWorker>"
+
     @property
     def factors(self) -> tuple[str, ...]:
         return (
             "turnover_rate",
             "turnover_rate_f",
             "volume_ratio",
+            "limit_status",
             "pe",
             "pe_ttm",
             "pb",
@@ -79,6 +88,10 @@ class StockDailyBasicWorker(DateWorker):
 class StockAdjFactorWorker(DateWorker):
     """通过 adj_factor 接口按自然日更新全市场复权因子。"""
 
+    def __str__(self) -> str:
+        """返回复权因子 Worker 标识。"""
+        return "<StockAdjFactorWorker>"
+
     @property
     def factors(self) -> tuple[str, ...]:
         return ("adj_factor",)
@@ -100,6 +113,10 @@ class StockAdjFactorWorker(DateWorker):
 
 class StockHfqWorker(StockWorker):
     """通过 pro_bar 接口更新后复权日行情。"""
+
+    def __str__(self) -> str:
+        """返回后复权日行情 Worker 标识。"""
+        return "<StockHfqWorker>"
 
     @property
     def factors(self) -> tuple[str, ...]:

@@ -12,6 +12,10 @@ from .base import DateWorker
 class IndexWeightWorker(DateWorker):
     """抓取一个指数并生成每日非零成分股权重。"""
 
+    def __str__(self) -> str:
+        """返回包含指数代码的权重 Worker 标识。"""
+        return f"<IndexWeightWorker {self.index_code}>"
+
     def __init__(
             self,
             index_code: str,
@@ -23,6 +27,7 @@ class IndexWeightWorker(DateWorker):
             max_retries: int = 3,
             retry_interval: float = 1.0,
             batch_size: int = 200_000,
+            chunk_size: int = 10,
     ) -> None:
         """使用固定指数代码初始化逐自然日更新流程。"""
         self.index_code = str(index_code).strip().upper()
@@ -34,6 +39,7 @@ class IndexWeightWorker(DateWorker):
             max_retries=max_retries,
             retry_interval=retry_interval,
             batch_size=batch_size,
+            chunk_size=chunk_size,
         )
 
     @property

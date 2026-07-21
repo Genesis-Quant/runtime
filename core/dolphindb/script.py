@@ -21,6 +21,7 @@ from core.operators.base import (
     TimeSeriesOperator,
 )
 from core.operators.fields import ControlsFields, GroupedFields
+from core.utils import logger
 
 
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "output"
@@ -335,6 +336,7 @@ def write_script(path: Path = SCRIPT_PATH) -> Path:
     """将完整脚本写入指定路径。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(build_script(), encoding="utf-8", newline="\n")
+    logger.success(f"DolphinDB DSL 脚本已生成：{path}")
     return path
 
 

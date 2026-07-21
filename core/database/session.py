@@ -10,11 +10,14 @@ import numpy as np
 import pandas as pd
 
 from config import DOLPHIN, INDEX_CODES
+from core.utils.logging import logger
 
 
 CORE_COLUMNS = ("time", "code", "factor", "value")
 IS_ST_FACTOR = "is_st"
 WEIGHT_PREFIX = "weight_"
+
+logger.info(f"DolphinDB: {DOLPHIN.HOST}:{DOLPHIN.PORT}")
 
 
 def index_weight_factor(index_code: str) -> str:
@@ -83,6 +86,7 @@ def create_session():
     session = _connect_session()
     try:
         if not _core_table_exists(session):
+            logger.warning("DolphinDB 统一因子库表不存在，开始自动初始化")
             _initialize_with_session(session, list(DEFAULT_FACTORS))
     except Exception:
         session.close()
@@ -108,6 +112,10 @@ def _normalize_factors(values: Iterable[str]) -> list[str]:
 
 def _initialize_with_session(session: Any, factors: list[str]) -> str:
     """使用已有会话幂等创建组合分区数据库和 TSDB 表。"""
+    logger.info(
+        f"初始化 DolphinDB 统一因子表：{DOLPHIN.DATABASE}/"
+        f"{DOLPHIN.TABLE}，初始 factor={len(factors):,} 个"
+    )
     session.upload(
         {
             "coreDatabaseName": DOLPHIN.DATABASE,
@@ -115,7 +123,7 @@ def _initialize_with_session(session: Any, factors: list[str]) -> str:
             "coreInitialFactors": np.asarray(factors, dtype=str),
         }
     )
-    return session.run(
+    result = session.run(
         """
 def initializeCoreDatabase(dbName, tableName, initialFactors) {
     // 创建按月和 factor 组合分区的统一 TSDB 长表。
@@ -161,6 +169,8 @@ def initializeCoreDatabase(dbName, tableName, initialFactors) {
 initializeCoreDatabase(coreDatabaseName, coreTableName, coreInitialFactors)
 """
     )
+    logger.success(str(result))
+    return result
 
 
 def initialize_database(
@@ -201,6 +211,13 @@ def ensure_factor_partitions(
         existing = {str(value) for value in schema["partitionSchema"][1]}
         missing = [factor for factor in factors if factor not in existing]
         if missing:
+            preview = missing[:10]
+            remainder = len(missing) - len(preview)
+            suffix = f"，其余 {remainder:,} 个" if remainder else ""
+            logger.info(
+                f"DolphinDB 新增 {len(missing):,} 个 factor 分区："
+                f"{preview}{suffix}"
+            )
             current.upload(
                 {"coreNewFactorPartitions": np.asarray(missing, dtype=str)}
             )
@@ -245,56 +262,143 @@ def normalize_core_frame(data: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+class CoreTableWriter:
+    """复用一个多线程写入器，持续追加已规范的统一长表数据。
+
+    ``append`` 是低层写入边界，只接受已完成清洗的四列数据。Worker 数据
+    由 ``BaseWorker.normalize_result`` 负责规范；其他调用者应使用
+    :func:`write_core_table`，由其执行一次 ``normalize_core_frame``。
+    """
+
+    def __init__(
+            self,
+            factors: Iterable[str],
+            *,
+            thread_count: int = 3,
+    ) -> None:
+        """保存固定 factor 和写入配置，首次追加数据时再建立连接。"""
+        if thread_count <= 0:
+            raise ValueError("thread_count 必须大于 0")
+
+        self.factors = tuple(_normalize_factors(factors))
+        self.factor_set = set(self.factors)
+        self.thread_count = min(thread_count, len(self.factors))
+        self.pool: Any | None = None
+        self.appender: Any | None = None
+        self.closed = False
+
+    def open(self) -> None:
+        """补建一次 factor 分区并创建整个更新过程复用的写入器。"""
+        if self.closed:
+            raise RuntimeError("CoreTableWriter 已关闭")
+        if self.appender is not None:
+            return
+
+        session = create_session()
+        try:
+            ensure_factor_partitions(self.factors, session=session)
+        finally:
+            session.close()
+
+        pool = dolphindb.DBConnectionPool(
+            DOLPHIN.HOST,
+            DOLPHIN.PORT,
+            threadNum=self.thread_count,
+            userid=DOLPHIN.USERNAME,
+            password=DOLPHIN.PASSWORD,
+            reConnect=True,
+            show_output=False,
+        )
+        try:
+            appender = dolphindb.PartitionedTableAppender(
+                db_path=DOLPHIN.DATABASE,
+                table_name=DOLPHIN.TABLE,
+                partition_col="factor",
+                pool=pool,
+            )
+        except Exception:
+            pool.shutDown()
+            raise
+        self.pool = pool
+        self.appender = appender
+        logger.debug(
+            f"DolphinDB Writer 已创建：threads={self.thread_count}，"
+            f"factor={len(self.factors):,} 个"
+        )
+
+    def append(self, data: pd.DataFrame) -> int:
+        """原样批量追加四列成品数据，并返回实际写入行数。"""
+        if self.closed:
+            raise RuntimeError("CoreTableWriter 已关闭")
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError("待写入数据必须是 pandas.DataFrame")
+        if data.empty:
+            return 0
+        if tuple(data.columns) != CORE_COLUMNS:
+            raise ValueError(
+                "待写入数据列必须严格为 "
+                f"{list(CORE_COLUMNS)}，实际为 {list(data.columns)}"
+            )
+
+        # 这里只做分区安全检查；任何数据转换都属于上游规范化职责。
+        unknown = set(data["factor"].unique()) - self.factor_set
+        if unknown:
+            raise ValueError(f"待写入数据包含未声明 factor：{sorted(unknown)}")
+
+        self.open()
+        appender = self.appender
+        if appender is None:
+            raise RuntimeError("DolphinDB Writer 创建失败")
+        rows = int(appender.append(data))
+        if rows != len(data):
+            raise RuntimeError(
+                f"DolphinDB 写入行数不一致：预期 {len(data):,}，实际 {rows:,}"
+            )
+        return rows
+
+    def close(self) -> None:
+        """关闭连接池；未打开或已关闭时不执行额外操作。"""
+        if self.closed:
+            return
+        self.closed = True
+        pool = self.pool
+        self.appender = None
+        self.pool = None
+        if pool is None:
+            return
+        if not pool.is_shutdown():
+            pool.shutDown()
+
+    def __enter__(self) -> "CoreTableWriter":
+        """返回惰性创建的写入器上下文。"""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        """退出上下文时完成所有已提交写入。"""
+        self.close()
+
+
 def write_core_table(data: pd.DataFrame) -> int:
-    """动态补分区后，通过多线程写入器追加统一因子数据。"""
+    """为非 Worker 调用规范一次长表，并返回实际写入行数。"""
+    # Worker 直接复用 CoreTableWriter；这里只为独立调用者承担规范化。
     result = normalize_core_frame(data)
     if result.empty:
         return 0
 
-    session = create_session()
-    try:
-        factors = result["factor"].unique()
-        ensure_factor_partitions(factors, session=session)
-    finally:
-        session.close()
-    writer = dolphindb.MultithreadedTableWriter(
-        host=DOLPHIN.HOST,
-        port=DOLPHIN.PORT,
-        userId=DOLPHIN.USERNAME,
-        password=DOLPHIN.PASSWORD,
-        dbPath=DOLPHIN.DATABASE,
-        tableName=DOLPHIN.TABLE,
-        batchSize=10_000,
-        throttle=1.0,
+    logger.debug(
+        f"DolphinDB 开始写入 {len(result):,} 行、"
+        f"{result['factor'].nunique():,} 个 factor"
     )
-    insertion_error: RuntimeError | None = None
-    try:
-        for row in result.itertuples(index=False, name=None):
-            error = writer.insert(*row)
-            if error.hasError():
-                insertion_error = RuntimeError(
-                    f"DolphinDB 插入失败：{error.errorCode} {error.errorInfo}"
-                )
-                break
-    finally:
-        writer.waitForThreadCompletion()
-
-    if insertion_error is not None:
-        raise insertion_error
-    status = writer.getStatus()
-    if status.hasError() or status.unsentRows or status.sendFailedRows:
-        raise RuntimeError(
-            "DolphinDB 批量写入失败："
-            f"{status.errorCode} {status.errorInfo}; "
-            f"unsentRows={status.unsentRows}, "
-            f"sendFailedRows={status.sendFailedRows}"
-        )
-    return len(result)
+    with CoreTableWriter(result["factor"].unique()) as writer:
+        rows = writer.append(result)
+    logger.debug(f"DolphinDB 写入完成，共 {rows:,} 行")
+    return rows
 
 
 __all__ = [
     "CORE_COLUMNS",
     "CORE_TABLE",
+    "CoreTableWriter",
     "DEFAULT_FACTORS",
     "IS_ST_FACTOR",
     "WEIGHT_PREFIX",

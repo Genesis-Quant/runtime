@@ -3,6 +3,7 @@
 from .session import (
     CORE_COLUMNS,
     CORE_TABLE,
+    CoreTableWriter,
     DEFAULT_FACTORS,
     IS_ST_FACTOR,
     WEIGHT_PREFIX,
@@ -25,6 +26,7 @@ from .query import (
 __all__ = [
     "CORE_COLUMNS",
     "CORE_TABLE",
+    "CoreTableWriter",
     "DEFAULT_FACTORS",
     "IS_ST_FACTOR",
     "WEIGHT_PREFIX",

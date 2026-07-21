@@ -11,6 +11,10 @@ from .base import DateWorker
 class StockSTWorker(DateWorker):
     """逐日抓取 ST 名单，只持久化 value=1 的股票。"""
 
+    def __str__(self) -> str:
+        """返回 ST 股票 Worker 标识。"""
+        return "<StockSTWorker>"
+
     @property
     def factors(self) -> tuple[str, ...]:
         """返回 ST Worker 写入的因子。"""
