@@ -5,15 +5,18 @@ description = "Unified factor data ingestion and DolphinDB-native factor DSL"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "dolphindb>=3.0.4.2",
+    "fastapi>=0.116",
     "ipykernel>=7.3.0",
     "loguru>=0.7.3",
     "notebook>=7.6.0",
     "numpy>=2.0",
     "pandas>=2.2",
     "pandas-stubs~=2.3.3",
+    "pyarrow>=19.0",
     "pydantic>=2.11",
     "python-dotenv>=1.1",
     "tushare>=1.4.29",
+    "uvicorn>=0.35",
 ]
 
 [[tool.uv.index]]

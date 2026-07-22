@@ -38,9 +38,31 @@ IS_TABLE_FORM = DolphinDBFunction(
     """
 )
 
+REQUIRE_TABLE_COLUMNS = DolphinDBFunction(
+    """
+    def require_table_columns(source, names, location) {
+        // 校验 source 为表、names 为 STRING 向量，并返回已经规范化的列名。
+        if (!is_table_form(source)) {
+            throw location + " 的 source 必须是 table，实际为 " + typestr(source)
+        }
+        if (!is_vector_form(names) || (size(names) > 0 && type(names) != STRING)) {
+            throw location + " 的 names 必须是 STRING 向量，实际为 " + typestr(names)
+        }
+        normalized = string(names)
+        missing = normalized[!(normalized in columnNames(source))]
+        if (size(missing) > 0) {
+            throw location + " 的列不存在：" + concat(missing, ", ")
+        }
+        return normalized
+    }
+    """,
+    dependencies=(IS_TABLE_FORM, IS_VECTOR_FORM),
+)
+
 __all__ = [
     "IS_DICTIONARY_FORM",
     "IS_SCALAR_FORM",
     "IS_TABLE_FORM",
     "IS_VECTOR_FORM",
+    "REQUIRE_TABLE_COLUMNS",
 ]

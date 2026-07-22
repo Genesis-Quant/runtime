@@ -1,6 +1,6 @@
 """Seminar 因子数据、查询 DSL 与 Worker。"""
 
-from .query import Derivative, FactorQuery, execute_query, query_source
+from .query import Derivative, FactorQuery, execute_query
 from .utils import logger
 
 __all__ = [
@@ -8,5 +8,4 @@ __all__ = [
     "FactorQuery",
     "execute_query",
     "logger",
-    "query_source",
 ]

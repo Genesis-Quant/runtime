@@ -176,10 +176,11 @@ def select_operands(operands, mask) {
 }
 
 def apply_time_series(func, operands, on, code, time, empty_result) {
-    // 仅对 on=true 的行按 code 分组、time 排序执行时序函数，再恢复原始行位置。
+    // on=NULL 时对全部行计算；否则筛选 true 行并把结果恢复到原始位置。
     n = size(operands[0])
-    mask = normalize_on(on, n)
     if (n == 0) return empty_result
+    if (type(on) == VOID) return contextby(func, operands, code, time)
+    mask = normalize_on(on, n)
     if (sum(mask) == 0) {
         sample = unifiedCall(func, sample_operands(operands))
         return restore_masked_rows(sample, mask, n)
@@ -189,10 +190,11 @@ def apply_time_series(func, operands, on, code, time, empty_result) {
 }
 
 def apply_cross_section(func, operands, on, time, empty_result) {
-    // 仅对 on=true 的行按 time 分组执行截面函数，再恢复原始行位置。
+    // on=NULL 时对全部行计算；否则筛选 true 行并把结果恢复到原始位置。
     n = size(operands[0])
-    mask = normalize_on(on, n)
     if (n == 0) return empty_result
+    if (type(on) == VOID) return contextby(func, operands, time)
+    mask = normalize_on(on, n)
     if (sum(mask) == 0) {
         sample = unifiedCall(func, sample_operands(operands))
         return restore_masked_rows(sample, mask, n)
@@ -202,10 +204,15 @@ def apply_cross_section(func, operands, on, time, empty_result) {
 }
 
 def apply_grouped_cross_section(func, operands, on, time, by, empty_result) {
-    // 排除 on=false 和 by=NULL 的行，按 time 与 by 联合分组执行截面函数。
+    // on=NULL 时不按 on 筛选；by=NULL 始终不参与分组截面计算。
     n = size(operands[0])
-    mask = normalize_on(on, n) && !isNull(by)
     if (n == 0) return empty_result
+    valid_group = !isNull(by)
+    if (type(on) == VOID && sum(valid_group) == n) {
+        return contextby(func, operands, (time, by))
+    }
+    mask = valid_group
+    if (type(on) != VOID) mask = normalize_on(on, n) && valid_group
     if (sum(mask) == 0) {
         sample = unifiedCall(func, sample_operands(operands))
         return restore_masked_rows(sample, mask, n)
@@ -217,13 +224,17 @@ def apply_grouped_cross_section(func, operands, on, time, by, empty_result) {
 def apply_controlled_cross_section(func, target, controls, on, time) {
     // 按交易日向控制变量截面函数传入 target 和 controls，并把结果回填到原始行。
     n = size(target)
-    mask = normalize_on(on, n)
     result = array(DOUBLE, n, n, NULL)
     if (n == 0) return result
-    if (sum(mask) == 0) return result
+    selected_indices = 0..(n - 1)
+    selected_time = time
+    if (type(on) != VOID) {
+        mask = normalize_on(on, n)
+        if (sum(mask) == 0) return result
+        selected_indices = selected_indices[mask]
+        selected_time = selected_time[mask]
+    }
 
-    selected_indices = (0..(n - 1))[mask]
-    selected_time = time[mask]
     for (current_date in distinct(selected_time)) {
         row_indices = selected_indices[selected_time == current_date]
         result[row_indices] = func(target[row_indices], controls[row_indices])
@@ -277,6 +288,138 @@ def require_column(source, name, operation) {
 def is_table_form(value) {
     // 判断 value 是否为表，供派生因子入口校验 source 使用。
     return form(value) == form(table(0 as value))
+}
+
+def require_table_columns(source, names, location) {
+    // 校验 source 为表、names 为 STRING 向量，并返回已经规范化的列名。
+    if (!is_table_form(source)) {
+        throw location + " 的 source 必须是 table，实际为 " + typestr(source)
+    }
+    if (!is_vector_form(names) || (size(names) > 0 && type(names) != STRING)) {
+        throw location + " 的 names 必须是 STRING 向量，实际为 " + typestr(names)
+    }
+    normalized = string(names)
+    missing = normalized[!(normalized in columnNames(source))]
+    if (size(missing) > 0) {
+        throw location + " 的列不存在：" + concat(missing, ", ")
+    }
+    return normalized
+}
+
+def fill_null_column(mutable source, name, value) {
+    // 使用指定标量替换单列中的 NULL，表内其他列保持不变。
+    require_table_columns(source, [string(name)], "fill_null_column")
+    source[string(name)] = nullFill(source[string(name)], value)
+    return source
+}
+
+def forward_fill_column(mutable source, name, groups, order) {
+    // 按 groups 分组并按 order 排序，对单列执行前向填充。
+    require_table_columns(source, [string(name)], "forward_fill_column")
+    if (!is_vector_form(groups) || size(groups) != source.rows()) {
+        throw "forward_fill_column 的 groups 必须与 source 等长"
+    }
+    if (!is_vector_form(order) || size(order) != source.rows()) {
+        throw "forward_fill_column 的 order 必须与 source 等长"
+    }
+    source[string(name)] = contextby(
+        ffill,
+        source[string(name)],
+        groups,
+        order
+    )
+    return source
+}
+
+def empty_factor_timeline(factors) {
+    // 构造带 selected 标记和请求 factor 的零行查询时间线。
+    result = table(
+        array(TIMESTAMP, 0) as time,
+        array(SYMBOL, 0) as code,
+        array(BOOL, 0) as selected
+    )
+    if (size(factors) > 0) {
+        addColumn(result, string(factors), take(DOUBLE, size(factors)))
+    }
+    return result
+}
+
+def build_factor_source(data, codes, factors, dates, start_time, end_time) {
+    // 从统一长表完成筛选、交易日展开、事件时间线构造和长转宽。
+    if (!is_table_form(data)) {
+        throw "build_factor_source 的 data 必须是 table，实际为 " + typestr(data)
+    }
+    if (!is_vector_form(codes) || size(codes) == 0) {
+        throw "build_factor_source 的 codes 必须是非空向量"
+    }
+    if (!is_vector_form(factors) || (size(factors) > 0 && type(factors) != STRING)) {
+        throw "build_factor_source 的 factors 必须是 STRING 向量"
+    }
+    if (!is_vector_form(dates)) {
+        throw "build_factor_source 的 dates 必须是时间向量"
+    }
+    if (size(dates) == 0) return empty_factor_timeline(factors)
+
+    code_table = table(symbol(codes) as code)
+    date_table = table(timestamp(dates) as time)
+    universe = select time, code, true as selected from cj(date_table, code_table)
+    if (size(factors) == 0) {
+        return select * from universe order by code, time
+    }
+
+    values = select timestamp(time) as time, code, factor, value
+        from data
+        where time >= start_time
+          and time < end_time
+          and factor in symbol(factors)
+          and code in symbol(codes)
+    events = select time, code, false as selected from values
+    timeline = select max(selected) as selected
+        from unionAll(universe, events)
+        group by time, code
+
+    if (values.rows() == 0) {
+        wide = select time, code from values
+    } else {
+        wide = select first(value) from values pivot by time, code, factor
+    }
+    result = select * from lj(timeline, wide, ["time", "code"])
+        order by code, time
+
+    missing = string(factors)[!(string(factors) in columnNames(result))]
+    if (size(missing) > 0) {
+        addColumn(result, missing, take(DOUBLE, size(missing)))
+    }
+    reorderColumns!(
+        result,
+        ["time", "code", "selected"] join string(factors)
+    )
+    return result
+}
+
+def finalize_factor_source(source, factors) {
+    // 填充完成后删除事件行和 selected 标记，返回正式日频 source。
+    columns = ["time", "code", "selected"] join string(factors)
+    require_table_columns(source, columns, "finalize_factor_source")
+    selected = nullFill(source.selected, false)
+    result = source[selected]
+    dropColumns!(result, `selected)
+    reorderColumns!(result, ["time", "code"] join string(factors))
+    return result
+}
+
+def project_factor_output(source, names, start_time, end_time) {
+    // 按输出日期区间筛选最终结果，并严格按照 names 返回列。
+    columns = require_table_columns(source, names, "project_factor_output")
+    if (!("time" in columns)) {
+        throw "project_factor_output 的 names 必须包含 time"
+    }
+    selected = source.time >= start_time && source.time < end_time
+    result = source[selected]
+    extra = columnNames(result)[!(columnNames(result) in columns)]
+    if (size(extra) > 0) dropColumns!(result, extra)
+    reorderColumns!(result, columns)
+    return result
 }
 
 // DIRECT operators
@@ -1138,7 +1281,7 @@ def direct_multiary_and(cols) {
     /*
     按位置计算所有布尔操作数的逻辑与。
 
-    计算在每个位置独立进行。数值归约忽略 NULL；某位置没有有效操作数时返回 NULL。
+    计算在每个位置独立进行，并与依次嵌套 binary.and 的结果一致。
 
     Parameters
     ----------
@@ -1152,10 +1295,11 @@ def direct_multiary_and(cols) {
 
     Notes
     -----
-    NULL 处理：逐行逻辑聚合会跳过 NULL；只要存在有效 BOOL 就由有效值决定结果，整行全部为 NULL
-    时返回 NULL。
+    NULL 处理：任一操作数为 BOOL NULL 时，该位置结果为 NULL，与 binary.and
+    使用相同的 NULL 传播规则。
 
-    逻辑边界：非空行使用 true 作为归约初始值。所有输入必须具有 BOOL 语义并在广播后等长。
+    逻辑边界：按操作数顺序使用 && 归约。所有输入必须具有 BOOL
+    语义并在广播后等长。
 
     Examples
     --------
@@ -1167,12 +1311,15 @@ def direct_multiary_and(cols) {
     >>> direct_multiary_and(cols)
     [true, false, false, false]
 
-    逐行跳过 NULL，整行缺失才返回 NULL：
+    任一条件为 NULL 时传播 NULL：
     >>> a = bool([true, false]); b = take(bool(NULL), 2)
     >>> direct_multiary_and([a, b])
-    [true, false]
+    [NULL, NULL]
     */
-    return unifiedCall(rowAnd, cols)
+    result = cols[0]
+    if (size(cols) == 1) return result
+    for (index in 1..(size(cols) - 1)) result = result && cols[index]
+    return result
 }
 
 def direct_multiary_coalesce(cols) {
@@ -1453,7 +1600,7 @@ def direct_multiary_or(cols) {
     /*
     按位置计算所有布尔操作数的逻辑或。
 
-    计算在每个位置独立进行。数值归约忽略 NULL；某位置没有有效操作数时返回 NULL。
+    计算在每个位置独立进行，并与依次嵌套 binary.or 的结果一致。
 
     Parameters
     ----------
@@ -1467,10 +1614,11 @@ def direct_multiary_or(cols) {
 
     Notes
     -----
-    NULL 处理：逐行逻辑聚合会跳过 NULL；只要存在有效 BOOL 就由有效值决定结果，整行全部为 NULL
-    时返回 NULL。
+    NULL 处理：任一操作数为 BOOL NULL 时，该位置结果为 NULL，与 binary.or
+    使用相同的 NULL 传播规则。
 
-    逻辑边界：非空行使用 false 作为归约初始值。所有输入必须具有 BOOL 语义并在广播后等长。
+    逻辑边界：按操作数顺序使用 || 归约。所有输入必须具有 BOOL
+    语义并在广播后等长。
 
     Examples
     --------
@@ -1482,12 +1630,15 @@ def direct_multiary_or(cols) {
     >>> direct_multiary_or(cols)
     [true, true, true, false]
 
-    逐行跳过 NULL，整行缺失才返回 NULL：
+    任一条件为 NULL 时传播 NULL：
     >>> a = bool([true, false]); b = take(bool(NULL), 2)
     >>> direct_multiary_or([a, b])
-    [true, false]
+    [NULL, NULL]
     */
-    return unifiedCall(rowOr, cols)
+    result = cols[0]
+    if (size(cols) == 1) return result
+    for (index in 1..(size(cols) - 1)) result = result || cols[index]
+    return result
 }
 
 def direct_multiary_std(cols, ddof) {
@@ -11531,7 +11682,10 @@ def evaluate_time_series(evaluator, source, definitions, mutable cache, mutable 
     n = source.rows()
     code = require_column(source, "code", op)
     time = require_column(source, "time", op)
-    on = evaluate_operand(evaluator, source, definitions, cache, states, node["on"])
+    on = NULL
+    if ("on" in node) {
+        on = evaluate_operand(evaluator, source, definitions, cache, states, node["on"])
+    }
 
     if (op == "binary.cross_above") {
         left = require_vector(fields["left"], n, op + ".fields.left")
@@ -12182,7 +12336,10 @@ def evaluate_cross_section(evaluator, source, definitions, mutable cache, mutabl
     params = node["params"]
     n = source.rows()
     time = require_column(source, "time", op)
-    on = evaluate_operand(evaluator, source, definitions, cache, states, node["on"])
+    on = NULL
+    if ("on" in node) {
+        on = evaluate_operand(evaluator, source, definitions, cache, states, node["on"])
+    }
 
     if (op == "binary.alpha") {
         left = require_vector(fields["left"], n, op + ".fields.left")
@@ -12420,11 +12577,9 @@ def evaluate_node(source, definitions, mutable cache, mutable states, node) {
         return evaluate_direct(evaluate_node, source, definitions, cache, states, node)
     }
     if (node_type == "TS") {
-        require_key(node, "on", "TS 节点")
         return evaluate_time_series(evaluate_node, source, definitions, cache, states, node)
     }
     if (node_type == "CS") {
-        require_key(node, "on", "CS 节点")
         return evaluate_cross_section(evaluate_node, source, definitions, cache, states, node)
     }
     throw "未知 DSL 类型 " + string(node_type)
@@ -12462,4 +12617,34 @@ def compute_factors(source, definitions) {
         result[name] = evaluate_definition(evaluate_node, source, parsed, cache, states, name)
     }
     return result
+}
+
+def filter_factors(source, filters) {
+    // 仅保留全部 filters 列都为 true 的行；NULL 视为 false。
+    if (!is_table_form(source)) {
+        throw "filter_factors 的 source 必须是 table，实际为 " + typestr(source)
+    }
+    if (!is_vector_form(filters)) {
+        throw "filter_factors 的 filters 必须是 STRING 向量，实际为 " + typestr(filters)
+    }
+    if (size(filters) == 0) return source
+    if (type(filters) != STRING) {
+        throw "filter_factors 的 filters 必须是 STRING 向量，实际为 " + typestr(filters)
+    }
+
+    names = string(filters)
+    missing = names[!(names in columnNames(source))]
+    if (size(missing) > 0) {
+        throw "filters 对应列不存在：" + concat(missing, ", ")
+    }
+
+    mask = take(true, source.rows())
+    for (name in names) {
+        values = source[name]
+        if (type(values) != BOOL) {
+            throw "filters 对应列必须为 BOOL 类型：" + name + "=" + typestr(values)
+        }
+        mask = mask && nullFill(values, false)
+    }
+    return source[mask]
 }

@@ -1,6 +1,45 @@
-"""时序算符共用的 DolphinDB 函数。"""
+"""时序算符和查询填充共用的 DolphinDB 函数。"""
 
+from core.query.dolphindb.common.form import (
+    IS_VECTOR_FORM,
+    REQUIRE_TABLE_COLUMNS,
+)
 from core.query.dolphindb.function import DolphinDBFunction
+
+FILL_NULL_COLUMN = DolphinDBFunction(
+    """
+    def fill_null_column(mutable source, name, value) {
+        // 使用指定标量替换单列中的 NULL，表内其他列保持不变。
+        require_table_columns(source, [string(name)], "fill_null_column")
+        source[string(name)] = nullFill(source[string(name)], value)
+        return source
+    }
+    """,
+    dependencies=(REQUIRE_TABLE_COLUMNS,),
+)
+
+FORWARD_FILL_COLUMN = DolphinDBFunction(
+    """
+    def forward_fill_column(mutable source, name, groups, order) {
+        // 按 groups 分组并按 order 排序，对单列执行前向填充。
+        require_table_columns(source, [string(name)], "forward_fill_column")
+        if (!is_vector_form(groups) || size(groups) != source.rows()) {
+            throw "forward_fill_column 的 groups 必须与 source 等长"
+        }
+        if (!is_vector_form(order) || size(order) != source.rows()) {
+            throw "forward_fill_column 的 order 必须与 source 等长"
+        }
+        source[string(name)] = contextby(
+            ffill,
+            source[string(name)],
+            groups,
+            order
+        )
+        return source
+    }
+    """,
+    dependencies=(IS_VECTOR_FORM, REQUIRE_TABLE_COLUMNS),
+)
 
 ROLLING_MIN_PERIODS = DolphinDBFunction(
     """
@@ -74,6 +113,8 @@ TALIB_MOVING_AVERAGE = DolphinDBFunction(
 )
 
 __all__ = [
+    "FILL_NULL_COLUMN",
+    "FORWARD_FILL_COLUMN",
     "MASK_EXPANDING_RESULT",
     "MASK_PAIR_EXPANDING_RESULT",
     "ROLLING_INTERCEPT",

@@ -34,7 +34,7 @@ class DirectMultiaryOrOperator(DirectOperator):
             /*
             按位置计算所有布尔操作数的逻辑或。
 
-            计算在每个位置独立进行。数值归约忽略 NULL；某位置没有有效操作数时返回 NULL。
+            计算在每个位置独立进行，并与依次嵌套 binary.or 的结果一致。
 
             Parameters
             ----------
@@ -48,10 +48,11 @@ class DirectMultiaryOrOperator(DirectOperator):
 
             Notes
             -----
-            NULL 处理：逐行逻辑聚合会跳过 NULL；只要存在有效 BOOL 就由有效值决定结果，整行全部为 NULL
-            时返回 NULL。
+            NULL 处理：任一操作数为 BOOL NULL 时，该位置结果为 NULL，与 binary.or
+            使用相同的 NULL 传播规则。
 
-            逻辑边界：非空行使用 false 作为归约初始值。所有输入必须具有 BOOL 语义并在广播后等长。
+            逻辑边界：按操作数顺序使用 || 归约。所有输入必须具有 BOOL
+            语义并在广播后等长。
 
             Examples
             --------
@@ -63,12 +64,15 @@ class DirectMultiaryOrOperator(DirectOperator):
             >>> direct_multiary_or(cols)
             [true, true, true, false]
 
-            逐行跳过 NULL，整行缺失才返回 NULL：
+            任一条件为 NULL 时传播 NULL：
             >>> a = bool([true, false]); b = take(bool(NULL), 2)
             >>> direct_multiary_or([a, b])
-            [true, false]
+            [NULL, NULL]
             */
-            return unifiedCall(rowOr, cols)
+            result = cols[0]
+            if (size(cols) == 1) return result
+            for (index in 1..(size(cols) - 1)) result = result || cols[index]
+            return result
         }
         """
     )

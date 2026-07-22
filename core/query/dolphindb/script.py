@@ -142,7 +142,10 @@ def _time_series_evaluator(models: list[Type[OperatorBase]]) -> DolphinDBFunctio
         "n = source.rows()",
         'code = require_column(source, "code", op)',
         'time = require_column(source, "time", op)',
-        'on = evaluate_operand(evaluator, source, definitions, cache, states, node["on"])',
+        "on = NULL",
+        'if ("on" in node) {',
+        '    on = evaluate_operand(evaluator, source, definitions, cache, states, node["on"])',
+        "}",
         "",
     ]
     for model in models:
@@ -205,7 +208,10 @@ def _cross_section_evaluator(models: list[Type[OperatorBase]]) -> DolphinDBFunct
         'params = node["params"]',
         "n = source.rows()",
         'time = require_column(source, "time", op)',
-        'on = evaluate_operand(evaluator, source, definitions, cache, states, node["on"])',
+        "on = NULL",
+        'if ("on" in node) {',
+        '    on = evaluate_operand(evaluator, source, definitions, cache, states, node["on"])',
+        "}",
         "",
     ]
     for model in models:
