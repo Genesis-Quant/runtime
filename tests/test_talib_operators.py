@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 import talib
 
-from core.operators import Derivative
-from core.operators.base import TimeSeriesOperator
+from core.query.operator import Derivative
+from core.query.operator.base import TimeSeriesOperator
 from tests.support.assertions import assert_vector_equal
 from tests.support.dsl import TRUE_NODE, compute_factors, direct, time_series
 

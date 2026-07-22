@@ -142,7 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--max-retries",
-        type=nonnegative_int,
+        type=positive_int,
         help="单次请求最大重试次数",
     )
     parser.add_argument(

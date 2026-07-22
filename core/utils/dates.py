@@ -4,7 +4,6 @@ from datetime import date, datetime
 
 import pandas as pd
 
-
 DateLike = date | datetime | pd.Timestamp | str
 
 
@@ -22,8 +21,8 @@ def normalize_date(value: DateLike, name: str = "date") -> pd.Timestamp:
 
 
 def normalize_date_range(
-    start_date: DateLike,
-    end_date: DateLike,
+        start_date: DateLike,
+        end_date: DateLike,
 ) -> tuple[pd.Timestamp, pd.Timestamp]:
     """规范闭区间日期并拒绝倒置区间。"""
     start = normalize_date(start_date, "start_date")

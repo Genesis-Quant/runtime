@@ -65,7 +65,7 @@ def _worker(*, max_retries: int = 3) -> _Worker:
     return worker
 
 
-def test_fetch_paginated_reads_exact_full_pages_until_empty() -> None:
+def test_paginator_reads_exact_full_pages_until_empty() -> None:
     """恰好整页不是结束信号，应继续请求并在空页结束。"""
     worker = _worker()
     calls: list[dict[str, object]] = []
@@ -80,7 +80,7 @@ def test_fetch_paginated_reads_exact_full_pages_until_empty() -> None:
         }
         return pages[offset]
 
-    result = worker.fetch_paginated(
+    result = worker.paginator.fetch(
         endpoint,
         params={"ts_code": "000001.SZ"},
         page_size=2,
@@ -97,7 +97,7 @@ def test_fetch_paginated_reads_exact_full_pages_until_empty() -> None:
     assert worker.limiter.calls == 3
 
 
-def test_fetch_paginated_advances_by_actual_length_without_short_stop() -> None:
+def test_paginator_advances_by_actual_length_without_short_stop() -> None:
     """服务端静默缩小页长时，offset 应按实际返回行数前进。"""
     worker = _worker()
     offsets: list[int] = []
@@ -109,7 +109,7 @@ def test_fetch_paginated_advances_by_actual_length_without_short_stop() -> None:
             return pd.DataFrame({"row": [offset]})
         return pd.DataFrame({"row": pd.Series(dtype="int64")})
 
-    result = worker.fetch_paginated(
+    result = worker.paginator.fetch(
         endpoint,
         params={},
         page_size=100,
@@ -121,7 +121,7 @@ def test_fetch_paginated_advances_by_actual_length_without_short_stop() -> None:
     assert worker.limiter.calls == 3
 
 
-def test_fetch_paginated_retries_only_the_failed_page() -> None:
+def test_paginator_retries_only_the_failed_page() -> None:
     """单页失败只重试当前 offset，成功的上一页不应重新获取。"""
     worker = _worker(max_retries=2)
     offsets: list[int] = []
@@ -138,7 +138,7 @@ def test_fetch_paginated_retries_only_the_failed_page() -> None:
             raise ConnectionError("temporary failure")
         return pd.DataFrame({"row": [3]})
 
-    result = worker.fetch_paginated(
+    result = worker.paginator.fetch(
         endpoint,
         params={},
         page_size=2,
@@ -160,7 +160,7 @@ def test_fetch_paginated_retries_only_the_failed_page() -> None:
         ({"params": {"offset": 0}}, "params 不能包含 limit 或 offset"),
     ],
 )
-def test_fetch_paginated_rejects_invalid_configuration(
+def test_paginator_rejects_invalid_configuration(
         arguments: dict[str, object],
         message: str,
 ) -> None:
@@ -173,16 +173,16 @@ def test_fetch_paginated_rejects_invalid_configuration(
     kwargs.update(arguments)
 
     with pytest.raises(ValueError, match=message):
-        worker.fetch_paginated(lambda **_: pd.DataFrame(), **kwargs)
+        worker.paginator.fetch(lambda **_: pd.DataFrame(), **kwargs)
 
     assert worker.limiter.calls == 0
 
 
-def test_fetch_paginated_retries_and_rejects_non_dataframe() -> None:
+def test_paginator_retries_and_rejects_non_dataframe() -> None:
     worker = _worker(max_retries=2)
 
     with pytest.raises(RuntimeError, match="共尝试 2 次") as caught:
-        worker.fetch_paginated(
+        worker.paginator.fetch(
             lambda **_: None,
             params={},
             page_size=1,
@@ -194,11 +194,11 @@ def test_fetch_paginated_retries_and_rejects_non_dataframe() -> None:
     assert worker.limiter.calls == 2
 
 
-def test_fetch_paginated_preserves_an_empty_first_page_schema() -> None:
+def test_paginator_preserves_an_empty_first_page_schema() -> None:
     worker = _worker()
     empty = pd.DataFrame({"row": pd.Series(dtype="int64")})
 
-    result = worker.fetch_paginated(
+    result = worker.paginator.fetch(
         lambda **_: empty,
         params={},
         page_size=10,
@@ -210,7 +210,7 @@ def test_fetch_paginated_preserves_an_empty_first_page_schema() -> None:
     assert worker.limiter.calls == 1
 
 
-def test_fetch_paginated_rejects_schema_changes_between_pages() -> None:
+def test_paginator_rejects_schema_changes_between_pages() -> None:
     worker = _worker()
 
     def endpoint(**params: object) -> pd.DataFrame:
@@ -219,7 +219,7 @@ def test_fetch_paginated_rejects_schema_changes_between_pages() -> None:
         return pd.DataFrame({"changed": [3]})
 
     with pytest.raises(ValueError, match="第 2 页字段发生变化"):
-        worker.fetch_paginated(
+        worker.paginator.fetch(
             endpoint,
             params={},
             page_size=2,
@@ -230,7 +230,7 @@ def test_fetch_paginated_rejects_schema_changes_between_pages() -> None:
     assert worker.limiter.calls == 2
 
 
-def test_fetch_paginated_rejects_a_repeated_page_ignoring_row_order() -> None:
+def test_paginator_rejects_a_repeated_page_ignoring_row_order() -> None:
     worker = _worker()
 
     def endpoint(**params: object) -> pd.DataFrame:
@@ -239,7 +239,7 @@ def test_fetch_paginated_rejects_a_repeated_page_ignoring_row_order() -> None:
         return pd.DataFrame({"row": [2, 1]})
 
     with pytest.raises(RuntimeError, match="第 2 页内容重复"):
-        worker.fetch_paginated(
+        worker.paginator.fetch(
             endpoint,
             params={},
             page_size=2,
@@ -249,7 +249,7 @@ def test_fetch_paginated_rejects_a_repeated_page_ignoring_row_order() -> None:
     assert worker.limiter.calls == 2
 
 
-def test_fetch_paginated_fails_closed_at_max_pages() -> None:
+def test_paginator_fails_closed_at_max_pages() -> None:
     worker = _worker()
 
     def endpoint(**params: object) -> pd.DataFrame:
@@ -257,7 +257,7 @@ def test_fetch_paginated_fails_closed_at_max_pages() -> None:
         return pd.DataFrame({"row": [offset, offset + 1]})
 
     with pytest.raises(RuntimeError, match="已达到最大分页数 2"):
-        worker.fetch_paginated(
+        worker.paginator.fetch(
             endpoint,
             params={},
             page_size=2,

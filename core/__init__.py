@@ -1,7 +1,6 @@
-"""Seminar 因子数据、DolphinDB DSL 与校验模型。"""
+"""Seminar 因子数据、查询 DSL 与 Worker。"""
 
-from .database import FactorQuery, execute_query, query_source
-from .operators import Derivative
+from .query import Derivative, FactorQuery, execute_query, query_source
 from .utils import logger
 
 __all__ = [

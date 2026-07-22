@@ -21,7 +21,6 @@ class DOLPHIN:
 
     DATABASE = os.getenv("DOLPHIN_CORE_DATABASE", "dfs://CoreData")
     TABLE = os.getenv("DOLPHIN_CORE_TABLE", "coreData")
-    CALENDAR_FACTOR = os.getenv("DOLPHIN_CORE_CALENDAR_FACTOR", "close")
 
 
 # 需要持久化并对外提供查询的指数代码。

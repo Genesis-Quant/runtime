@@ -5,8 +5,8 @@ from typing import Any, get_args
 
 from pydantic_core import PydanticUndefined
 
-from core.operators import Derivative
-from core.operators.base import CrossSectionOperator, DirectOperator
+from core.query.operator import Derivative
+from core.query.operator.base import CrossSectionOperator, DirectOperator
 
 
 def operation_name(model: type[Derivative]) -> str:

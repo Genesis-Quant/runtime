@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.operators import Derivative
-from core.operators.base import DirectOperator
+from core.query.operator import Derivative
+from core.query.operator.base import DirectOperator
 from tests.support.assertions import assert_vector_equal
 from tests.support.contracts import canonical_definition
 from tests.support.dsl import compute_factors, cross_section, direct, time_series

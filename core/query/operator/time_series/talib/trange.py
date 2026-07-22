@@ -1,0 +1,79 @@
+"""talib.trange 算符模型。"""
+
+from typing import ClassVar, Literal
+
+from pydantic import Field
+
+from core.query.dolphindb import DolphinDBFunction
+
+from core.query.operator.base import TimeSeriesOperator
+from core.query.operator.fields import OHLCFields
+from core.query.operator.schema import (
+    OutputKind,
+    StrictModel,
+)
+
+
+class TimeSeriesTalibTrangeParams(StrictModel):
+    """talib.trange 不接收参数。"""
+
+
+class TimeSeriesTalibTrangeOperator(TimeSeriesOperator):
+    """调用 ta::trange。"""
+
+    op: Literal['talib.trange'] = Field(..., description='调用 ta::trange。')
+    fields: OHLCFields = Field(..., description="该算符严格定义的输入字段。")
+    params: TimeSeriesTalibTrangeParams = Field(
+        default_factory=TimeSeriesTalibTrangeParams,
+        description="该算符严格定义的参数。",
+    )
+    output_kind: ClassVar[OutputKind] = 'NUMBER'
+    function: ClassVar[DolphinDBFunction] = DolphinDBFunction(
+        """
+        def ts_talib_trange(high, low, close) {
+            /*
+            计算 TA-Lib TRANGE（真实波幅）。
+
+            该函数直接调用 DolphinDB TA-Lib 实现。所有输入向量必须等长；指标尚未积累足够历史观测的预热位置返回 NULL。
+
+            Parameters
+            ----------
+            high : vector
+                最高价向量。
+            low : vector
+                最低价向量。
+            close : vector
+                收盘价向量。
+
+            Returns
+            -------
+            result : vector[NUMBER]
+                与输入序列等长；历史观测不足或计算无定义的位置为 NULL。
+
+            Notes
+            -----
+            NULL 处理：首行因缺少前收盘价返回 NULL；当前 high/low 或参与比较的前收盘价为 NULL
+            时，相应位置也无法形成真实波幅。
+
+            计算定义：计算 max(high-low, abs(high-prevClose),
+            abs(low-prevClose))。
+
+            输出边界：结果依赖当前 high/low 和前一期 close，因此首个位置没有真实波幅；输出与输入等长。
+
+            Examples
+            --------
+            >>> close = 10.0 10.5 10.2 10.8 11.1 10.9 11.4 11.8 11.5 12.0 12.3 12.1
+            >>> high = close + 0.6
+            >>> low = close - 0.5
+            >>> tail(ts_talib_trange(high, low, close), 3)
+            [1.1, 1.1, 1.1]
+
+            NULL 输入示例：
+            >>> high=double([2,NULL,4]); low=double([0,1,2]); close=double([1,2,3])
+            >>> ts_talib_trange(high, low, close)
+            [NULL, NULL, 2]
+            */
+            return ta::trange(high, low, close)
+        }
+        """
+    )

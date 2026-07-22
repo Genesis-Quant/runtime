@@ -4,7 +4,6 @@ import sys
 
 from loguru import logger
 
-
 logger.remove()
 log_format = (
     "<g>{time:YYYY-MM-DD HH:mm:ss}</g> "

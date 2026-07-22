@@ -4,8 +4,8 @@ import pandas as pd
 import tushare as ts
 
 from config import TUSHARE_TOKEN
+from .dates import DateLike, normalize_date_range
 from .logging import logger
-
 
 if not TUSHARE_TOKEN:
     raise RuntimeError("缺少 TUSHARE_TOKEN，无法初始化 Tushare Pro API")
@@ -47,3 +47,39 @@ if not CODES:
     raise RuntimeError("stock_basic 没有返回有效股票代码")
 
 logger.success(f"Tushare Pro 初始化完成，共加载 {len(CODES):,} 只股票")
+
+
+def get_trading_dates(
+        start_date: DateLike,
+        end_date: DateLike,
+) -> pd.DatetimeIndex:
+    """返回上交所在闭区间内的开放交易日。"""
+    start, end = normalize_date_range(start_date, end_date)
+    response = pro.trade_cal(
+        exchange="SSE",
+        start_date=start.strftime("%Y%m%d"),
+        end_date=end.strftime("%Y%m%d"),
+        is_open="1",
+        fields="cal_date,is_open",
+    )
+    if response is None:
+        raise RuntimeError("trade_cal 返回 None")
+    if not isinstance(response, pd.DataFrame):
+        raise TypeError("trade_cal 返回值必须是 DataFrame")
+    required = {"cal_date", "is_open"}
+    if missing := required - set(response.columns):
+        raise ValueError(f"trade_cal 返回结果缺少列：{sorted(missing)}")
+    if response.empty:
+        return pd.DatetimeIndex([])
+
+    is_open = pd.to_numeric(response["is_open"], errors="coerce")
+    if is_open.isna().any():
+        raise ValueError("trade_cal 返回了无效 is_open")
+    values = response.loc[is_open.eq(1), "cal_date"]
+    dates = pd.to_datetime(values, format="%Y%m%d", errors="coerce")
+    if dates.isna().any():
+        raise ValueError("trade_cal 返回了无效 cal_date")
+    return pd.DatetimeIndex(dates.drop_duplicates().sort_values())
+
+
+__all__ = ["CODES", "get_trading_dates", "pro", "ts"]

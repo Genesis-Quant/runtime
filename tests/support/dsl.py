@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from core.operators import Derivative
+from core.query.operator import Derivative
 
 
 def node(

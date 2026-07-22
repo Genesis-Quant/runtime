@@ -6,7 +6,7 @@ import dolphindb as ddb
 from hypothesis import HealthCheck, settings
 import pytest
 
-from core.dolphindb.script import build_script
+from core.query.dolphindb.script import build_script
 
 
 settings.register_profile(

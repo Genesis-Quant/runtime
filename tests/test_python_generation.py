@@ -6,18 +6,18 @@ from typing import get_args
 
 import pytest
 
-from core.dolphindb.function import (
+from core.query.dolphindb.function import (
     DolphinDBFunction,
     collect_functions,
     render_functions,
 )
-from core.dolphindb.script import (
+from core.query.dolphindb.script import (
     SCRIPT_PATH,
     build_script,
     evaluator_functions,
     write_script,
 )
-from core.operators import Derivative
+from core.query.operator import Derivative
 
 
 def test_function_parses_and_normalizes_definition() -> None:
@@ -174,5 +174,5 @@ def test_write_script_supports_custom_and_default_paths(tmp_path: Path) -> None:
 def test_script_module_entry_point_writes_and_prints_path(capsys) -> None:
     """直接运行生成模块时应执行写入入口并输出目标路径。"""
     with pytest.warns(RuntimeWarning, match="found in sys.modules"):
-        runpy.run_module("core.dolphindb.script", run_name="__main__")
+        runpy.run_module("core.query.dolphindb.script", run_name="__main__")
     assert str(SCRIPT_PATH) in capsys.readouterr().out

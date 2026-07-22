@@ -1,6 +1,6 @@
 use ta
 
-// 此文件由 core.dolphindb.script 生成，请修改 Python 中的函数定义。
+// 此文件由 core.query.dolphindb.script 生成，请修改 Python 中的函数定义。
 // on、code、time、分组、排序和结果回填仅由 derive 执行层处理。
 
 // 工具函数

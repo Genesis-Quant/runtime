@@ -2,8 +2,7 @@
 
 import pandas as pd
 
-from core.database import CODE_COLUMN, TIME_COLUMN
-from core.utils import normalize_date, pro, ts
+from core.utils import CODE_COLUMN, TIME_COLUMN, normalize_date, pro, ts
 
 from .base import DateWorker, StockWorker
 

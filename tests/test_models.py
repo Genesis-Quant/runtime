@@ -7,10 +7,10 @@ from typing import Any, Literal, get_args
 from pydantic import BaseModel, Field, ValidationError
 import pytest
 
-from core.dolphindb import DolphinDBFunction
-from core.operators import Derivative
-from core.operators.base import DirectOperator, OperatorBase
-from core.operators.fields import StrictModel, UnaryFields
+from core.query.dolphindb import DolphinDBFunction
+from core.query.operator import Derivative
+from core.query.operator.base import DirectOperator, OperatorBase
+from core.query.operator.fields import StrictModel, UnaryFields
 from tests.support.contracts import (
     ALL_OPERATIONS,
     canonical_definition,

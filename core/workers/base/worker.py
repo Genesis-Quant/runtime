@@ -10,21 +10,19 @@ import pandas as pd
 
 from config import DATA_START_DATE
 from core.utils import (
+    CODE_COLUMN,
+    CORE_COLUMNS,
     DateLike,
+    FACTOR_COLUMN,
     Paginator,
     RateLimiter,
     Retry,
+    TIME_COLUMN,
+    VALUE_COLUMN,
     logger,
     normalize_date_range,
 )
-from core.database import (
-    CODE_COLUMN,
-    CORE_COLUMNS,
-    FACTOR_COLUMN,
-    TIME_COLUMN,
-    VALUE_COLUMN,
-    CoreTableWriter,
-)
+from core.database import CoreTableWriter
 
 class BaseWorker(ABC):
     """统一管理运行配置、返回格式、失败重试和批量写入。"""

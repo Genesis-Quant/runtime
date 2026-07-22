@@ -9,13 +9,17 @@ import numpy as np
 import pandas as pd
 
 from config import DATA_START_DATE
-from core.utils import DateLike, logger, normalize_date
-from core.database import (
+from core.utils import (
     CODE_COLUMN,
-    CORE_TABLE,
+    DateLike,
     FACTOR_COLUMN,
     TIME_COLUMN,
     VALUE_COLUMN,
+    logger,
+    normalize_date,
+)
+from core.database import (
+    CORE_TABLE,
     CoreTableWriter,
     create_session,
 )

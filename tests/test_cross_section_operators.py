@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.operators import Derivative
-from core.operators.base import CrossSectionOperator
+from core.query.operator import Derivative
+from core.query.operator.base import CrossSectionOperator
 from tests.support.assertions import assert_vector_equal
 from tests.support.dsl import TRUE_NODE, compute_factors, cross_section
 from tests.support.panel import apply_cross_section, neutralize, zscore

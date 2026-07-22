@@ -11,6 +11,8 @@ from core.workers.base import BaseWorker, DateWorker, StockWorker
 from core.workers.base import date as date_worker_module
 from core.workers.base import stock as stock_worker_module
 from core.workers.base import worker as base_worker_module
+from core.utils import paginate as paginate_module
+from core.utils import retry as retry_module
 
 
 class _BaseLogWorker(BaseWorker):
@@ -59,22 +61,6 @@ class _DateLogWorker(DateWorker):
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         return self.EMPTY
-
-
-class _Progress:
-    """替代 tqdm，避免测试输出和终端状态影响日志断言。"""
-
-    def __enter__(self) -> "_Progress":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        return None
-
-    def set_postfix(self, **kwargs: object) -> None:
-        return None
-
-    def update(self, count: int = 1) -> None:
-        return None
 
 
 def _logger_messages(logger: Mock, *levels: str) -> list[str]:
@@ -219,7 +205,6 @@ def test_stock_fetch_all_logs_plan_and_completion_summary(
         return worker.EMPTY
 
     monkeypatch.setattr(worker, "fetch_one", fetch_one)
-    monkeypatch.setattr(stock_worker_module, "tqdm", lambda **kwargs: _Progress())
     monkeypatch.setattr(stock_worker_module, "logger", logger)
 
     results = list(worker.fetch_all())
@@ -335,7 +320,7 @@ def test_pending_dates_logs_update_mode_and_effective_range(
         assert marker in messages
 
 
-def test_fetch_paginated_logs_multiple_page_summary(
+def test_paginator_logs_multiple_page_summary(
         monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     worker = _BaseLogWorker(
@@ -345,14 +330,14 @@ def test_fetch_paginated_logs_multiple_page_summary(
         retry_interval=0,
     )
     logger = Mock()
-    monkeypatch.setattr(base_worker_module, "logger", logger)
+    monkeypatch.setattr(paginate_module, "logger", logger)
 
     def endpoint(**params: object) -> pd.DataFrame:
         if params["offset"] == 0:
             return pd.DataFrame({"row": [1, 2]})
         return pd.DataFrame({"row": [3]})
 
-    result = worker.fetch_paginated(
+    result = worker.paginator.fetch(
         endpoint,
         params={"ts_code": "A"},
         page_size=2,
@@ -371,7 +356,7 @@ def test_fetch_paginated_logs_multiple_page_summary(
     )
 
 
-def test_fetch_paginated_caps_info_samples_and_aggregates_all_calls(
+def test_paginator_logs_and_aggregates_all_calls(
         monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     worker = _BaseLogWorker(
@@ -380,7 +365,7 @@ def test_fetch_paginated_caps_info_samples_and_aggregates_all_calls(
         throttle=0,
     )
     logger = Mock()
-    monkeypatch.setattr(base_worker_module, "logger", logger)
+    monkeypatch.setattr(paginate_module, "logger", logger)
 
     def endpoint(**params: object) -> pd.DataFrame:
         if params["offset"] == 0:
@@ -388,7 +373,7 @@ def test_fetch_paginated_caps_info_samples_and_aggregates_all_calls(
         return pd.DataFrame({"row": [3]})
 
     for number in range(12):
-        worker.fetch_paginated(
+        worker.paginator.fetch(
             endpoint,
             params={"ts_code": f"S{number:02d}"},
             page_size=2,
@@ -401,15 +386,14 @@ def test_fetch_paginated_caps_info_samples_and_aggregates_all_calls(
         for message in _logger_messages(logger, "info")
         if "分页完成" in message
     ]
-    assert len(info_details) == 10
-    summary = worker._pagination_summary()
+    assert len(info_details) == 12
+    summary = worker.paginator.summary()
     assert "分页完成=12" in summary
     assert "多页=12" in summary
     assert "请求=24" in summary
     assert "有效页=24" in summary
     assert "返回行=36" in summary
     assert "补齐行=12" in summary
-    assert "省略明细=2" in summary
 
 
 def test_retry_logs_recovery_after_a_transient_failure(
@@ -423,7 +407,7 @@ def test_retry_logs_recovery_after_a_transient_failure(
         retry_interval=0,
     )
     logger = Mock()
-    monkeypatch.setattr(base_worker_module, "logger", logger)
+    monkeypatch.setattr(retry_module, "logger", logger)
     attempts = 0
 
     def operation() -> str:
@@ -435,9 +419,9 @@ def test_retry_logs_recovery_after_a_transient_failure(
 
     assert worker.retry(operation, context="sample[A]") == "ok"
 
-    warnings = _joined_messages(logger, "warning")
-    assert "sample[A]" in warnings
-    assert "attempt=1/2" in warnings
+    failures = _joined_messages(logger, "exception")
+    assert "sample[A]" in failures
+    assert "attempt=1/2" in failures
     recovered = _logger_messages(logger, "debug", "info", "success")
     assert any(
         "sample[A]" in message
@@ -521,8 +505,6 @@ def test_base_run_reports_rows_written_before_a_later_batch_fails(
         lambda *args, **kwargs: Writer(),
     )
     monkeypatch.setattr(base_worker_module, "logger", logger)
-    worker._partial_write_rows = 99
-
     with pytest.raises(RuntimeError, match="second batch failed"):
         worker.run()
 
@@ -570,7 +552,6 @@ def test_date_fetch_all_logs_interrupted_generator(
         "pending_dates",
         lambda: pd.date_range("2025-01-01", "2025-01-02"),
     )
-    monkeypatch.setattr(date_worker_module, "tqdm", lambda **kwargs: _Progress())
     monkeypatch.setattr(date_worker_module, "logger", logger)
 
     results = worker.fetch_all()
@@ -594,7 +575,6 @@ def test_stock_fetch_all_logs_interrupted_generator(
     )
     logger = Mock()
     monkeypatch.setattr(worker, "get_last_dates", dict)
-    monkeypatch.setattr(stock_worker_module, "tqdm", lambda **kwargs: _Progress())
     monkeypatch.setattr(stock_worker_module, "logger", logger)
 
     results = worker.fetch_all()
@@ -629,7 +609,6 @@ def test_date_fetch_all_caps_failure_samples_and_logs_failed_status(
             RuntimeError("failure " + "x" * 1_000)
         ),
     )
-    monkeypatch.setattr(date_worker_module, "tqdm", lambda **kwargs: _Progress())
     monkeypatch.setattr(date_worker_module, "logger", logger)
 
     with pytest.raises(RuntimeError, match="共 12 个自然日") as caught:
@@ -637,11 +616,11 @@ def test_date_fetch_all_caps_failure_samples_and_logs_failed_status(
 
     item_errors = [
         message
-        for message in _logger_messages(logger, "error")
+        for message in _logger_messages(logger, "exception")
         if "获取失败" in message
     ]
-    assert len(item_errors) == 10
-    assert all(len(message) < 400 for message in item_errors)
+    assert len(item_errors) == 12
+    assert "x" * 1_000 in str(caught.value)
     assert "其余 2 条失败已省略" in str(caught.value)
     messages = _joined_messages(logger, "info")
     assert "获取汇总：状态=失败" in messages
@@ -671,7 +650,6 @@ def test_stock_fetch_all_caps_failure_samples_and_logs_failed_status(
         raise RuntimeError(f"{code} failure " + "x" * 1_000)
 
     monkeypatch.setattr(worker, "fetch_one", fail)
-    monkeypatch.setattr(stock_worker_module, "tqdm", lambda **kwargs: _Progress())
     monkeypatch.setattr(stock_worker_module, "logger", logger)
 
     with pytest.raises(RuntimeError, match="共 12 只股票") as caught:
@@ -679,11 +657,11 @@ def test_stock_fetch_all_caps_failure_samples_and_logs_failed_status(
 
     item_errors = [
         message
-        for message in _logger_messages(logger, "error")
+        for message in _logger_messages(logger, "exception")
         if "区间=" in message
     ]
-    assert len(item_errors) == 10
-    assert all(len(message) < 450 for message in item_errors)
+    assert len(item_errors) == 12
+    assert "x" * 1_000 in str(caught.value)
     assert "其余 2 条失败已省略" in str(caught.value)
     messages = _joined_messages(logger, "info")
     assert "获取汇总：状态=失败" in messages

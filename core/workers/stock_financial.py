@@ -3,8 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from core.database import TIME_COLUMN
-from core.utils import pro
+from core.utils import TIME_COLUMN, pro
 
 from .base import StockWorker
 
