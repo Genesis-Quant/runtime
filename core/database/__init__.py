@@ -1,11 +1,15 @@
 """统一导出 DolphinDB 长表连接、初始化与写入能力。"""
 
 from .session import (
+    CODE_COLUMN,
     CORE_COLUMNS,
     CORE_TABLE,
     CoreTableWriter,
     DEFAULT_FACTORS,
+    FACTOR_COLUMN,
     IS_ST_FACTOR,
+    TIME_COLUMN,
+    VALUE_COLUMN,
     WEIGHT_PREFIX,
     create_session,
     ensure_factor_partitions,
@@ -24,11 +28,15 @@ from .query import (
 )
 
 __all__ = [
+    "CODE_COLUMN",
     "CORE_COLUMNS",
     "CORE_TABLE",
     "CoreTableWriter",
     "DEFAULT_FACTORS",
+    "FACTOR_COLUMN",
     "IS_ST_FACTOR",
+    "TIME_COLUMN",
+    "VALUE_COLUMN",
     "WEIGHT_PREFIX",
     "FactorQuery",
     "available_factors",

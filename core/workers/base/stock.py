@@ -8,26 +8,22 @@ from datetime import timedelta
 
 import numpy as np
 import pandas as pd
-from tqdm.auto import tqdm
 
 from config import DATA_START_DATE
 from core.utils import CODES, DateLike, logger
-from core.database import CORE_TABLE, create_session
+from core.database import (
+    CODE_COLUMN,
+    CORE_TABLE,
+    FACTOR_COLUMN,
+    TIME_COLUMN,
+    VALUE_COLUMN,
+    create_session,
+)
 
 from .worker import BaseWorker
 
 
-_MAX_FAILURE_SAMPLES = 10
-_MAX_ERROR_TEXT_LENGTH = 300
-
-
-def _short_error(error: Exception) -> str:
-    """返回适合单行日志的有界异常摘要。"""
-    detail = " ".join(str(error).split())
-    text = type(error).__name__ if not detail else f"{type(error).__name__}: {detail}"
-    if len(text) <= _MAX_ERROR_TEXT_LENGTH:
-        return text
-    return text[:_MAX_ERROR_TEXT_LENGTH - 1] + "…"
+MAX_FAILURE_SAMPLES = 10
 
 
 class StockWorker(BaseWorker, ABC):
@@ -49,6 +45,7 @@ class StockWorker(BaseWorker, ABC):
             max_retries: int = 3,
             retry_interval: float = 1.0,
             batch_size: int = 1_000_000,
+            overwrite: bool = False,
     ) -> None:
         """初始化按股票更新范围、股票池、并发和写入配置。"""
         super().__init__(
@@ -58,14 +55,31 @@ class StockWorker(BaseWorker, ABC):
             throttle=throttle,
             max_retries=max_retries,
             retry_interval=retry_interval,
-            batch_size=batch_size
+            batch_size=batch_size,
+            overwrite=overwrite,
         )
-        self.codes = codes
+        if isinstance(codes, (str, bytes)):
+            raise TypeError("codes 必须是字符串序列")
+        normalized_codes: list[str] = []
+        seen_codes: set[str] = set()
+        for code in codes:
+            if not isinstance(code, str):
+                raise TypeError("codes 必须全部是字符串")
+            normalized_code = code.strip()
+            if not normalized_code:
+                raise ValueError("codes 不能包含空值")
+            if normalized_code not in seen_codes:
+                normalized_codes.append(normalized_code)
+                seen_codes.add(normalized_code)
+        if not normalized_codes:
+            raise ValueError("codes 不能为空")
+        self.codes = tuple(normalized_codes)
         logger.debug(
             f"{self} 初始化：股票={len(self.codes):,}，"
             f"{self.start_date:%Y-%m-%d} 至 {self.end_date:%Y-%m-%d}，"
-            f"threads={self.threads}，throttle={throttle}，"
-            f"max_retries={self.max_retries}，batch_size={self.batch_size}"
+            f"threads={self.threads}，throttle={self.throttle}，"
+            f"max_retries={self.retry.max_retries}，"
+            f"batch_size={self.batch_size}"
         )
 
     def get_last_dates(self) -> dict[str, pd.Timestamp]:
@@ -84,20 +98,22 @@ class StockWorker(BaseWorker, ABC):
             )
             result = session.run(
                 f"""
-                select code, max(time) as time
+                select {CODE_COLUMN}, max({TIME_COLUMN}) as {TIME_COLUMN}
                 from {CORE_TABLE}
-                where code in symbol(stockWorkerCodes)
-                  and factor in symbol(stockWorkerLastDateFactors)
-                group by code
+                where {CODE_COLUMN} in symbol(stockWorkerCodes)
+                  and {FACTOR_COLUMN} in symbol(stockWorkerLastDateFactors)
+                group by {CODE_COLUMN}
                 """
             )
         finally:
             session.close()
         dates = (
             {
-                str(row.code): pd.Timestamp(row.time).normalize()
+                str(getattr(row, CODE_COLUMN)): pd.Timestamp(
+                    getattr(row, TIME_COLUMN)
+                ).normalize()
                 for row in result.itertuples(index=False)
-                if not pd.isna(row.time)
+                if not pd.isna(getattr(row, TIME_COLUMN))
             }
             if result is not None and not result.empty
             else {}
@@ -131,20 +147,25 @@ class StockWorker(BaseWorker, ABC):
             raise TypeError(f"{self}[{code}] 返回值不是 DataFrame")
         if data.empty:
             return self.EMPTY
-        required = {"time", *self.factors}
+        required = {TIME_COLUMN, *self.factors}
         if missing := required - set(data.columns):
             raise ValueError(f"{self}[{code}] 返回结果缺少列：{sorted(missing)}")
-        result = data.loc[:, ["time", *self.factors]].copy()
-        result["time"] = pd.to_datetime(result["time"], errors="coerce")
-        if result["time"].isna().any():
-            raise ValueError(f"{self}[{code}] 返回了无效 time")
-        result = result[result["time"].between(start_date, end_date)]
-        result["code"] = code
+        result = data.loc[:, [TIME_COLUMN, *self.factors]].copy()
+        result[TIME_COLUMN] = pd.to_datetime(
+            result[TIME_COLUMN],
+            errors="coerce",
+        )
+        if result[TIME_COLUMN].isna().any():
+            raise ValueError(f"{self}[{code}] 返回了无效 {TIME_COLUMN}")
+        result = result[
+            result[TIME_COLUMN].between(start_date, end_date)
+        ]
+        result[CODE_COLUMN] = code
         result = result.melt(
-            id_vars=["time", "code"],
+            id_vars=[TIME_COLUMN, CODE_COLUMN],
             value_vars=list(self.factors),
-            var_name="factor",
-            value_name="value",
+            var_name=FACTOR_COLUMN,
+            value_name=VALUE_COLUMN,
         )
         return self.normalize_result(result)
 
@@ -160,16 +181,16 @@ class StockWorker(BaseWorker, ABC):
 
         实现应把接口宽表交给 :meth:`melt` 并直接返回其结果，不得返回
         ``None``、接口原始宽表，或在 ``melt`` 之后再次清洗。
-        所有外部请求必须通过 :meth:`retry` 或
-        :meth:`fetch_paginated` 发起，以共享 Worker 的限流和重试配置。
+        所有外部请求必须通过 ``self.retry`` 或 ``self.paginator.fetch``
+        发起，以共享统一的限流和重试配置。
         """
         raise NotImplementedError
 
     def fetch_all(self) -> Iterable[pd.DataFrame]:
         """按股票增量区间并发获取并生成可直接写入的四列长表。"""
         started = time.perf_counter()
-        self._reset_pagination_stats()
-        last_dates = self.get_last_dates()
+        self.paginator.reset()
+        last_dates = {} if self.overwrite else self.get_last_dates()
         end_date = self.end_date
         tasks: list[tuple[str, pd.Timestamp]] = []
         first_count = 0
@@ -198,7 +219,8 @@ class StockWorker(BaseWorker, ABC):
             else "无"
         )
         logger.info(
-            f"{self} 增量计划：首次={first_count:,}，续更={resumed_count:,}，"
+            f"{self} {'覆盖' if self.overwrite else '增量'}计划："
+            f"首次={first_count:,}，续更={resumed_count:,}，"
             f"已最新={current_count:,}，"
             f"待请求={len(tasks):,}/{len(self.codes):,}，"
             f"实际起点={start_range}，截止={end_date:%Y-%m-%d}"
@@ -214,69 +236,55 @@ class StockWorker(BaseWorker, ABC):
         try:
             with ThreadPoolExecutor(max_workers=self.threads) as executor:
                 futures = {}
-                with tqdm(
-                        total=len(tasks),
-                        desc=f"{self}[{self.threads}线程]",
-                        unit="code",
-                        dynamic_ncols=True,
-                        smoothing=0.1,
-                ) as progress:
-                    while task_index < len(tasks) or futures or ready:
-                        # 待执行 Future 最多为 threads 个，避免保留全市场结果。
-                        while (
-                                task_index < len(tasks)
-                                and len(futures) < self.threads
-                        ):
-                            code, start_date = tasks[task_index]
-                            future = executor.submit(
-                                self.fetch_one,
-                                code,
-                                start_date=start_date,
-                                end_date=end_date,
-                            )
-                            futures[future] = (code, start_date)
-                            task_index += 1
-
-                        if ready:
-                            yield ready.pop()
-                            continue
-
-                        completed, _ = wait(
-                            futures,
-                            return_when=FIRST_COMPLETED,
+                while task_index < len(tasks) or futures or ready:
+                    # 待执行 Future 最多为 threads 个，避免保留全市场结果。
+                    while (
+                            task_index < len(tasks)
+                            and len(futures) < self.threads
+                    ):
+                        code, start_date = tasks[task_index]
+                        future = executor.submit(
+                            self.fetch_one,
+                            code,
+                            start_date=start_date,
+                            end_date=end_date,
                         )
-                        for future in completed:
-                            code, start_date = futures.pop(future)
-                            try:
-                                frame = self.check(future.result())
-                            except Exception as error:
-                                failure_count += 1
-                                error_text = _short_error(error)
-                                if len(failure_samples) < _MAX_FAILURE_SAMPLES:
-                                    failure_samples.append(
-                                        f"{code}[{start_date:%Y-%m-%d} 至 "
-                                        f"{end_date:%Y-%m-%d}]: {error_text}"
-                                    )
-                                    logger.error(
-                                        f"{self}[{code}] 获取失败，区间="
-                                        f"{start_date:%Y-%m-%d} 至 "
-                                        f"{end_date:%Y-%m-%d}：{error_text}"
-                                    )
-                            else:
-                                rows += len(frame)
-                                empty_count += int(frame.empty)
-                                nonempty_count += int(not frame.empty)
-                                # 完成结果只短暂排队，下一轮立即交给 run 消费。
-                                ready.append(frame)
-                            finally:
-                                progress.set_postfix(
-                                    current=code,
-                                    rows=f"{rows:,}",
-                                    empty=empty_count,
-                                    failed=failure_count,
-                                    refresh=False,
+                        futures[future] = (code, start_date)
+                        task_index += 1
+
+                    if ready:
+                        yield ready.pop()
+                        continue
+
+                    completed, _ = wait(
+                        futures,
+                        return_when=FIRST_COMPLETED,
+                    )
+                    for future in completed:
+                        code, start_date = futures.pop(future)
+                        try:
+                            frame = self.check(future.result())
+                        except Exception as error:
+                            failure_count += 1
+                            error_text = (
+                                f"{type(error).__name__}: {error}"
+                            )
+                            if len(failure_samples) < MAX_FAILURE_SAMPLES:
+                                failure_samples.append(
+                                    f"{code}[{start_date:%Y-%m-%d} 至 "
+                                    f"{end_date:%Y-%m-%d}]: {error_text}"
                                 )
-                                progress.update()
+                            logger.exception(
+                                f"{self}[{code}] 获取失败，区间="
+                                f"{start_date:%Y-%m-%d} 至 "
+                                f"{end_date:%Y-%m-%d}"
+                            )
+                        else:
+                            rows += len(frame)
+                            empty_count += int(frame.empty)
+                            nonempty_count += int(not frame.empty)
+                            # 完成结果只短暂排队，下一轮立即交给 run 消费。
+                            ready.append(frame)
 
             if failure_count:
                 status = "失败"
@@ -314,6 +322,6 @@ class StockWorker(BaseWorker, ABC):
                 f"{self} 获取汇总：状态={status}，"
                 f"任务={len(tasks):,}，非空={nonempty_count:,}，"
                 f"空={empty_count:,}，结果行={rows:,}，"
-                f"失败={failure_count:,}{self._pagination_summary()}，"
+                f"失败={failure_count:,}{self.paginator.summary()}，"
                 f"耗时={elapsed:.2f}秒"
             )

@@ -3,7 +3,7 @@
 import pandas as pd
 
 from core.utils import normalize_date, pro
-from core.database import IS_ST_FACTOR
+from core.database import CODE_COLUMN, IS_ST_FACTOR, TIME_COLUMN
 
 from .base import DateWorker
 
@@ -34,6 +34,8 @@ class StockSTWorker(DateWorker):
         if response is None or response.empty:
             return self.EMPTY
 
-        data = response.rename(columns={"trade_date": "time", "ts_code": "code"})
+        data = response.rename(
+            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
+        )
         data[self.factors[0]] = 1.0
         return self.melt(current, data)

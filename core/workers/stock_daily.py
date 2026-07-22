@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from core.database import CODE_COLUMN, TIME_COLUMN
 from core.utils import normalize_date, pro, ts
 
 from .base import DateWorker, StockWorker
@@ -41,7 +42,9 @@ class StockDailyWorker(DateWorker):
         if response is None or response.empty:
             return self.EMPTY
 
-        data = response.rename(columns={"trade_date": "time", "ts_code": "code"})
+        data = response.rename(
+            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
+        )
         return self.melt(current, data)
 
 
@@ -87,7 +90,9 @@ class StockDailyBasicWorker(DateWorker):
         if response is None or response.empty:
             return self.EMPTY
 
-        data = response.rename(columns={"trade_date": "time", "ts_code": "code"})
+        data = response.rename(
+            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
+        )
         return self.melt(current, data)
 
 
@@ -116,7 +121,9 @@ class StockAdjFactorWorker(DateWorker):
         if response is None or response.empty:
             return self.EMPTY
 
-        data = response.rename(columns={"trade_date": "time", "ts_code": "code"})
+        data = response.rename(
+            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
+        )
         return self.melt(current, data)
 
 
@@ -161,7 +168,7 @@ class StockHfqWorker(StockWorker):
 
         return self.melt(code, response.rename(
             columns={
-                "trade_date": "time",
+                "trade_date": TIME_COLUMN,
                 "open": "open_hfq",
                 "high": "high_hfq",
                 "low": "low_hfq",

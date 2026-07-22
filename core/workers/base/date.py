@@ -7,26 +7,23 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
-from tqdm.auto import tqdm
 
 from config import DATA_START_DATE
 from core.utils import DateLike, logger, normalize_date
-from core.database import CORE_TABLE, CoreTableWriter, create_session
+from core.database import (
+    CODE_COLUMN,
+    CORE_TABLE,
+    FACTOR_COLUMN,
+    TIME_COLUMN,
+    VALUE_COLUMN,
+    CoreTableWriter,
+    create_session,
+)
 
 from .worker import BaseWorker
 
 
-_MAX_FAILURE_SAMPLES = 10
-_MAX_ERROR_TEXT_LENGTH = 300
-
-
-def _short_error(error: Exception) -> str:
-    """返回适合单行日志的有界异常摘要。"""
-    detail = " ".join(str(error).split())
-    text = type(error).__name__ if not detail else f"{type(error).__name__}: {detail}"
-    if len(text) <= _MAX_ERROR_TEXT_LENGTH:
-        return text
-    return text[:_MAX_ERROR_TEXT_LENGTH - 1] + "…"
+MAX_FAILURE_SAMPLES = 10
 
 
 class DateWorker(BaseWorker, ABC):
@@ -48,8 +45,11 @@ class DateWorker(BaseWorker, ABC):
             max_retries: int = 3,
             retry_interval: float = 1.0,
             batch_size: int = 1_000_000,
+            overwrite: bool = False,
     ) -> None:
         """初始化逐日更新范围、并发配置和分块大小。"""
+        if chunk_size <= 0:
+            raise ValueError("chunk_size 必须大于 0")
         self.chunk_size = chunk_size
         super().__init__(
             start_date=start_date,
@@ -59,12 +59,14 @@ class DateWorker(BaseWorker, ABC):
             max_retries=max_retries,
             retry_interval=retry_interval,
             batch_size=batch_size,
+            overwrite=overwrite,
         )
         logger.debug(
             f"{self} 初始化："
             f"{self.start_date:%Y-%m-%d} 至 {self.end_date:%Y-%m-%d}，"
-            f"threads={self.threads}，throttle={throttle}，"
-            f"max_retries={self.max_retries}，chunk_size={self.chunk_size}，"
+            f"threads={self.threads}，throttle={self.throttle}，"
+            f"max_retries={self.retry.max_retries}，"
+            f"chunk_size={self.chunk_size}，"
             f"batch_size={self.batch_size}"
         )
 
@@ -81,31 +83,39 @@ class DateWorker(BaseWorker, ABC):
             )
         if data.empty:
             return self.EMPTY
-        required = {"time", "code", *self.factors}
+        required = {TIME_COLUMN, CODE_COLUMN, *self.factors}
         if missing := required - set(data.columns):
             raise ValueError(
                 f"{self}[{current_date:%Y-%m-%d}] "
                 f"返回结果缺少列：{sorted(missing)}"
             )
-        result = data.loc[:, ["time", "code", *self.factors]].copy()
-        result["time"] = pd.to_datetime(result["time"], errors="coerce")
-        if result["time"].isna().any():
+        result = data.loc[
+            :,
+            [TIME_COLUMN, CODE_COLUMN, *self.factors],
+        ].copy()
+        result[TIME_COLUMN] = pd.to_datetime(
+            result[TIME_COLUMN],
+            errors="coerce",
+        )
+        if result[TIME_COLUMN].isna().any():
             raise ValueError(
                 f"{self}[{current_date:%Y-%m-%d}] "
-                "返回了无效 time"
+                f"返回了无效 {TIME_COLUMN}"
             )
-        result = result[result["time"].dt.normalize().eq(current_date)]
+        result = result[
+            result[TIME_COLUMN].dt.normalize().eq(current_date)
+        ]
         result = result.melt(
-            id_vars=["time", "code"],
+            id_vars=[TIME_COLUMN, CODE_COLUMN],
             value_vars=list(self.factors),
-            var_name="factor",
-            value_name="value",
+            var_name=FACTOR_COLUMN,
+            value_name=VALUE_COLUMN,
         )
         return self.normalize_result(result)
 
     def pending_dates(self) -> pd.DatetimeIndex:
         """返回最新回执之后到当前日期之间的全部自然日。"""
-        last_date = self.get_last_date()
+        last_date = None if self.overwrite else self.get_last_date()
         start_date = (
             self.start_date
             if last_date is None
@@ -123,7 +133,12 @@ class DateWorker(BaseWorker, ABC):
 
         dates = pd.date_range(start_date, end_date, freq="D")
         chunk_count = (len(dates) + self.chunk_size - 1) // self.chunk_size
-        mode = "全量" if last_date is None else "增量"
+        if self.overwrite:
+            mode = "覆盖"
+        elif last_date is None:
+            mode = "全量"
+        else:
+            mode = "增量"
         logger.info(
             f"{self} 更新计划：模式={mode}，"
             f"实际区间={dates[0]:%Y-%m-%d} 至 {dates[-1]:%Y-%m-%d}，"
@@ -142,21 +157,21 @@ class DateWorker(BaseWorker, ABC):
             )
             result = session.run(
                 f"""
-                select max(time) as time
+                select max({TIME_COLUMN}) as {TIME_COLUMN}
                 from {CORE_TABLE}
-                where factor in symbol(dateWorkerFactors)
+                where {FACTOR_COLUMN} in symbol(dateWorkerFactors)
                 """
             )
         finally:
             session.close()
-        if result is None or result.empty or "time" not in result.columns:
+        if result is None or result.empty or TIME_COLUMN not in result.columns:
             elapsed = time.perf_counter() - started
             logger.info(
                 f"{self} 增量基线：因子={len(self.factors):,}，"
                 f"最近数据日=无，查询耗时={elapsed:.2f}秒"
             )
             return None
-        value = result.iloc[0]["time"]
+        value = result.iloc[0][TIME_COLUMN]
         if pd.isna(value):
             elapsed = time.perf_counter() - started
             logger.info(
@@ -179,15 +194,15 @@ class DateWorker(BaseWorker, ABC):
 
         实现应把接口宽表交给 :meth:`melt` 并直接返回其结果，不得返回
         ``None``、接口原始宽表，或在 ``melt`` 之后再次清洗。
-        所有外部请求必须通过 :meth:`retry` 或
-        :meth:`fetch_paginated` 发起，以共享 Worker 的限流和重试配置。
+        所有外部请求必须通过 ``self.retry`` 或 ``self.paginator.fetch``
+        发起，以共享统一的限流和重试配置。
         """
         raise NotImplementedError
 
     def fetch_all(self) -> Iterable[pd.DataFrame]:
         """按块并发获取，按日期顺序生成可直接写入的完整 chunk。"""
         started = time.perf_counter()
-        self._reset_pagination_stats()
+        self.paginator.reset()
         dates = self.pending_dates()
         chunk_count = (len(dates) + self.chunk_size - 1) // self.chunk_size
         rows, nonempty_count, empty_count, failed_count = 0, 0, 0, 0
@@ -205,98 +220,82 @@ class DateWorker(BaseWorker, ABC):
         status = "进行中"
         try:
             with ThreadPoolExecutor(max_workers=self.threads) as executor:
-                with tqdm(
-                        total=len(dates),
-                        desc=f"{self}[{self.threads}线程]",
-                        unit="date",
-                        dynamic_ncols=True,
-                        smoothing=0.1,
-                ) as progress:
-                    for offset in range(0, len(dates), self.chunk_size):
-                        chunk = dates[offset:offset + self.chunk_size]
-                        chunk_number = offset // self.chunk_size + 1
-                        frames: dict[pd.Timestamp, pd.DataFrame] = {}
-                        failures: list[str] = []
-                        chunk_failure_count = 0
-                        logger.debug(
-                            f"{self} 获取 chunk {chunk_number}/"
-                            f"{chunk_count}：{chunk[0]:%Y-%m-%d} 至 "
-                            f"{chunk[-1]:%Y-%m-%d}"
-                        )
+                for offset in range(0, len(dates), self.chunk_size):
+                    chunk = dates[offset:offset + self.chunk_size]
+                    chunk_number = offset // self.chunk_size + 1
+                    frames: dict[pd.Timestamp, pd.DataFrame] = {}
+                    failures: list[str] = []
+                    chunk_failure_count = 0
+                    logger.debug(
+                        f"{self} 获取 chunk {chunk_number}/"
+                        f"{chunk_count}：{chunk[0]:%Y-%m-%d} 至 "
+                        f"{chunk[-1]:%Y-%m-%d}"
+                    )
 
-                        futures = {
-                            executor.submit(
-                                self.fetch_one,
-                                date_value,
-                            ): date_value
-                            for date_value in chunk
-                        }
-                        # chunk 是更新推进边界：本块全部成功后才生成结果。
-                        for future in as_completed(futures):
-                            date_value = futures[future]
-                            try:
-                                frame = self.check(future.result())
-                                frames[date_value] = frame
-                            except Exception as error:
-                                failed_count += 1
-                                chunk_failure_count += 1
-                                if len(failures) < _MAX_FAILURE_SAMPLES:
-                                    error_text = _short_error(error)
-                                    failures.append(
-                                        f"{date_value:%Y-%m-%d}: {error_text}"
-                                    )
-                                    logger.error(
-                                        f"{self}"
-                                        f"[{date_value:%Y-%m-%d}] "
-                                        f"获取失败：{error_text}"
-                                    )
-                            else:
-                                rows += len(frame)
-                                nonempty_count += int(not frame.empty)
-                                empty_count += int(frame.empty)
-                            finally:
-                                progress.set_postfix(
-                                    current=f"{date_value:%Y-%m-%d}",
-                                    chunk=f"{chunk_number}/{chunk_count}",
-                                    rows=f"{rows:,}",
-                                    empty=empty_count,
-                                    failed=failed_count,
-                                    refresh=False,
+                    futures = {
+                        executor.submit(
+                            self.fetch_one,
+                            date_value,
+                        ): date_value
+                        for date_value in chunk
+                    }
+                    # chunk 是更新推进边界：本块全部成功后才生成结果。
+                    for future in as_completed(futures):
+                        date_value = futures[future]
+                        try:
+                            frame = self.check(future.result())
+                            frames[date_value] = frame
+                        except Exception as error:
+                            failed_count += 1
+                            chunk_failure_count += 1
+                            error_text = (
+                                f"{type(error).__name__}: {error}"
+                            )
+                            if len(failures) < MAX_FAILURE_SAMPLES:
+                                failures.append(
+                                    f"{date_value:%Y-%m-%d}: {error_text}"
                                 )
-                                progress.update()
+                            logger.exception(
+                                f"{self}"
+                                f"[{date_value:%Y-%m-%d}] 获取失败"
+                            )
+                        else:
+                            rows += len(frame)
+                            nonempty_count += int(not frame.empty)
+                            empty_count += int(frame.empty)
 
-                        if chunk_failure_count:
-                            omitted_count = (
-                                chunk_failure_count - len(failures)
-                            )
-                            omitted = (
-                                f"；其余 {omitted_count:,} 条失败已省略"
-                                if omitted_count
-                                else ""
-                            )
-                            raise RuntimeError(
-                                f"{self} chunk "
-                                f"{chunk[0]:%Y-%m-%d} 至 {chunk[-1]:%Y-%m-%d} "
-                                f"获取失败，共 {chunk_failure_count:,} 个自然日；"
-                                "失败样例：" + "；".join(failures) + omitted
-                            )
+                    if chunk_failure_count:
+                        omitted_count = (
+                            chunk_failure_count - len(failures)
+                        )
+                        omitted = (
+                            f"；其余 {omitted_count:,} 条失败已省略"
+                            if omitted_count
+                            else ""
+                        )
+                        raise RuntimeError(
+                            f"{self} chunk "
+                            f"{chunk[0]:%Y-%m-%d} 至 {chunk[-1]:%Y-%m-%d} "
+                            f"获取失败，共 {chunk_failure_count:,} 个自然日；"
+                            "失败样例：" + "；".join(failures) + omitted
+                        )
 
-                        data = [
-                            frames[date]
-                            for date in chunk
-                            if not frames[date].empty
-                        ]
-                        result = (
-                            pd.concat(data, ignore_index=True)
-                            if data
-                            else self.EMPTY
-                        )
-                        # fetch_one 已规范每个结果；拼接后不再二次清洗或排序。
-                        logger.debug(
-                            f"{self} chunk {chunk_number}/"
-                            f"{chunk_count} 获取完成，共 {len(result):,} 行"
-                        )
-                        yield result
+                    data = [
+                        frames[date]
+                        for date in chunk
+                        if not frames[date].empty
+                    ]
+                    result = (
+                        pd.concat(data, ignore_index=True)
+                        if data
+                        else self.EMPTY
+                    )
+                    # fetch_one 已规范每个结果；拼接后不再二次清洗或排序。
+                    logger.debug(
+                        f"{self} chunk {chunk_number}/"
+                        f"{chunk_count} 获取完成，共 {len(result):,} 行"
+                    )
+                    yield result
             status = "完成"
         except GeneratorExit:
             status = "中止"
@@ -312,14 +311,14 @@ class DateWorker(BaseWorker, ABC):
                 f"日期={completed_count:,}/{len(dates):,}，"
                 f"非空={nonempty_count:,}，空={empty_count:,}，"
                 f"结果行={rows:,}，失败={failed_count:,}"
-                f"{self._pagination_summary()}，耗时={elapsed:.2f}秒"
+                f"{self.paginator.summary()}，耗时={elapsed:.2f}秒"
             )
 
     def run(self) -> int:
         """按时间顺序写入完整 chunk，并返回实际写入总行数。"""
         name = str(self)
         started = time.perf_counter()
-        self._partial_write_rows = 0
+        self.partial_write_rows = 0
         throttle_text = (
             "不限速"
             if self.throttle == 0
@@ -341,14 +340,13 @@ class DateWorker(BaseWorker, ABC):
                 for data in self.fetch_all():
                     if not data.empty:
                         total += self.write(writer, data)
-        except Exception as error:
-            total += self._partial_write_rows
-            self._partial_write_rows = 0
+        except Exception:
+            total += self.partial_write_rows
+            self.partial_write_rows = 0
             elapsed = time.perf_counter() - started
             logger.exception(
                 f"{name} 更新失败：已确认写入={total:,}行，"
-                f"耗时={elapsed:.2f}秒，"
-                f"error={type(error).__name__}: {error}"
+                f"耗时={elapsed:.2f}秒"
             )
             raise
 

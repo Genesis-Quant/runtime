@@ -13,7 +13,16 @@ from config import DOLPHIN, INDEX_CODES
 from core.utils.logging import logger
 
 
-CORE_COLUMNS = ("time", "code", "factor", "value")
+TIME_COLUMN = "time"
+CODE_COLUMN = "code"
+FACTOR_COLUMN = "factor"
+VALUE_COLUMN = "value"
+CORE_COLUMNS = (
+    TIME_COLUMN,
+    CODE_COLUMN,
+    FACTOR_COLUMN,
+    VALUE_COLUMN,
+)
 IS_ST_FACTOR = "is_st"
 WEIGHT_PREFIX = "weight_"
 
@@ -396,11 +405,15 @@ def write_core_table(data: pd.DataFrame) -> int:
 
 
 __all__ = [
+    "CODE_COLUMN",
     "CORE_COLUMNS",
     "CORE_TABLE",
     "CoreTableWriter",
     "DEFAULT_FACTORS",
+    "FACTOR_COLUMN",
     "IS_ST_FACTOR",
+    "TIME_COLUMN",
+    "VALUE_COLUMN",
     "WEIGHT_PREFIX",
     "create_session",
     "ensure_factor_partitions",

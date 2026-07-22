@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from core.database import session as database
-from core.utils import dates, rate_limit, tushare
+from core.utils import dates, throttle, tushare
 
 
 class FakeSession:

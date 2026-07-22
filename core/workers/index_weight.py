@@ -4,7 +4,7 @@ import pandas as pd
 
 from config import DATA_START_DATE
 from core.utils import DateLike, normalize_date, pro
-from core.database import index_weight_factor
+from core.database import CODE_COLUMN, TIME_COLUMN, index_weight_factor
 
 from .base import DateWorker
 
@@ -28,6 +28,7 @@ class IndexWeightWorker(DateWorker):
             retry_interval: float = 1.0,
             batch_size: int = 200_000,
             chunk_size: int = 10,
+            overwrite: bool = False,
     ) -> None:
         """使用固定指数代码初始化逐自然日更新流程。"""
         self.index_code = str(index_code).strip().upper()
@@ -40,6 +41,7 @@ class IndexWeightWorker(DateWorker):
             retry_interval=retry_interval,
             batch_size=batch_size,
             chunk_size=chunk_size,
+            overwrite=overwrite,
         )
 
     @property
@@ -61,10 +63,15 @@ class IndexWeightWorker(DateWorker):
         if response is None or response.empty:
             return self.EMPTY
 
+        factor = self.factors[0]
         data = response[
             response["trade_date"].eq(response["trade_date"].max())
         ].rename(
-            columns={"con_code": "code", "weight": self.factors[0]}
+            columns={"con_code": CODE_COLUMN, "weight": factor}
         )
-        data["time"] = current
+        data[factor] = pd.to_numeric(data[factor], errors="coerce")
+        data = data.loc[
+            data[factor].notna() & data[factor].ne(0)
+        ].copy()
+        data[TIME_COLUMN] = current
         return self.melt(current, data)

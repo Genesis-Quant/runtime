@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 
+from core.database import TIME_COLUMN
 from core.utils import pro
 
 from .base import StockWorker
@@ -244,7 +245,7 @@ class StockBalanceSheetWorker(StockWorker):
         """获取一只股票的资产负债表。"""
         ann_date_col = "f_ann_date"
 
-        response = self.fetch_paginated(
+        response = self.paginator.fetch(
             pro.balancesheet,
             params={
                 "ts_code": code,
@@ -260,11 +261,13 @@ class StockBalanceSheetWorker(StockWorker):
             stop_on_short=True,
         )
 
-        if response is None or response.empty:
+        if response.empty:
             return self.EMPTY
 
         data = prepare(response, ann_date_col)
-        data = data.rename(columns={ann_date_col: "time"})[["time", *self.factors]]
+        data = data.rename(columns={ann_date_col: TIME_COLUMN})[
+            [TIME_COLUMN, *self.factors]
+        ]
         return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
@@ -290,7 +293,7 @@ class StockIncomeWorker(StockWorker):
         """获取一只股票的利润表并计算报告期和 TTM 因子。"""
         ann_date_col = "f_ann_date"
 
-        response = self.fetch_paginated(
+        response = self.paginator.fetch(
             pro.income,
             params={
                 "ts_code": code,
@@ -305,12 +308,14 @@ class StockIncomeWorker(StockWorker):
             context=f"{self}[{code}].income",
             stop_on_short=True,
         )
-        if response is None or response.empty:
+        if response.empty:
             return self.EMPTY
 
         data = prepare(response, ann_date_col)
         data = process_flow(data, INCOME_RAW_FACTORS)
-        data = data.rename(columns={ann_date_col: "time"})[["time", *self.factors]]
+        data = data.rename(columns={ann_date_col: TIME_COLUMN})[
+            [TIME_COLUMN, *self.factors]
+        ]
         return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
@@ -336,7 +341,7 @@ class StockCashflowWorker(StockWorker):
         """获取一只股票的现金流量表并计算报告期和 TTM 因子。"""
         ann_date_col = "f_ann_date"
 
-        response = self.fetch_paginated(
+        response = self.paginator.fetch(
             pro.cashflow,
             params={
                 "ts_code": code,
@@ -352,12 +357,14 @@ class StockCashflowWorker(StockWorker):
             stop_on_short=True,
         )
 
-        if response is None or response.empty:
+        if response.empty:
             return self.EMPTY
 
         data = prepare(response, ann_date_col)
         data = process_flow(data, CASHFLOW_RAW_FACTORS)
-        data = data.rename(columns={ann_date_col: "time"})[["time", *self.factors]]
+        data = data.rename(columns={ann_date_col: TIME_COLUMN})[
+            [TIME_COLUMN, *self.factors]
+        ]
         return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
@@ -383,7 +390,7 @@ class StockFinaIndicatorWorker(StockWorker):
         """获取一只股票的财务指标。"""
         ann_date_col = "ann_date"
 
-        response = self.fetch_paginated(
+        response = self.paginator.fetch(
             pro.fina_indicator,
             params={
                 "ts_code": code,
@@ -399,9 +406,11 @@ class StockFinaIndicatorWorker(StockWorker):
             stop_on_short=True,
         )
 
-        if response is None or response.empty:
+        if response.empty:
             return self.EMPTY
 
         data = prepare(response, ann_date_col)
-        data = data.rename(columns={ann_date_col: "time"})[["time", *self.factors]]
+        data = data.rename(columns={ann_date_col: TIME_COLUMN})[
+            [TIME_COLUMN, *self.factors]
+        ]
         return self.melt(code, data, start_date=start_date, end_date=end_date)
