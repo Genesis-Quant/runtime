@@ -55,6 +55,7 @@ def test_factor_query_normalizes_lists_and_accepts_derivatives() -> None:
         _valid_request(
             codes=[" A ", "B", "A"],
             factors=[" close ", "is_st", "close"],
+            filters=[" selected ", "selected"],
             derivatives={
                 " double_close ": _direct(
                     "binary.mul", {"left": "close", "right": 2}
@@ -64,6 +65,7 @@ def test_factor_query_normalizes_lists_and_accepts_derivatives() -> None:
     )
     assert request.codes == ["A", "B"]
     assert request.factors == ["close", "is_st"]
+    assert request.filters == ["selected"]
     assert request.derivatives["double_close"].op == "binary.mul"
     assert request.lookback == timedelta(0)
 
@@ -103,7 +105,6 @@ def test_factor_query_requires_codes() -> None:
     [
         ({"start_date": "bad"}, "不是有效日期"),
         ({"start_date": "2024-02-01", "end_date": "2024-01-01"}, "不能晚于"),
-        ({"codes": []}, "codes 不能为空"),
         ({"lookback": "-1D"}, "lookback 不能小于 0"),
         ({"lookback": "not-a-duration"}, "lookback 不是有效 TimeDelta"),
         ({"lookback": 1}, "lookback 必须是 timedelta 或 TimeDelta 字符串"),
@@ -565,7 +566,7 @@ def test_query_source_loads_lookback_before_output_start() -> None:
 
 
 class DslSession(QuerySession):
-    """在最终 compute_factors 调用时用 Python 构造同形状结果。"""
+    """在最终 DSL 调用时用 Python 构造计算及过滤结果。"""
 
     def run(self, script: str):
         """模拟加载脚本及命名派生列计算。"""
@@ -576,7 +577,19 @@ class DslSession(QuerySession):
             )
             result = upload["coreDslSource"].copy()
             result["double_close"] = result["close"] * 2
-            return result
+            result["selected"] = pd.Series([None, True], dtype="boolean")
+            filters = next(
+                values["coreDslFilters"]
+                for values in self.uploads
+                if "coreDslFilters" in values
+            )
+            mask = (
+                result[list(filters)]
+                .astype("boolean")
+                .fillna(False)
+                .all(axis="columns")
+            )
+            return [len(result), result.loc[mask].reset_index(drop=True)]
         if script.startswith("use ta"):
             return None
         return super().run(script)
@@ -593,7 +606,12 @@ class ResultDslSession(QuerySession):
         """加载脚本时返回空，计算时返回测试指定对象。"""
         self.scripts.append(script)
         if "compute_factors(coreDslSource" in script:
-            return self.computed
+            rows = (
+                len(self.computed)
+                if isinstance(self.computed, pd.DataFrame)
+                else 1
+            )
+            return [rows, self.computed]
         return None
 
 
@@ -605,6 +623,7 @@ def test_execute_query_runs_validated_definitions_in_same_session(monkeypatch) -
             "code": ["A", "A"],
             "close": [10.0, 11.0],
             "volume": [100.0, 120.0],
+            "active": [False, True],
         }
     )
     session = DslSession()
@@ -617,13 +636,17 @@ def test_execute_query_runs_validated_definitions_in_same_session(monkeypatch) -
     monkeypatch.setattr(factor_query, "query_source", fake_source)
     request = _valid_request(
         derivatives={
-            "double_close": _direct("binary.mul", {"left": "close", "right": 2})
-        }
+            "double_close": _direct("binary.mul", {"left": "close", "right": 2}),
+            "selected": _direct("binary.gt", {"left": "close", "right": 10}),
+        },
+        filters=["active", "selected"],
     )
     result = factor_query.execute_query(request, session=session)
-    assert result["double_close"].tolist() == [20.0, 22.0]
-    assert list(result.columns) == ["time", "code", "close", "double_close"]
-    assert captured == [["close"]]
+    assert result["double_close"].tolist() == [22.0]
+    assert list(result.columns) == [
+        "time", "code", "close", "double_close", "selected"
+    ]
+    assert captured == [["active", "close"]]
     definitions_json = next(
         values["coreDslDefinitionsJson"]
         for values in session.uploads
@@ -773,8 +796,12 @@ from coreQueryFixtureRaw
             derivatives={
                 "double_assets": _direct(
                     "binary.mul", {"left": "total_assets", "right": 2}
-                )
+                ),
+                "selected": _direct(
+                    "binary.ge", {"left": "is_st", "right": 0}
+                ),
             },
+            filters=["selected"],
         ),
         session=ddb_session,
     )
@@ -820,6 +847,7 @@ from coreQueryFixtureRaw
     ]
     assert result["pb"].iloc[1] == 1.6
     assert result["pb"].iloc[[0, 2, 3, 4, 5]].isna().all()
+    assert result["selected"].all()
 
 
 def test_execute_query_uses_lookback_for_first_ts_value(
@@ -882,7 +910,7 @@ from coreQueryLookbackRaw
 
 
 def test_execute_query_handles_empty_and_raw_only_results(monkeypatch) -> None:
-    """空 source 不调用 DSL，无派生因子直接返回请求原始列。"""
+    """空 source 和无派生、无过滤查询直接返回请求原始列。"""
     session = QuerySession()
     monkeypatch.setattr(
         factor_query,

@@ -133,8 +133,26 @@ def test_strict_model_recurses_into_models_lists_and_tuples() -> None:
         ).reject_non_finite_numbers()
 
 
-def test_on_accepts_bool_columns_and_bool_expressions() -> None:
-    """on 可以是列名或静态返回 BOOL 的嵌套表达式。"""
+def test_on_accepts_none_bool_columns_and_bool_expressions() -> None:
+    """on 默认且显式为 None 时不筛选，也接受 BOOL 列或嵌套表达式。"""
+    omitted = time_series(
+        "unary.rolling_mean",
+        {"col": "x"},
+        {"window": 3},
+    )
+    omitted.pop("on")
+    omitted_result = Derivative.model_validate(omitted)
+    assert omitted_result.on is None
+    assert omitted_result.model_dump(mode="json")["on"] is None
+
+    explicit_none = time_series(
+        "unary.rolling_mean",
+        {"col": "x"},
+        {"window": 3},
+        on=None,
+    )
+    assert Derivative.model_validate(explicit_none).on is None
+
     column = canonical_definition("unary.rolling_mean")
     assert Derivative.model_validate(column).on == "active"
 

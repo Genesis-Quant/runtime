@@ -42,7 +42,7 @@ def time_series(
     fields: dict[str, Any],
     params: dict[str, Any] | None = None,
     *,
-    on: object,
+    on: object | None = None,
 ) -> dict[str, Any]:
     """构造 TS 节点。"""
     return node("TS", operation, fields, params, on=on)
@@ -53,7 +53,7 @@ def cross_section(
     fields: dict[str, Any],
     params: dict[str, Any] | None = None,
     *,
-    on: object,
+    on: object | None = None,
 ) -> dict[str, Any]:
     """构造 CS 节点。"""
     return node("CS", operation, fields, params, on=on)

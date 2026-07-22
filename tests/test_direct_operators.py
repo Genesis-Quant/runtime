@@ -75,16 +75,15 @@ def _logical(
 
 
 def _row_boolean(frame: pd.DataFrame, *, mode: str) -> list[bool | None]:
-    """逐行跳过 NULL 执行 BOOL 归约，整行缺失时返回 NULL。"""
+    """逐行执行 BOOL 归约，任一操作数缺失时传播 NULL。"""
     result: list[bool | None] = []
     for row in frame.itertuples(index=False, name=None):
-        valid = [bool(value) for value in row if not _missing(value)]
-        if not valid:
+        if any(_missing(value) for value in row):
             result.append(None)
         elif mode == "and":
-            result.append(all(valid))
+            result.append(all(bool(value) for value in row))
         else:
-            result.append(any(valid))
+            result.append(any(bool(value) for value in row))
     return result
 
 
@@ -98,7 +97,7 @@ def direct_source() -> pd.DataFrame:
             "positive": [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 0.75, 1.25, 2.5, 5.0, np.nan],
             "unit": [-1.0, -0.75, -0.5, -0.1, 0.0, 0.1, 0.5, 0.75, 1.0, np.nan, 0.25, -0.25],
             "rounding": [-3.141, -2.718, -1.234, -0.126, 0.0, 0.126, 1.234, 2.718, 3.141, 10.019, -10.019, np.nan],
-            "integer": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            "integer": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, np.nan],
             "finite": [1.0, -2.5, np.nan, np.inf, -np.inf, 0.0, 3.5, 8.0, -9.0, 1e20, -1e20, np.nan],
             "bool_left": [True, True, False, False, None, True, False, None, True, False, None, None],
             "bool_right": [True, False, True, False, True, None, None, False, None, None, True, None],

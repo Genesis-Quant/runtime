@@ -152,7 +152,7 @@ empty_samples=sample_operands(empty_operands)
 
 
 def test_apply_time_series_sorts_within_code_and_restores_rows(ddb_session) -> None:
-    """TS 执行器只使用 on=true 行，并按股票和时间计算后回到原行序。"""
+    """TS 按股票和时间计算；on=NULL 使用全部行，掩码结果回到原行序。"""
     actual = run_uploaded(
         ddb_session,
         (
@@ -167,6 +167,11 @@ def test_apply_time_series_sorts_within_code_and_restores_rows(ddb_session) -> N
         ),
     )
     assert_vector_equal(actual, [11.0, 1.0, np.nan, 7.0, 2.0, np.nan])
+    unmasked = ddb_session.run(
+        "apply_time_series(ts_unary_cum_sum{,1}, enlist(runtime_value), "
+        "NULL, runtime_code, runtime_time, double([]))"
+    )
+    assert_vector_equal(unmasked, [14.0, 1.0, 4.0, 7.0, 2.0, 11.0])
 
 
 def test_apply_time_series_empty_selection_keeps_output_contract(ddb_session) -> None:
@@ -183,7 +188,7 @@ def test_apply_time_series_empty_selection_keeps_output_contract(ddb_session) ->
 
 
 def test_apply_cross_section_groups_by_date_and_restores_rows(ddb_session) -> None:
-    """普通截面执行器应按日期独立计算并保留未选中行为空。"""
+    """普通截面按日计算；on=NULL 使用全部行，未选中行保持为空。"""
     actual = run_uploaded(
         ddb_session,
         (
@@ -197,6 +202,14 @@ def test_apply_cross_section_groups_by_date_and_restores_rows(ddb_session) -> No
         ),
     )
     assert_vector_equal(actual, [-4.5, np.nan, -4.5, 4.5, 4.5, np.nan])
+    unmasked = ddb_session.run(
+        "apply_cross_section(cs_unary_demean, enlist(runtime_cs_value), "
+        "NULL, runtime_cs_time, double([]))"
+    )
+    assert_vector_equal(
+        unmasked,
+        [-11.0 / 3.0, -5.0 / 3.0, -8.0, 16.0 / 3.0, 1.0, 7.0],
+    )
     empty = ddb_session.run(
         "value=1.0 2.0; operands=enlist(value);"
         "apply_cross_section(cs_unary_demean, operands, false, 2024.01.01 2024.01.02, double([]))"
@@ -205,7 +218,7 @@ def test_apply_cross_section_groups_by_date_and_restores_rows(ddb_session) -> No
 
 
 def test_apply_grouped_cross_section_excludes_null_group_and_on(ddb_session) -> None:
-    """分组截面同时按日期和分类计算，并排除空分类与 on=false 行。"""
+    """分组截面排除空分类；on=NULL 不额外筛选，显式 on 排除 false 行。"""
     actual = run_uploaded(
         ddb_session,
         (
@@ -218,6 +231,11 @@ def test_apply_grouped_cross_section_excludes_null_group_and_on(ddb_session) -> 
         runtime_group_by=np.array(["A", "A", "B", None, "A", "A", "B", "B"], dtype=object),
     )
     assert_vector_equal(actual, [-1.0, 1.0, 0.0, np.nan, 0.0, np.nan, -2.0, 2.0])
+    unmasked = ddb_session.run(
+        "apply_grouped_cross_section(cs_grouped_demean, enlist(runtime_group_value), "
+        "NULL, runtime_group_time, runtime_group_by, double([]))"
+    )
+    assert_vector_equal(unmasked, [-1.0, 1.0, 0.0, np.nan, -1.0, 1.0, -2.0, 2.0])
 
     empty = ddb_session.run(
         "value=1.0 2.0; operands=enlist(value); by=array(STRING,2,2,NULL);"
@@ -227,7 +245,7 @@ def test_apply_grouped_cross_section_excludes_null_group_and_on(ddb_session) -> 
 
 
 def test_apply_controlled_cross_section_runs_each_date_independently(ddb_session) -> None:
-    """控制变量截面按日回归，on=false 与控制变量缺失行保持 NULL。"""
+    """控制变量截面按日回归；on=NULL 使用全部行，显式 false 行保持 NULL。"""
     source = pd.DataFrame(
         {
             "target": [3.0, 5.0, 7.0, 4.0, 8.0, 12.0, 99.0],
@@ -244,6 +262,12 @@ def test_apply_controlled_cross_section_runs_each_date_independently(ddb_session
         "runtime_control_source.target, controls, runtime_control_source.on, runtime_control_source.time)"
     )
     assert_vector_equal(actual, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, np.nan], atol=1e-10)
+    unmasked = ddb_session.run(
+        "controls=select size,industry from runtime_control_source;"
+        "apply_controlled_cross_section(cs_controls_neutralize_by{,,true}, "
+        "runtime_control_source.target, controls, NULL, runtime_control_source.time)"
+    )
+    assert not pd.isna(unmasked).any()
 
     empty = ddb_session.run(
         "target=1.0 2.0; controls=table(3.0 4.0 as size);"
@@ -483,8 +507,6 @@ def test_evaluate_definition_broadcasts_scalars_and_single_symbol_vectors(ddb_se
             {"type": "DIRECT", "op": "binary.add", "fields": {}, "params": {}, "on": True},
             "DIRECT 节点禁止包含 on",
         ),
-        ({"type": "TS", "op": "unary.diff", "fields": {}, "params": {}}, "TS 节点 缺少必填键 on"),
-        ({"type": "CS", "op": "unary.mean", "fields": {}, "params": {}}, "CS 节点 缺少必填键 on"),
         ({"type": "OTHER", "op": "x", "fields": {}, "params": {}}, "未知 DSL 类型 OTHER"),
     ],
 )
@@ -493,7 +515,7 @@ def test_evaluate_node_rejects_invalid_common_structure(
     node: dict[str, object],
     message: str,
 ) -> None:
-    """运行时不能信任外部 JSON，公共必填键、on 和类别仍需完整校验。"""
+    """运行时校验公共必填键、DIRECT 禁止 on 以及节点类别。"""
     with pytest.raises(RuntimeError, match=message):
         ddb_session.run(
             "source=table(1 2 as x);"
@@ -503,7 +525,7 @@ def test_evaluate_node_rejects_invalid_common_structure(
 
 
 def test_evaluate_node_dispatches_direct_ts_and_cs(ddb_session) -> None:
-    """三类节点都应经统一递归入口得到与独立计算一致的结果。"""
+    """三类节点都经统一入口执行，TS/CS 省略 on 时不筛选。"""
     source = pd.DataFrame(
         {
             "time": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-01", "2024-01-02"]),
@@ -517,10 +539,11 @@ def test_evaluate_node_dispatches_direct_ts_and_cs(ddb_session) -> None:
             "unary.diff",
             {"col": "x"},
             {"periods": 1},
-            on=TRUE_NODE,
         ),
-        "cs_result": cross_section("unary.demean", {"col": "x"}, on=TRUE_NODE),
+        "cs_result": cross_section("unary.demean", {"col": "x"}),
     }
+    definitions["ts_result"].pop("on")
+    definitions["cs_result"].pop("on")
     result = compute_factors(ddb_session, source, definitions)
     assert_vector_equal(result["direct_result"], [3.0, 5.0, 12.0, 16.0])
     assert_vector_equal(result["ts_result"], [np.nan, 2.0, np.nan, 4.0])
@@ -593,7 +616,7 @@ def test_parse_definitions_accepts_json_and_any_dictionary(ddb_session) -> None:
 
 
 def test_compute_factors_handles_dependencies_empty_input_and_errors(ddb_session) -> None:
-    """完整入口支持跨因子依赖和空集合，并拒绝错误 source、重名及坏 JSON。"""
+    """完整入口支持计算和过滤，并拒绝错误 source、列类型、重名及坏 JSON。"""
     source = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
     definitions = {
         "first": direct("binary.add", {"left": "x", "right": 1}),
@@ -609,6 +632,25 @@ def test_compute_factors_handles_dependencies_empty_input_and_errors(ddb_session
     ddb_session.upload({"runtime_source": source})
     empty = ddb_session.run("compute_factors(runtime_source, dict(STRING,ANY))")
     pd.testing.assert_frame_equal(empty.reset_index(drop=True), source)
+
+    ddb_session.run(
+        """
+runtime_filter_source = table(
+    1 2 3 4 as value,
+    bool([true, true, false, NULL]) as first,
+    bool([true, NULL, true, true]) as second
+)
+"""
+    )
+    filtered = ddb_session.run(
+        'filter_factors(runtime_filter_source, ["first", "second"])'
+    )
+    assert filtered["value"].tolist() == [1]
+    assert len(ddb_session.run("filter_factors(runtime_filter_source, [])")) == 4
+    with pytest.raises(RuntimeError, match="对应列不存在"):
+        ddb_session.run('filter_factors(runtime_filter_source, ["missing"])')
+    with pytest.raises(RuntimeError, match="必须为 BOOL 类型"):
+        ddb_session.run('filter_factors(runtime_filter_source, ["value"])')
 
     with pytest.raises(RuntimeError, match="source 必须是 table"):
         ddb_session.run("compute_factors(1 2, dict(STRING,ANY))")

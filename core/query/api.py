@@ -20,6 +20,7 @@ from core.query.dolphindb.script import build_script
 from core.query.operator import Derivative
 from core.utils import (
     CODE_COLUMN,
+    CODES,
     CORE_COLUMNS,
     FACTOR_COLUMN,
     IS_ST_FACTOR,
@@ -67,7 +68,7 @@ class FactorQuery(BaseModel):
     )
     codes: list[str] = Field(
         ...,
-        description="需要查询的股票代码，必须显式提供且不能为空。",
+        description="需要查询的股票代码；必须显式提供，空列表表示全市场。",
         examples=[["000001.SZ", "600000.SH"]],
     )
     factors: list[str] = Field(
@@ -78,6 +79,12 @@ class FactorQuery(BaseModel):
     derivatives: dict[str, Derivative] = Field(
         default_factory=dict,
         description="需要在 DolphinDB 中计算并输出的命名派生因子。",
+    )
+    filters: list[str] = Field(
+        default_factory=list,
+        description=(
+            "DSL 计算完成后的布尔过滤列；仅返回所有过滤列均为 true 的行。"
+        ),
     )
 
     @field_validator("lookback", mode="before")
@@ -104,7 +111,7 @@ class FactorQuery(BaseModel):
 
         self.codes = normalize_names(self.codes, "codes")
         if not self.codes:
-            raise ValueError("codes 不能为空")
+            self.codes = list(CODES)
 
         self.factors = normalize_names(self.factors, "factors")
         normalized_derivatives: dict[str, Derivative] = {}
@@ -118,6 +125,7 @@ class FactorQuery(BaseModel):
                 )
             normalized_derivatives[normalized] = derivative
         self.derivatives = normalized_derivatives
+        self.filters = normalize_names(self.filters, "filters")
 
         if not self.factors and not self.derivatives:
             raise ValueError("factors 和 derivatives 至少提供一项")
@@ -397,13 +405,13 @@ def query_source(
             current = select_columns(
                 current_session.run(
                     f"""
-select {TIME_COLUMN}, {CODE_COLUMN}, {FACTOR_COLUMN}, {VALUE_COLUMN}
-from {CORE_TABLE}
-where {TIME_COLUMN} >= coreQueryStart
-  and {TIME_COLUMN} < coreQueryEndExclusive
-  and {FACTOR_COLUMN} in symbol(coreQueryFactors)
-  and {CODE_COLUMN} in symbol(coreQueryCodes)
-"""
+                    select {TIME_COLUMN}, {CODE_COLUMN}, {FACTOR_COLUMN}, {VALUE_COLUMN}
+                    from {CORE_TABLE}
+                    where {TIME_COLUMN} >= coreQueryStart
+                      and {TIME_COLUMN} < coreQueryEndExclusive
+                      and {FACTOR_COLUMN} in symbol(coreQueryFactors)
+                      and {CODE_COLUMN} in symbol(coreQueryCodes)
+                    """
                 ),
                 CORE_COLUMNS,
                 "区间因子查询",
@@ -442,10 +450,15 @@ def execute_query(
         query.start_date,
         query.end_date,
     )
-    dependencies = sorted(derivative_factors(query.derivatives))
+    dependency_names = derivative_factors(query.derivatives)
+    dependency_names.update(
+        set(query.filters) - set(query.derivatives) - RESERVED_NAMES
+    )
+    dependencies = sorted(dependency_names)
     logger.info(
         f"执行因子查询：原始 factor={query.factors}，"
-        f"派生 factor={list(query.derivatives)}，依赖={dependencies}"
+        f"派生 factor={list(query.derivatives)}，filters={query.filters}，"
+        f"依赖={dependencies}"
     )
 
     owns_session = session is None
@@ -462,17 +475,16 @@ def execute_query(
             *query.factors,
             *query.derivatives,
         ]
-        if source.empty:
-            result = source.reindex(columns=output_columns)
-        elif not query.derivatives:
-            result = source.loc[:, output_columns].copy()
+        if not query.derivatives and not query.filters:
+            computed = source
         else:
             definitions = {
                 name: derivative.model_dump(mode="json")
                 for name, derivative in query.derivatives.items()
             }
             logger.debug(
-                f"加载 DolphinDB DSL 并计算 {len(definitions):,} 个派生 factor"
+                f"加载 DolphinDB DSL，计算 {len(definitions):,} 个派生 factor，"
+                f"应用 {len(query.filters):,} 个 filter"
             )
             current_session.run(build_script())
             current_session.upload(
@@ -483,36 +495,39 @@ def execute_query(
                         ensure_ascii=False,
                         separators=(",", ":"),
                     ),
+                    "coreDslFilters": np.asarray(query.filters, dtype=str),
                 }
             )
-            computed = current_session.run(
+            computed_rows, computed = current_session.run(
                 """
-coreDslDefinitions = fromStdJson(coreDslDefinitionsJson)
-compute_factors(coreDslSource, coreDslDefinitions)
-"""
+                coreDslDefinitions = fromStdJson(coreDslDefinitionsJson)
+                coreDslComputed = compute_factors(coreDslSource, coreDslDefinitions)
+                coreDslFiltered = filter_factors(coreDslComputed, coreDslFilters)
+                (coreDslComputed.rows(), coreDslFiltered)
+                """
             )
             if not isinstance(computed, pd.DataFrame):
                 raise TypeError(
                     "DolphinDB DSL 计算必须返回 DataFrame，"
                     f"当前为 {type(computed).__name__}"
                 )
-            if len(computed) != len(source):
+            if computed_rows != len(source):
                 raise RuntimeError(
                     "DolphinDB DSL 计算改变了行数："
-                    f"输入 {len(source):,} 行，输出 {len(computed):,} 行"
+                    f"输入 {len(source):,} 行，输出 {computed_rows:,} 行"
                 )
-            if missing := set(output_columns) - set(computed.columns):
-                raise RuntimeError(
-                    f"DolphinDB DSL 结果缺少输出列：{sorted(missing)}"
-                )
-            result = computed.loc[:, output_columns].copy()
+        required_columns = set(output_columns) | set(query.filters)
+        if missing := required_columns - set(computed.columns):
+            raise RuntimeError(
+                f"DolphinDB DSL 结果缺少输出列或过滤列：{sorted(missing)}"
+            )
 
-        output_rows = result[TIME_COLUMN].ge(output_start)
-        output_rows &= result[TIME_COLUMN].lt(
+        output_rows = computed[TIME_COLUMN].ge(output_start)
+        output_rows &= computed[TIME_COLUMN].lt(
             output_end + timedelta(days=1)
         )
         result = (
-            result.loc[output_rows]
+            computed.loc[output_rows, output_columns]
             .sort_values([CODE_COLUMN, TIME_COLUMN])
             .reset_index(drop=True)
         )

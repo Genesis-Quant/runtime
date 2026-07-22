@@ -102,10 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="运行指定 Worker 或依次运行全部 Worker。",
         epilog=(
             "示例：\n"
-            "  python main.py daily adj-factor\n"
-            "  python main.py income --codes 000001.SZ,600000.SH\n"
-            "  python main.py index-weight --index-code 000300.SH --dry-run\n"
-            "  python main.py all --start-date 2025-01-01 --overwrite"
+            "  python manage.py daily adj-factor\n"
+            "  python manage.py income --codes 000001.SZ,600000.SH\n"
+            "  python manage.py index-weight --index-code 000300.SH --dry-run\n"
+            "  python manage.py all --start-date 2025-01-01 --overwrite"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

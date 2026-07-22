@@ -118,11 +118,12 @@ class TimeSeriesOperator(OperatorBase):
     """按 code 分组并按 time 排序的时序算符。"""
 
     type: Literal["TS"] = Field(..., description="时序计算类固定为 TS。")
-    on: BoolOperand = Field(
-        ...,
+    on: BoolOperand | None = Field(
+        default=None,
         description=(
-            "BOOL 列、BOOL 命名因子或返回 BOOL 的嵌套 DSL；"
-            "仅 true 行进入时序，false 和 NULL 行不参与且结果为 NULL。"
+            "可选的 BOOL 列、BOOL 命名因子或返回 BOOL 的嵌套 DSL；"
+            "None 表示不筛选，否则仅 true 行进入时序，false 和 NULL 行"
+            "不参与且结果为 NULL。"
         ),
     )
 
@@ -131,11 +132,12 @@ class CrossSectionOperator(OperatorBase):
     """按 time 分组的截面算符。"""
 
     type: Literal["CS"] = Field(..., description="截面计算类固定为 CS。")
-    on: BoolOperand = Field(
-        ...,
+    on: BoolOperand | None = Field(
+        default=None,
         description=(
-            "BOOL 列、BOOL 命名因子或返回 BOOL 的嵌套 DSL；"
-            "仅 true 行进入截面，false 和 NULL 行不参与且结果为 NULL。"
+            "可选的 BOOL 列、BOOL 命名因子或返回 BOOL 的嵌套 DSL；"
+            "None 表示不筛选，否则仅 true 行进入截面，false 和 NULL 行"
+            "不参与且结果为 NULL。"
         ),
     )
 

@@ -135,6 +135,8 @@ def test_generated_evaluators_cover_all_registered_operators() -> None:
     assert "apply_controlled_cross_section" in cross_section.definition
     assert "apply_grouped_cross_section" in cross_section.definition
     assert "apply_cross_section" in cross_section.definition
+    assert time_series.definition.count("on = NULL") == 1
+    assert cross_section.definition.count("on = NULL") == 1
     assert 'double(params["span"])' in time_series.definition
     assert 'int(params["min_periods"])' in time_series.definition
 

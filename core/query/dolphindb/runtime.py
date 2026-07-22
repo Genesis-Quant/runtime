@@ -68,10 +68,11 @@ SELECT_OPERANDS = DolphinDBFunction(
 APPLY_TIME_SERIES = DolphinDBFunction(
     """
     def apply_time_series(func, operands, on, code, time, empty_result) {
-        // 仅对 on=true 的行按 code 分组、time 排序执行时序函数，再恢复原始行位置。
+        // on=NULL 时对全部行计算；否则筛选 true 行并把结果恢复到原始位置。
         n = size(operands[0])
-        mask = normalize_on(on, n)
         if (n == 0) return empty_result
+        if (type(on) == VOID) return contextby(func, operands, code, time)
+        mask = normalize_on(on, n)
         if (sum(mask) == 0) {
             sample = unifiedCall(func, sample_operands(operands))
             return restore_masked_rows(sample, mask, n)
@@ -91,10 +92,11 @@ APPLY_TIME_SERIES = DolphinDBFunction(
 APPLY_CROSS_SECTION = DolphinDBFunction(
     """
     def apply_cross_section(func, operands, on, time, empty_result) {
-        // 仅对 on=true 的行按 time 分组执行截面函数，再恢复原始行位置。
+        // on=NULL 时对全部行计算；否则筛选 true 行并把结果恢复到原始位置。
         n = size(operands[0])
-        mask = normalize_on(on, n)
         if (n == 0) return empty_result
+        if (type(on) == VOID) return contextby(func, operands, time)
+        mask = normalize_on(on, n)
         if (sum(mask) == 0) {
             sample = unifiedCall(func, sample_operands(operands))
             return restore_masked_rows(sample, mask, n)
@@ -114,10 +116,15 @@ APPLY_CROSS_SECTION = DolphinDBFunction(
 APPLY_GROUPED_CROSS_SECTION = DolphinDBFunction(
     """
     def apply_grouped_cross_section(func, operands, on, time, by, empty_result) {
-        // 排除 on=false 和 by=NULL 的行，按 time 与 by 联合分组执行截面函数。
+        // on=NULL 时不按 on 筛选；by=NULL 始终不参与分组截面计算。
         n = size(operands[0])
-        mask = normalize_on(on, n) && !isNull(by)
         if (n == 0) return empty_result
+        valid_group = !isNull(by)
+        if (type(on) == VOID && sum(valid_group) == n) {
+            return contextby(func, operands, (time, by))
+        }
+        mask = valid_group
+        if (type(on) != VOID) mask = normalize_on(on, n) && valid_group
         if (sum(mask) == 0) {
             sample = unifiedCall(func, sample_operands(operands))
             return restore_masked_rows(sample, mask, n)
@@ -139,13 +146,17 @@ APPLY_CONTROLLED_CROSS_SECTION = DolphinDBFunction(
     def apply_controlled_cross_section(func, target, controls, on, time) {
         // 按交易日向控制变量截面函数传入 target 和 controls，并把结果回填到原始行。
         n = size(target)
-        mask = normalize_on(on, n)
         result = array(DOUBLE, n, n, NULL)
         if (n == 0) return result
-        if (sum(mask) == 0) return result
-    
-        selected_indices = (0..(n - 1))[mask]
-        selected_time = time[mask]
+        selected_indices = 0..(n - 1)
+        selected_time = time
+        if (type(on) != VOID) {
+            mask = normalize_on(on, n)
+            if (sum(mask) == 0) return result
+            selected_indices = selected_indices[mask]
+            selected_time = selected_time[mask]
+        }
+
         for (current_date in distinct(selected_time)) {
             row_indices = selected_indices[selected_time == current_date]
             result[row_indices] = func(target[row_indices], controls[row_indices])
@@ -305,11 +316,9 @@ EVALUATE_NODE = DolphinDBFunction(
             return evaluate_direct(evaluate_node, source, definitions, cache, states, node)
         }
         if (node_type == "TS") {
-            require_key(node, "on", "TS 节点")
             return evaluate_time_series(evaluate_node, source, definitions, cache, states, node)
         }
         if (node_type == "CS") {
-            require_key(node, "on", "CS 节点")
             return evaluate_cross_section(evaluate_node, source, definitions, cache, states, node)
         }
         throw "未知 DSL 类型 " + string(node_type)
@@ -361,6 +370,41 @@ COMPUTE_FACTORS = DolphinDBFunction(
     dependencies=(IS_TABLE_FORM,),
 )
 
+FILTER_FACTORS = DolphinDBFunction(
+    """
+    def filter_factors(source, filters) {
+        // 仅保留全部 filters 列都为 true 的行；NULL 视为 false。
+        if (!is_table_form(source)) {
+            throw "filter_factors 的 source 必须是 table，实际为 " + typestr(source)
+        }
+        if (!is_vector_form(filters)) {
+            throw "filter_factors 的 filters 必须是 STRING 向量，实际为 " + typestr(filters)
+        }
+        if (size(filters) == 0) return source
+        if (type(filters) != STRING) {
+            throw "filter_factors 的 filters 必须是 STRING 向量，实际为 " + typestr(filters)
+        }
+
+        names = string(filters)
+        missing = names[!(names in columnNames(source))]
+        if (size(missing) > 0) {
+            throw "filters 对应列不存在：" + concat(missing, ", ")
+        }
+
+        mask = take(true, source.rows())
+        for (name in names) {
+            values = source[name]
+            if (type(values) != BOOL) {
+                throw "filters 对应列必须为 BOOL 类型：" + name + "=" + typestr(values)
+            }
+            mask = mask && nullFill(values, false)
+        }
+        return source[mask]
+    }
+    """,
+    dependencies=(IS_TABLE_FORM, IS_VECTOR_FORM),
+)
+
 TOOL_FUNCTIONS = (
     NORMALIZE_ON,
     RESTORE_MASKED_ROWS,
@@ -387,6 +431,7 @@ DERIVE_ENTRY_FUNCTIONS = (
     EVALUATE_NODE,
     PARSE_DEFINITIONS,
     COMPUTE_FACTORS,
+    FILTER_FACTORS,
 )
 
 RUNTIME_FUNCTIONS = (
@@ -409,6 +454,7 @@ __all__ = [
     "EVALUATE_NODE",
     "EVALUATE_OPERAND",
     "EVALUATE_OPERANDS",
+    "FILTER_FACTORS",
     "NORMALIZE_ON",
     "PARSE_DEFINITIONS",
     "REQUIRE_COLUMN",
