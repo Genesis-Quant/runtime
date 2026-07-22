@@ -176,7 +176,17 @@ class CoreTableWriter:
         self.thread_count = min(thread_count, len(self.factors))
         self.pool: Any | None = None
         self.appender: Any | None = None
+        self.prepared = False
         self.closed = False
+
+    def prepare(self) -> None:
+        """确保数据库、表和 factor 分区存在，但不创建写入连接池。"""
+        if self.closed:
+            raise RuntimeError("CoreTableWriter 已关闭")
+        if self.prepared:
+            return
+        ensure_factor_partitions(self.factors)
+        self.prepared = True
 
     def open(self) -> Any:
         """补建 factor 分区，返回整个更新过程复用的写入器。"""
@@ -185,7 +195,7 @@ class CoreTableWriter:
         if self.appender is not None:
             return self.appender
 
-        ensure_factor_partitions(self.factors)
+        self.prepare()
 
         pool = dolphindb.DBConnectionPool(
             DOLPHIN.HOST,
@@ -252,7 +262,8 @@ class CoreTableWriter:
             pool.shutDown()
 
     def __enter__(self) -> "CoreTableWriter":
-        """返回惰性创建的写入器上下文。"""
+        """先准备库表和分区，再返回惰性创建连接的写入器上下文。"""
+        self.prepare()
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:

@@ -2,10 +2,12 @@
 
 from .operator import Derivative
 from .api import execute_query
+from .router import router
 from .schema import FactorQuery
 
 __all__ = [
     "Derivative",
     "FactorQuery",
     "execute_query",
+    "router",
 ]

@@ -1,0 +1,2100 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Core Query Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d0f10;
+      --panel: #111416;
+      --panel-2: #161a1d;
+      --panel-3: #1b2024;
+      --line: #2a3035;
+      --line-strong: #3b444b;
+      --text: #e8ecef;
+      --muted: #89939b;
+      --faint: #606a72;
+      --accent: #73d5b3;
+      --accent-strong: #9ce9cf;
+      --accent-ink: #08120f;
+      --amber: #e6b566;
+      --danger: #ef7d72;
+      --blue: #7eb7df;
+      --shadow: rgba(0, 0, 0, 0.34);
+      --header-height: 54px;
+      --radius: 6px;
+    }
+
+    html[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eef1f2;
+      --panel: #f8fafb;
+      --panel-2: #ffffff;
+      --panel-3: #e8edef;
+      --line: #d1d8dc;
+      --line-strong: #aeb9bf;
+      --text: #182026;
+      --muted: #5d6870;
+      --faint: #7b868d;
+      --accent: #087f65;
+      --accent-strong: #04634f;
+      --accent-ink: #ffffff;
+      --amber: #966213;
+      --danger: #b83c34;
+      --blue: #276f9f;
+      --shadow: rgba(28, 38, 44, 0.14);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "IBM Plex Sans", sans-serif;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button { color: inherit; }
+
+    .app-header {
+      height: var(--header-height);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      gap: 12px;
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-family: "IBM Plex Mono", monospace;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .brand-copy { min-width: 0; }
+
+    .brand-title {
+      margin: 0;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.1;
+      text-transform: uppercase;
+    }
+
+    .brand-subtitle {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .header-actions, .toolbar, .status-cluster, .pager, .result-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      height: 28px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--panel-2);
+      border-radius: var(--radius);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+
+    .status-pill.ready .status-dot { background: var(--accent); }
+    .status-pill.busy .status-dot { background: var(--amber); animation: pulse 1s infinite; }
+    .status-pill.error .status-dot { background: var(--danger); }
+
+    @keyframes pulse { 50% { opacity: .38; } }
+
+    .icon-button, .text-button, .primary-button {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel-2);
+      cursor: pointer;
+      transition: border-color .14s ease, background .14s ease, color .14s ease;
+    }
+
+    .icon-button {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+    }
+
+    .icon-button svg, .text-button svg, .primary-button svg { width: 15px; height: 15px; }
+
+    .text-button, .primary-button {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 11px;
+      font-weight: 500;
+    }
+
+    .primary-button {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--accent-ink);
+      min-width: 112px;
+    }
+
+    .icon-button:hover, .text-button:hover { border-color: var(--line-strong); background: var(--panel-3); }
+    .primary-button:hover { background: var(--accent-strong); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    .workspace {
+      width: 100%;
+      height: calc(100% - var(--header-height));
+      display: grid;
+      grid-template-columns: minmax(470px, 46%) 1fr;
+      overflow: hidden;
+    }
+
+    .panel {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+    }
+
+    .query-panel { border-right: 1px solid var(--line-strong); position: relative; overflow: hidden; }
+    .results-panel { background: var(--panel-2); }
+
+    .section-header {
+      min-height: 43px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 12px 0 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .section-title {
+      display: flex;
+      align-items: baseline;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .section-title span { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px 10px;
+      padding: 11px 12px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-2);
+    }
+
+    .field { min-width: 0; }
+    .field.span-2 { grid-column: span 2; }
+    .field.span-4 { grid-column: span 4; }
+
+    .field label {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    .field input, .field select, .filter-input {
+      width: 100%;
+      height: 32px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--text);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+    }
+
+    .codes-control {
+      display: grid;
+      grid-template-columns: minmax(150px, 0.9fr) minmax(0, 3.1fr);
+      gap: 8px;
+    }
+
+    .codes-control input[readonly] {
+      color: var(--muted);
+      cursor: default;
+    }
+
+    .editor-shell { flex: 1; min-height: 210px; position: relative; }
+    #editor { position: absolute; inset: 0; }
+
+    #editor .monaco-editor .lines-content .core-guide,
+    #editor .monaco-editor .lines-content .core-guide-indent {
+      transform: translateX(-1px);
+    }
+
+    .editor-footer {
+      min-height: 35px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 12px;
+      border-top: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+    }
+
+    .ast-path {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .diagnostic-link {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .diagnostic-link.has-error { color: var(--danger); }
+    .diagnostic-link.valid { color: var(--accent); }
+
+    .query-actions {
+      min-height: 49px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-top: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .query-note {
+      color: var(--muted);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .result-toolbar {
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-2);
+    }
+
+    .search-wrap { position: relative; min-width: 0; }
+    .search-wrap svg { position: absolute; left: 9px; top: 8px; width: 15px; height: 15px; color: var(--muted); }
+    .search-wrap .filter-input { padding-left: 31px; }
+
+    .metric {
+      min-width: 62px;
+      padding-left: 9px;
+      border-left: 1px solid var(--line);
+    }
+
+    .metric-label { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+    .metric-value { margin-top: 2px; font-family: "IBM Plex Mono", monospace; font-size: 11px; }
+
+    .table-shell { flex: 1; min-height: 0; position: relative; overflow: auto; background: var(--panel-2); }
+
+    table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th, td {
+      height: 32px;
+      max-width: 320px;
+      padding: 0 11px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: left;
+    }
+
+    th {
+      position: sticky;
+      z-index: 3;
+      top: 0;
+      min-width: 116px;
+      background: var(--panel-3);
+      color: var(--muted);
+      font-weight: 500;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    th:first-child, td:first-child { position: sticky; left: 0; z-index: 2; }
+    th:first-child { z-index: 4; }
+    td:first-child { background: var(--panel-2); }
+    tbody tr:hover td { background: color-mix(in srgb, var(--accent) 7%, var(--panel-2)); }
+    tbody tr:hover td:first-child { background: color-mix(in srgb, var(--accent) 7%, var(--panel-2)); }
+    td.null { color: var(--faint); font-style: italic; }
+    td.number { text-align: right; }
+    td.boolean { color: var(--amber); }
+
+    .sort-indicator { margin-left: 6px; color: var(--accent); }
+
+    .empty-state {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+    }
+
+    .empty-state-inner { color: var(--muted); text-align: center; }
+    .empty-state-inner svg { width: 34px; height: 34px; margin-bottom: 10px; stroke-width: 1.3; }
+    .empty-state-title { color: var(--text); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+    .empty-state-subtitle { margin-top: 6px; font-size: 11px; }
+
+    .result-footer {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 6px 12px;
+      border-top: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .page-size {
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel-2);
+      color: var(--text);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+    }
+
+    .toast-stack {
+      position: fixed;
+      z-index: 100;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: min(390px, calc(100vw - 28px));
+      pointer-events: none;
+    }
+
+    .toast {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 9px;
+      padding: 11px 12px;
+      border: 1px solid var(--line-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius);
+      background: var(--panel-2);
+      box-shadow: 0 14px 34px var(--shadow);
+      color: var(--text);
+      animation: toast-in .18s ease both;
+    }
+
+    .toast.error { border-left-color: var(--danger); }
+    .toast.warning { border-left-color: var(--amber); }
+    .toast svg { width: 16px; height: 16px; margin-top: 1px; }
+    .toast-title { font-weight: 600; font-size: 12px; }
+    .toast-message { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.45; word-break: break-word; }
+
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+    @media (max-width: 980px) {
+      html, body { overflow: auto; }
+      .workspace { height: auto; min-height: calc(100vh - var(--header-height)); grid-template-columns: 1fr; overflow: visible; }
+      .query-panel { height: 760px; border-right: 0; border-bottom: 1px solid var(--line-strong); }
+      .results-panel { height: 680px; }
+      .config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .field.span-4 { grid-column: span 2; }
+      .field.span-2 { grid-column: span 1; }
+    }
+
+    @media (max-width: 620px) {
+      .brand-subtitle, #operatorCount, .status-pill span { display: none; }
+      .app-header { padding-left: 10px; }
+      .config-grid { grid-template-columns: 1fr 1fr; }
+      .field.span-2, .field.span-4 { grid-column: span 2; }
+      .result-toolbar { grid-template-columns: 1fr; }
+      .result-meta { justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark">CQ</div>
+      <div class="brand-copy">
+        <h1 class="brand-title">Core Query Console</h1>
+        <div class="brand-subtitle">DolphinDB DSL / DuckDB local result engine</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div id="runtimeStatus" class="status-pill busy">
+        <span class="status-dot"></span>
+        <span>初始化运行时</span>
+      </div>
+      <button id="themeButton" class="icon-button" title="切换主题" aria-label="切换主题"><i data-lucide="sun-moon"></i></button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="panel query-panel">
+      <div class="section-header">
+        <div class="section-title">
+          <h2>Query DSL</h2>
+          <span id="operatorCount">加载智能补全</span>
+        </div>
+      </div>
+
+      <div class="config-grid">
+        <div class="field">
+          <label for="startDate">start_date</label>
+          <input id="startDate" type="date">
+        </div>
+        <div class="field">
+          <label for="endDate">end_date</label>
+          <input id="endDate" type="date">
+        </div>
+        <div class="field span-2">
+          <label for="lookback">lookback</label>
+          <input id="lookback" type="text" spellcheck="false" placeholder="30D 或 P30D">
+        </div>
+        <div class="field span-4">
+          <label for="codes">codes</label>
+          <div class="codes-control">
+            <select id="codeSource" aria-label="股票池来源">
+              <option value="000300.SH" selected>沪深300 · 000300.SH</option>
+              <option value="000016.SH">上证50 · 000016.SH</option>
+              <option value="000905.SH">中证500 · 000905.SH</option>
+              <option value="000852.SH">中证1000 · 000852.SH</option>
+              <option value="manual">手动输入</option>
+            </select>
+            <input id="codes" type="text" spellcheck="false" placeholder="正在获取最近成分股" readonly>
+          </div>
+        </div>
+      </div>
+
+      <div class="editor-shell"><div id="editor"></div></div>
+      <div class="editor-footer">
+        <span id="astPath" class="ast-path">AST /</span>
+        <button id="diagnosticButton" class="diagnostic-link">等待解析</button>
+      </div>
+      <div class="query-actions">
+        <div id="queryNote" class="query-note">等待 Monaco、算符模型和 DuckDB-Wasm</div>
+        <button id="runButton" class="primary-button" disabled><i data-lucide="play"></i><span>执行查询</span></button>
+      </div>
+
+    </section>
+
+    <section class="panel results-panel">
+      <div class="section-header">
+        <div class="section-title">
+          <h2>Result Table</h2>
+          <span id="resultLabel">尚未查询</span>
+        </div>
+        <div class="toolbar">
+          <button id="downloadParquetButton" class="icon-button" title="下载 Parquet" aria-label="下载 Parquet" disabled><i data-lucide="file-down"></i></button>
+          <button id="downloadCsvButton" class="icon-button" title="导出当前结果为 CSV" aria-label="导出 CSV" disabled><i data-lucide="sheet"></i></button>
+        </div>
+      </div>
+      <div class="result-toolbar">
+        <div class="search-wrap">
+          <i data-lucide="search"></i>
+          <input id="tableFilter" class="filter-input" type="search" spellcheck="false" placeholder="在 DuckDB 中筛选当前结果">
+        </div>
+        <div class="result-meta">
+          <div class="metric"><div class="metric-label">Rows</div><div id="rowMetric" class="metric-value">0</div></div>
+          <div class="metric"><div class="metric-label">Columns</div><div id="columnMetric" class="metric-value">0</div></div>
+          <div class="metric"><div class="metric-label">Elapsed</div><div id="elapsedMetric" class="metric-value">0 ms</div></div>
+        </div>
+      </div>
+
+      <div class="table-shell">
+        <table id="resultTable"><thead></thead><tbody></tbody></table>
+        <div id="emptyState" class="empty-state">
+          <div class="empty-state-inner">
+            <i data-lucide="table-2"></i>
+            <div class="empty-state-title">No result loaded</div>
+            <div class="empty-state-subtitle">查询返回的 Parquet 将由 DuckDB-Wasm 读取</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="result-footer">
+        <div id="duckdbNote">DuckDB-Wasm 未就绪</div>
+        <div class="pager">
+          <select id="pageSize" class="page-size" title="每页行数" aria-label="每页行数">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+          </select>
+          <button id="firstPageButton" class="icon-button" title="第一页" aria-label="第一页" disabled><i data-lucide="chevrons-left"></i></button>
+          <button id="previousPageButton" class="icon-button" title="上一页" aria-label="上一页" disabled><i data-lucide="chevron-left"></i></button>
+          <span id="pageLabel">0 / 0</span>
+          <button id="nextPageButton" class="icon-button" title="下一页" aria-label="下一页" disabled><i data-lucide="chevron-right"></i></button>
+          <button id="lastPageButton" class="icon-button" title="最后一页" aria-label="最后一页" disabled><i data-lucide="chevrons-right"></i></button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toastStack" class="toast-stack"></div>
+
+  <script type="module">
+    const CDN = {
+      monaco: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs",
+      monacoLoader: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js",
+      jsonc: "https://cdn.jsdelivr.net/npm/jsonc-parser@3.3.1/+esm",
+      duckdb: "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/+esm",
+    };
+
+    const DEFAULT_ENDPOINT = location.protocol.startsWith("http")
+      ? `${location.origin}/query`
+      : "http://127.0.0.1:8000/query";
+
+    const state = {
+      monaco: null,
+      jsonc: null,
+      duckdbModule: null,
+      db: null,
+      connection: null,
+      editor: null,
+      model: null,
+      ast: null,
+      parsed: null,
+      syntaxMarkers: [],
+      localMarkers: [],
+      serverMarkers: [],
+      operators: [],
+      operatorMap: new Map(),
+      availableFields: [],
+      operatorsLoaded: false,
+      fieldsLoaded: false,
+      indexCodesCache: new Map(),
+      indexRequestSequence: 0,
+      manualCodes: "",
+      codesReady: false,
+      codesLoading: false,
+      validationSequence: 0,
+      validationTimer: null,
+      suggestTimer: null,
+      applyingCompletion: false,
+      resultBuffer: null,
+      resultColumns: [],
+      resultTypes: new Map(),
+      totalRows: 0,
+      filteredRows: 0,
+      page: 1,
+      pageSize: 100,
+      sort: null,
+      filter: "",
+      lastElapsed: 0,
+      resultFile: null,
+    };
+
+    const elements = Object.fromEntries([
+      "runtimeStatus", "operatorCount", "startDate", "endDate", "lookback", "codeSource", "codes",
+      "editor", "astPath", "diagnosticButton", "queryNote", "runButton",
+      "themeButton", "resultLabel",
+      "downloadParquetButton", "downloadCsvButton", "tableFilter", "rowMetric", "columnMetric", "elapsedMetric", "resultTable",
+      "emptyState", "duckdbNote", "pageSize", "firstPageButton", "previousPageButton", "pageLabel", "nextPageButton",
+      "lastPageButton", "toastStack",
+    ].map((id) => [id, document.getElementById(id)]));
+
+    function refreshIcons() {
+      if (window.lucide) window.lucide.createIcons({ attrs: { "stroke-width": 1.8 } });
+    }
+
+    function setRuntimeStatus(kind, text) {
+      elements.runtimeStatus.className = `status-pill ${kind}`;
+      elements.runtimeStatus.querySelector("span:last-child").textContent = text;
+    }
+
+    function toast(title, message, kind = "success", timeout = 4200) {
+      const node = document.createElement("div");
+      node.className = `toast ${kind}`;
+      node.innerHTML = `<i data-lucide="${kind === "error" ? "circle-alert" : kind === "warning" ? "triangle-alert" : "circle-check"}"></i><div><div class="toast-title"></div><div class="toast-message"></div></div>`;
+      node.querySelector(".toast-title").textContent = title;
+      node.querySelector(".toast-message").textContent = message;
+      elements.toastStack.appendChild(node);
+      refreshIcons();
+      setTimeout(() => node.remove(), timeout);
+    }
+
+    function loadScript(source) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = source;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(`无法加载 ${source}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function loadMonaco() {
+      await loadScript(CDN.monacoLoader);
+      const workerBase = CDN.monaco.replace(/vs$/, "");
+      const workerSource = `self.MonacoEnvironment={baseUrl:'${workerBase}'};importScripts('${CDN.monaco}/base/worker/workerMain.js');`;
+      window.MonacoEnvironment = {
+        getWorkerUrl: () => `data:text/javascript;charset=utf-8,${encodeURIComponent(workerSource)}`,
+      };
+      window.require.config({ paths: { vs: CDN.monaco } });
+      await new Promise((resolve) => window.require(["vs/editor/editor.main"], resolve));
+      return window.monaco;
+    }
+
+    async function loadOperators() {
+      const response = await fetch("/operators");
+      if (!response.ok) throw new Error(`算符目录请求失败：HTTP ${response.status}`);
+      const operators = await response.json();
+      operators.sort((left, right) => left.type.localeCompare(right.type) || left.op.localeCompare(right.op));
+      state.operators = operators;
+      state.operatorMap = new Map(operators.map((operator) => [operator.op, operator]));
+      state.operatorsLoaded = true;
+      updateCompletionStatus();
+    }
+
+    async function loadAvailableFields() {
+      const response = await fetch("/factors");
+      if (!response.ok) throw new Error(`字段目录请求失败：HTTP ${response.status}`);
+      const fields = await response.json();
+      state.availableFields = [...new Set(fields.filter((field) => typeof field === "string" && field))].sort();
+      state.fieldsLoaded = true;
+      updateCompletionStatus();
+    }
+
+    async function loadIndexPresets() {
+      const selected = elements.codeSource.value;
+      const response = await fetch("/indices");
+      if (!response.ok) throw new Error(`指数预设请求失败：HTTP ${response.status}`);
+      const presets = await response.json();
+      const valid = presets.filter((preset) => typeof preset.code === "string" && typeof preset.name === "string");
+      if (!valid.length) throw new Error("指数预设为空");
+      elements.codeSource.replaceChildren(...valid.map((preset) => {
+        const option = document.createElement("option");
+        option.value = preset.code;
+        option.textContent = `${preset.name} · ${preset.code}`;
+        return option;
+      }));
+      const manual = document.createElement("option");
+      manual.value = "manual";
+      manual.textContent = "手动输入";
+      elements.codeSource.appendChild(manual);
+      elements.codeSource.value = [...elements.codeSource.options].some((option) => option.value === selected)
+        ? selected
+        : valid[0].code;
+    }
+
+    function updateCompletionStatus() {
+      if (!state.operatorsLoaded || !state.fieldsLoaded) return;
+      elements.operatorCount.textContent = `${state.operators.length} 个算符 · ${state.availableFields.length} 个字段`;
+    }
+
+    async function initializeDuckDB() {
+      elements.duckdbNote.textContent = "正在加载 DuckDB-Wasm";
+      const duckdb = await import(CDN.duckdb);
+      const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+      const workerUrl = URL.createObjectURL(new Blob([
+        `importScripts("${bundle.mainWorker}");`,
+      ], { type: "text/javascript" }));
+      const worker = new Worker(workerUrl);
+      const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
+      const db = new duckdb.AsyncDuckDB(logger, worker);
+      await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+      URL.revokeObjectURL(workerUrl);
+      state.duckdbModule = duckdb;
+      state.db = db;
+      state.connection = await db.connect();
+      elements.duckdbNote.textContent = "DuckDB-Wasm ready";
+    }
+
+    function defineMonacoThemes() {
+      state.monaco.editor.defineTheme("core-dark", {
+        base: "vs-dark",
+        inherit: true,
+        rules: [
+          { token: "string.key.json", foreground: "73D5B3" },
+          { token: "string.value.json", foreground: "D7C98D" },
+          { token: "number", foreground: "7EB7DF" },
+          { token: "keyword", foreground: "EF9E8F" },
+          { token: "delimiter.bracket", foreground: "89939B" },
+        ],
+        colors: {
+          "editor.background": "#111416",
+          "editor.foreground": "#E8ECEF",
+          "editorLineNumber.foreground": "#515B62",
+          "editorLineNumber.activeForeground": "#AAB3B9",
+          "editorCursor.foreground": "#73D5B3",
+          "editor.selectionBackground": "#27483E",
+          "editor.inactiveSelectionBackground": "#20352F",
+          "editorIndentGuide.background1": "#252B2F",
+          "editorIndentGuide.activeBackground1": "#475159",
+          "editorSuggestWidget.background": "#161A1D",
+          "editorSuggestWidget.border": "#3B444B",
+          "editorWidget.background": "#161A1D",
+          "editorWidget.border": "#3B444B",
+        },
+      });
+      state.monaco.editor.defineTheme("core-light", {
+        base: "vs",
+        inherit: true,
+        rules: [
+          { token: "string.key.json", foreground: "087F65" },
+          { token: "string.value.json", foreground: "7A5800" },
+          { token: "number", foreground: "276F9F" },
+          { token: "keyword", foreground: "B83C34" },
+        ],
+        colors: {
+          "editor.background": "#F8FAFB",
+          "editor.foreground": "#182026",
+          "editorCursor.foreground": "#087F65",
+          "editor.selectionBackground": "#BFE8DB",
+          "editorLineNumber.foreground": "#94A0A7",
+          "editorLineNumber.activeForeground": "#455159",
+        },
+      });
+    }
+
+    function initializeEditor() {
+      defineMonacoThemes();
+      state.monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+        validate: false,
+        allowComments: true,
+        trailingCommas: "warning",
+        schemas: [],
+      });
+      state.monaco.languages.json.jsonDefaults.setModeConfiguration({
+        tokens: true,
+        completionItems: false,
+        hovers: true,
+        documentSymbols: true,
+        documentFormattingEdits: true,
+        documentRangeFormattingEdits: true,
+        colors: true,
+        foldingRanges: true,
+        diagnostics: false,
+        selectionRanges: true,
+      });
+      state.model = state.monaco.editor.createModel(JSON.stringify({ factors: [], derivatives: {}, filters: [] }, null, 2), "json", state.monaco.Uri.parse("inmemory://core/query.json"));
+      state.editor = state.monaco.editor.create(elements.editor, {
+        model: state.model,
+        theme: document.documentElement.dataset.theme === "dark" ? "core-dark" : "core-light",
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontFamily: "IBM Plex Mono, monospace",
+        fontSize: 12,
+        lineHeight: 19,
+        letterSpacing: 0,
+        lineNumbersMinChars: 3,
+        padding: { top: 10, bottom: 10 },
+        scrollBeyondLastLine: false,
+        smoothScrolling: true,
+        tabSize: 2,
+        insertSpaces: true,
+        formatOnPaste: true,
+        bracketPairColorization: { enabled: true },
+        guides: { bracketPairs: true, indentation: true },
+        suggest: { showWords: false, preview: true, shareSuggestSelections: true },
+        quickSuggestions: { strings: true, other: true, comments: false },
+        fixedOverflowWidgets: true,
+      });
+      state.model.onDidChangeContent((event) => {
+        analyzeDocument();
+        if (state.applyingCompletion) return;
+        if (expandQueryObject(event)) return;
+        if (expandOperandObject(event)) return;
+        clearTimeout(state.suggestTimer);
+        state.suggestTimer = setTimeout(() => {
+          if (!state.editor.hasTextFocus()) return;
+          const position = state.editor.getPosition();
+          const context = completionContext(state.model, position);
+          if (shouldAutoSuggest(context)) {
+            state.editor.trigger("typing", "editor.action.triggerSuggest", {});
+          }
+        }, 60);
+      });
+      state.editor.onDidChangeCursorPosition(updateAstPath);
+      registerCompletionProvider();
+      registerEditorActions();
+      analyzeDocument();
+    }
+
+    async function loadEditorFont() {
+      // 等待代码字体可用，避免 Monaco 使用回退字体计算字符网格。
+      if (!document.fonts) return;
+      await document.fonts.load('400 12px "IBM Plex Mono"');
+      await document.fonts.load('500 12px "IBM Plex Mono"');
+      await document.fonts.ready;
+    }
+
+    function registerEditorActions() {
+      state.editor.addAction({
+        id: "core.format-json",
+        label: "格式化查询 JSON",
+        run: () => formatDocument(),
+      });
+    }
+
+    function schemaProperties(schema) {
+      return schema && schema.properties ? schema.properties : {};
+    }
+
+    function defaultValueForSchema(schema, name) {
+      if (!schema) return null;
+      if (Object.hasOwn(schema, "default")) return schema.default;
+      if (schema.enum?.length) return schema.enum[0];
+      if (schema.const !== undefined) return schema.const;
+      if (schema.anyOf) {
+        const usable = schema.anyOf.find((item) => item.type && item.type !== "null" && item.type !== "object");
+        if (usable) return defaultValueForSchema(usable, name);
+      }
+      if (schema.type === "array") {
+        if (name === "controls") return ["circ_mv"];
+        if (name === "cols") return ["close", 1];
+        return [];
+      }
+      if (schema.type === "boolean") return true;
+      if (schema.type === "integer" || schema.type === "number") return schema.minimum ?? schema.exclusiveMinimum ?? 1;
+      if (schema.type === "string") return name === "by" ? "industry" : "close";
+      if (schema.type === "object") return {};
+      const fieldDefaults = {
+        col: "close", left: "close", right: 1, target: "close", by: "industry",
+        high: "high", low: "low", close: "close", open: "open", volume: "vol",
+      };
+      return fieldDefaults[name] ?? null;
+    }
+
+    function operatorObject(spec) {
+      const fields = {};
+      for (const [name, schema] of Object.entries(schemaProperties(spec.fields))) {
+        fields[name] = defaultValueForSchema(schema, name);
+      }
+      const params = {};
+      for (const [name, schema] of Object.entries(schemaProperties(spec.params))) {
+        if (Object.hasOwn(schema, "default") || (spec.params.required || []).includes(name)) {
+          params[name] = defaultValueForSchema(schema, name);
+        }
+      }
+      const result = { type: spec.type, op: spec.op, fields, params };
+      return result;
+    }
+
+    function rangeForNode(node) {
+      const start = state.model.getPositionAt(node.offset);
+      const end = state.model.getPositionAt(node.offset + node.length);
+      return new state.monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column);
+    }
+
+    function indentedJson(value, startColumn) {
+      const indent = " ".repeat(Math.max(0, startColumn - 1));
+      return JSON.stringify(value, null, 2).split("\n").map((line, index) => index ? indent + line : line).join("\n");
+    }
+
+    function propertyName(propertyNode) {
+      return propertyNode?.type === "property" ? propertyNode.children?.[0]?.value : undefined;
+    }
+
+    function nodeAtOffset(offset) {
+      return state.ast ? state.jsonc.findNodeAtOffset(state.ast, Math.max(0, offset), true) : null;
+    }
+
+    function enclosingProperty(node, expectedName) {
+      while (node && node.type !== "property") node = node.parent;
+      return node && (!expectedName || propertyName(node) === expectedName) ? node : null;
+    }
+
+    function enclosingObject(node) {
+      while (node && node.type !== "object") node = node.parent;
+      return node;
+    }
+
+    function openArrayNodeAtOffset(offset) {
+      const candidates = [];
+      function visit(node) {
+        if (node.type === "array" && node.offset <= offset) candidates.push(node);
+        for (const child of node.children || []) visit(child);
+      }
+      if (state.ast) visit(state.ast);
+      const text = state.model.getValue();
+      return candidates.sort((left, right) => right.offset - left.offset).find((node) => {
+        const source = text.slice(node.offset, offset);
+        return (source.match(/\[/g) || []).length > (source.match(/\]/g) || []).length;
+      }) || null;
+    }
+
+    function objectInfo(objectNode) {
+      if (!objectNode) return { role: "unknown", current: {}, spec: null, objectNode: null };
+      if (objectNode === state.ast) return { role: "document", current: state.jsonc.getNodeValue(objectNode) || {}, spec: null, objectNode };
+      if (objectNode.parent?.type === "property" && objectNode.parent.parent === state.ast && propertyName(objectNode.parent) === "derivatives") {
+        return { role: "derivatives", current: state.jsonc.getNodeValue(objectNode) || {}, spec: null, objectNode };
+      }
+      if (objectNode.parent?.type === "property" && ["fields", "params"].includes(propertyName(objectNode.parent))) {
+        const derivativeNode = objectNode.parent.parent;
+        const current = derivativeNode?.type === "object" ? state.jsonc.getNodeValue(derivativeNode) || {} : {};
+        return {
+          role: propertyName(objectNode.parent),
+          current,
+          spec: state.operatorMap.get(current.op) || null,
+          objectNode,
+          derivativeNode,
+        };
+      }
+      const current = state.jsonc.getNodeValue(objectNode) || {};
+      const hasDerivativeShape = ["type", "op", "fields", "params"].some((name) => Object.hasOwn(current, name));
+      if (hasDerivativeShape || isDerivativeSlot(objectNode)) {
+        const boolOnly = objectNode.parent?.type === "property" && propertyName(objectNode.parent) === "on";
+        return { role: "derivative", current, spec: state.operatorMap.get(current.op) || null, objectNode, derivativeNode: objectNode, boolOnly };
+      }
+      return { role: "unknown", current, spec: null, objectNode };
+    }
+
+    function fieldSchema(info, name, inArray = false) {
+      if (info.role !== "fields" || !info.spec) return null;
+      const schema = schemaProperties(info.spec.fields)[name];
+      return inArray ? schema?.items || null : schema || null;
+    }
+
+    function isDerivativeSlot(objectNode) {
+      const parent = objectNode?.parent;
+      if (!parent) return false;
+      if (parent.type === "property") {
+        const owner = parent.parent;
+        const ownerInfo = objectInfo(owner);
+        if (ownerInfo.role === "derivatives") return true;
+        if (ownerInfo.role === "fields") return schemaAllowsDerivative(fieldSchema(ownerInfo, propertyName(parent)));
+        return ownerInfo.role === "derivative" && propertyName(parent) === "on" && ["TS", "CS"].includes(ownerInfo.current.type);
+      }
+      if (parent.type === "array" && parent.parent?.type === "property") {
+        const ownerInfo = objectInfo(parent.parent.parent);
+        return ownerInfo.role === "fields" && schemaAllowsDerivative(fieldSchema(ownerInfo, propertyName(parent.parent), true));
+      }
+      return false;
+    }
+
+    function stringRange(model, position, prefixLength, node, quoted) {
+      if (node && ["string", "number", "boolean", "null"].includes(node.type)) return rangeForNode(node);
+      let endColumn = position.column;
+      const line = model.getLineContent(position.lineNumber);
+      if (quoted && line[position.column - 1] === "\"") endColumn += 1;
+      return new state.monaco.Range(position.lineNumber, prefixLength + 1, position.lineNumber, endColumn);
+    }
+
+    function keyCompletionContext(model, position) {
+      const line = model.getLineContent(position.lineNumber);
+      const prefix = line.slice(0, position.column - 1);
+      const match = prefix.match(/^(\s*)(")?([A-Za-z_][A-Za-z0-9_]*)?$/);
+      if (!match) return null;
+      const node = nodeAtOffset(model.getOffsetAt(position) - 1);
+      const propertyNode = enclosingProperty(node);
+      const keyNode = propertyNode?.children?.[0] === node ? node : null;
+      const objectNode = propertyNode?.parent || enclosingObject(node);
+      const info = objectInfo(objectNode);
+      if (!["document", "derivatives", "derivative", "fields", "params"].includes(info.role)) return null;
+      const range = stringRange(model, position, match[1].length, keyNode, Boolean(match[2]));
+      const suffix = line.slice(position.column - 1);
+      const insertColon = !propertyNode?.children?.[1] && !/^"?\s*:/.test(suffix);
+      return { kind: "key", quoted: Boolean(match[2]), fragment: match[3] || "", range, insertColon, ...info };
+    }
+
+    function propertyValueCompletionContext(model, position) {
+      const line = model.getLineContent(position.lineNumber);
+      const prefix = line.slice(0, position.column - 1);
+      const match = prefix.match(/^(\s*"([^"]+)"\s*:\s*)(")?([^,}\]]*)$/);
+      if (!match) return null;
+      const fragment = match[4].trim();
+      const node = nodeAtOffset(model.getOffsetAt(position) - 1);
+      const propertyNode = enclosingProperty(node, match[2]);
+      if (!propertyNode?.parent || propertyNode.parent.type !== "object") return null;
+      const valueNode = propertyNode.children?.[1];
+      const cursorOffset = model.getOffsetAt(position);
+      if (valueNode && ["array", "object"].includes(valueNode.type) && cursorOffset > valueNode.offset && cursorOffset <= valueNode.offset + valueNode.length) return null;
+      const info = objectInfo(propertyNode.parent);
+      const context = {
+        kind: "value",
+        key: match[2],
+        quoted: Boolean(match[3]),
+        fragment,
+        numeric: !match[3] && /^[+\-]?(?:\d|\.\d)/.test(fragment),
+        operatorPrefix: !match[3] && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(fragment),
+        range: stringRange(model, position, match[1].length, valueNode, Boolean(match[3])),
+        inArray: false,
+        ...info,
+      };
+      context.operand = isOperandContext(context);
+      return context;
+    }
+
+    function arrayValueCompletionContext(model, position) {
+      const line = model.getLineContent(position.lineNumber);
+      const prefix = line.slice(0, position.column - 1);
+      const delimiterOffset = Math.max(prefix.lastIndexOf("["), prefix.lastIndexOf(","));
+      const segmentOffset = delimiterOffset + 1;
+      const match = prefix.slice(segmentOffset).match(/^(\s*)(")?([^,}\]]*)$/);
+      if (!match || !state.ast) return null;
+      const fragment = match[3].trim();
+      let node = nodeAtOffset(model.getOffsetAt(position) - 1);
+      const valueNode = node && ["string", "number", "boolean", "null"].includes(node.type) ? node : null;
+      while (node && node.type !== "array") node = node.parent;
+      const arrayNode = node || openArrayNodeAtOffset(model.getOffsetAt(position));
+      if (arrayNode?.parent?.type !== "property" || arrayNode.parent.parent?.type !== "object") return null;
+      const info = objectInfo(arrayNode.parent.parent);
+      const context = {
+        kind: "value",
+        key: propertyName(arrayNode.parent),
+        quoted: Boolean(match[2]),
+        fragment,
+        numeric: !match[2] && /^[+\-]?(?:\d|\.\d)/.test(fragment),
+        operatorPrefix: !match[2] && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(fragment),
+        range: stringRange(model, position, segmentOffset + match[1].length, valueNode?.parent === arrayNode ? valueNode : null, Boolean(match[2])),
+        inArray: true,
+        ...info,
+      };
+      context.operand = isOperandContext(context);
+      return context;
+    }
+
+    function isOperandContext(context) {
+      if (context.role === "derivatives") return true;
+      if (context.role === "derivative") return context.key === "on" && ["TS", "CS"].includes(context.current.type);
+      return context.role === "fields" && schemaAllowsDerivative(fieldSchema(context, context.key, context.inArray));
+    }
+
+    function completionContext(model, position) {
+      return propertyValueCompletionContext(model, position) || arrayValueCompletionContext(model, position) || keyCompletionContext(model, position);
+    }
+
+    function shouldAutoSuggest(context) {
+      if (!context) return false;
+      if (context.kind === "key") return context.quoted || Boolean(context.fragment);
+      if (context.numeric) return false;
+      if (context.role === "document" && context.inArray && ["factors", "filters"].includes(context.key)) {
+        return context.quoted || Boolean(context.fragment);
+      }
+      if (context.operand) return context.quoted || context.operatorPrefix;
+      return ["type", "op"].includes(context.key) || Boolean(context.fragment);
+    }
+
+    function expandQueryObject(event) {
+      if (state.applyingCompletion || event.changes.length !== 1 || !["{", "{}"].includes(event.changes[0].text)) return false;
+      const change = event.changes[0];
+      let node = nodeAtOffset(change.rangeOffset);
+      while (node && !(node.type === "object" && node.offset === change.rangeOffset)) node = node.parent;
+      if (!node || node !== state.ast) return false;
+      const replacement = indentedJson({ factors: [], derivatives: {}, filters: [] }, 1);
+      state.applyingCompletion = true;
+      state.editor.executeEdits("query-object", [{ range: rangeForNode(node), text: replacement, forceMoveMarkers: true }]);
+      state.applyingCompletion = false;
+      setTimeout(async () => {
+        await formatDocument();
+        analyzeDocument();
+        const factorsNode = state.ast ? state.jsonc.findNodeAtLocation(state.ast, ["factors"]) : null;
+        if (factorsNode) state.editor.setPosition(state.model.getPositionAt(factorsNode.offset + 1));
+        state.editor.focus();
+        state.editor.trigger("query-object", "editor.action.triggerSuggest", {});
+      }, 0);
+      return true;
+    }
+
+    function expandOperandObject(event) {
+      if (state.applyingCompletion || event.changes.length !== 1 || !["{", "{}"].includes(event.changes[0].text)) return false;
+      const change = event.changes[0];
+      let node = nodeAtOffset(change.rangeOffset);
+      while (node && !(node.type === "object" && node.offset === change.rangeOffset)) node = node.parent;
+      if (!node || !isDerivativeSlot(node)) return false;
+      const skeleton = { type: "", op: "", fields: {}, params: {} };
+      const range = rangeForNode(node);
+      const path = state.jsonc.getNodePath(node);
+      const replacement = indentedJson(skeleton, range.startColumn);
+      state.applyingCompletion = true;
+      state.editor.executeEdits("operand-object", [{ range, text: replacement, forceMoveMarkers: true }]);
+      state.applyingCompletion = false;
+      setTimeout(async () => {
+        await formatDocument();
+        analyzeDocument();
+        const typeNode = state.ast ? state.jsonc.findNodeAtLocation(state.ast, [...path, "type"]) : null;
+        if (typeNode) state.editor.setPosition(state.model.getPositionAt(typeNode.offset + 1));
+        state.editor.focus();
+        state.editor.trigger("operand-object", "editor.action.triggerSuggest", {});
+      }, 0);
+      return true;
+    }
+
+    function databaseFactorNames() {
+      return state.availableFields;
+    }
+
+    function derivativeNames() {
+      const document = state.parsed && typeof state.parsed === "object" && !Array.isArray(state.parsed) ? state.parsed : {};
+      return document.derivatives && typeof document.derivatives === "object" && !Array.isArray(document.derivatives)
+        ? Object.keys(document.derivatives)
+        : [];
+    }
+
+    function derivativeOutputKind(derivative) {
+      const spec = derivative && typeof derivative === "object" ? state.operatorMap.get(derivative.op) : null;
+      if (!spec) return null;
+      if (derivative.op === "unary.cast" && derivative.params?.dtype === "bool") return "BOOL";
+      if (derivative.op === "nullary.literal" && (derivative.params?.dtype === "bool" || typeof derivative.params?.value === "boolean")) return "BOOL";
+      return spec.output_kind;
+    }
+
+    function booleanDerivativeNames() {
+      const document = state.parsed && typeof state.parsed === "object" && !Array.isArray(state.parsed) ? state.parsed : {};
+      const derivatives = document.derivatives && typeof document.derivatives === "object" && !Array.isArray(document.derivatives) ? document.derivatives : {};
+      return Object.entries(derivatives).filter(([, derivative]) => derivativeOutputKind(derivative) === "BOOL").map(([name]) => name);
+    }
+
+    function currentDefinitionName(context) {
+      const node = context.derivativeNode || context.objectNode;
+      if (!node) return null;
+      const path = state.jsonc.getNodePath(node);
+      const index = path.indexOf("derivatives");
+      return index >= 0 && typeof path[index + 1] === "string" ? path[index + 1] : null;
+    }
+
+    function referenceNames(context) {
+      const current = currentDefinitionName(context);
+      return [...new Set(["time", "code", ...databaseFactorNames(), ...derivativeNames()])].filter((name) => name !== current);
+    }
+
+    function schemaAllowsDerivative(schema) {
+      if (!schema) return false;
+      if (typeof schema.$ref === "string" && schema.$ref.endsWith("/Derivative")) return true;
+      return (schema.anyOf || []).some(schemaAllowsDerivative);
+    }
+
+    function schemaExamples(schema, name) {
+      if (!schema) return [];
+      const values = [];
+      if (Object.hasOwn(schema, "const")) values.push(schema.const);
+      if (schema.enum) values.push(...schema.enum);
+      if (Object.hasOwn(schema, "default")) values.push(schema.default);
+      for (const option of schema.anyOf || []) values.push(...schemaExamples(option, name));
+      if (schema.type === "boolean") values.push(true, false);
+      if ((schema.type === "integer" || schema.type === "number") && !values.length) values.push(defaultValueForSchema(schema, name));
+      if (schema.type === "array" && !values.length) values.push(defaultValueForSchema(schema, name));
+      return values;
+    }
+
+    function keySuggestions(context) {
+      let properties = {};
+      if (context.role === "document") {
+        properties = {
+          factors: { description: "需要直接输出的数据库 factor。", default: [] },
+          derivatives: { description: "需要计算并输出的命名派生因子。", default: {} },
+          filters: { description: "仅保留所有 BOOL 命名派生因子均为 true 的行。", default: [] },
+        };
+      } else if (context.role === "derivative") {
+        properties = {
+          type: { description: "算符计算类别：DIRECT、TS 或 CS。" },
+          op: { description: "算符名称。" },
+          fields: { description: "算符输入字段。" },
+          params: { description: "算符参数。" },
+        };
+        if (["TS", "CS"].includes(context.current.type)) properties.on = { description: "TS/CS 算符参与计算的布尔条件。" };
+      } else if (context.spec) {
+        properties = schemaProperties(context.role === "fields" ? context.spec.fields : context.spec.params);
+      }
+      const existing = state.jsonc.getNodeValue(context.objectNode) || {};
+      return Object.entries(properties).filter(([name]) => !(name in existing) || name === context.fragment).map(([name, schema], index) => {
+        const insertDefault = context.role === "document" && context.insertColon;
+        const roleLabel = context.role === "document" ? "查询属性" : context.role === "fields" ? "field" : context.role === "params" ? "param" : "Derivative";
+        return {
+          label: name,
+          detail: roleLabel + ((!["document", "derivative"].includes(context.role) && (context.spec?.[context.role]?.required || []).includes(name)) ? " · required" : ""),
+          documentation: { value: schema.description || name },
+          kind: state.monaco.languages.CompletionItemKind.Property,
+          sortText: String(index).padStart(3, "0"),
+          range: context.range,
+          filterText: context.quoted ? JSON.stringify(name) : name,
+          insertText: `${JSON.stringify(name)}${context.insertColon ? `: ${insertDefault ? JSON.stringify(schema.default) : ""}` : ""}`,
+          command: insertDefault ? { id: "editor.action.formatDocument", title: "格式化补全结果" } : undefined,
+        };
+      });
+    }
+
+    function literalSuggestion(context, value, detail, documentation, order) {
+      const insertText = JSON.stringify(value);
+      return {
+        label: typeof value === "string" ? value : insertText,
+        detail,
+        documentation: documentation ? { value: documentation } : undefined,
+        kind: typeof value === "string" ? state.monaco.languages.CompletionItemKind.Value : state.monaco.languages.CompletionItemKind.Constant,
+        sortText: order,
+        range: context.range,
+        filterText: context.quoted && typeof value === "string" ? insertText : String(value),
+        insertText,
+      };
+    }
+
+    function operatorObjectSuggestions(context, boolOnly = false) {
+      return state.operators.filter((spec) => !boolOnly || spec.output_kind === "BOOL").map((spec, index) => ({
+        label: spec.op,
+        filterText: context.quoted ? JSON.stringify(spec.op) : spec.op,
+        detail: `${spec.type} → ${spec.output_kind} · 完整对象`,
+        documentation: { value: spec.description || spec.op },
+        kind: state.monaco.languages.CompletionItemKind.Struct,
+        sortText: String(index).padStart(4, "0"),
+        range: context.range,
+        insertText: indentedJson(operatorObject(spec), context.range.startColumn),
+        command: { id: "editor.action.formatDocument", title: "格式化补全结果" },
+      }));
+    }
+
+    function operatorNameSuggestions(context) {
+      const expectedType = ["DIRECT", "TS", "CS"].includes(context.current.type) ? context.current.type : null;
+      return state.operators.filter((spec) => (!expectedType || spec.type === expectedType) && (!context.boolOnly || spec.output_kind === "BOOL")).map((spec, index) => ({
+        label: spec.op,
+        filterText: context.quoted ? JSON.stringify(spec.op) : spec.op,
+        detail: `${spec.type} → ${spec.output_kind}`,
+        documentation: { value: spec.description || spec.op },
+        kind: state.monaco.languages.CompletionItemKind.Function,
+        sortText: String(index).padStart(4, "0"),
+        range: context.range,
+        insertText: JSON.stringify(spec.op),
+      }));
+    }
+
+    function fieldSuggestions(context, names) {
+      const derivatives = new Set(derivativeNames());
+      return names.map((name, index) => literalSuggestion(
+        context,
+        name,
+        derivatives.has(name) ? "命名派生因子" : ["time", "code"].includes(name) ? "系统列" : "Worker factor",
+        derivatives.has(name) ? "当前 derivatives 中定义的命名派生因子。" : ["time", "code"].includes(name) ? "查询源始终包含的系统列。" : "当前 Worker 声明的可查询 factor。",
+        String(index).padStart(4, "0"),
+      ));
+    }
+
+    function referenceSuggestions(context) {
+      return fieldSuggestions(context, referenceNames(context));
+    }
+
+    function valueSuggestions(context) {
+      if (context.numeric) return [];
+      if (context.role === "document" && context.inArray && context.key === "factors") {
+        return fieldSuggestions(context, databaseFactorNames());
+      }
+      if (context.role === "document" && context.inArray && context.key === "filters") {
+        return fieldSuggestions(context, booleanDerivativeNames());
+      }
+      if (context.operand) {
+        if (context.quoted) {
+          if (context.role === "derivative" && context.key === "on") {
+            const current = currentDefinitionName(context);
+            return fieldSuggestions(context, booleanDerivativeNames().filter((name) => name !== current));
+          }
+          return referenceSuggestions(context);
+        }
+        if (context.operatorPrefix) return operatorObjectSuggestions(context, context.key === "on");
+        return [];
+      }
+      if (context.role === "derivative" && context.key === "type") {
+        return ["DIRECT", "TS", "CS"].map((value, index) => literalSuggestion(context, value, "算符类型", "决定算符按直接、时序或截面方式执行。", String(index)));
+      }
+      if (context.role === "derivative" && context.key === "op") return operatorNameSuggestions(context);
+      if (!context.spec || !["fields", "params"].includes(context.role)) return [];
+      const schema = context.role === "fields"
+        ? fieldSchema(context, context.key, context.inArray)
+        : (context.inArray ? schemaProperties(context.spec.params)[context.key]?.items : schemaProperties(context.spec.params)[context.key]);
+      if (!schema) return [];
+      return schemaExamples(schema, context.key).map((value, index) => literalSuggestion(context, value, "合法值", schema.description, String(index).padStart(4, "0")));
+    }
+
+    function registerCompletionProvider() {
+      state.monaco.languages.registerCompletionItemProvider("json", {
+        triggerCharacters: ["\"", ".", ":", "_", "{"],
+        provideCompletionItems(model, position) {
+          const context = completionContext(model, position);
+          if (!context || !state.operators.length) return { suggestions: [] };
+          const suggestions = context.kind === "key" ? keySuggestions(context) : valueSuggestions(context);
+          return { suggestions };
+        },
+      });
+    }
+
+    function parseErrorMessage(code) {
+      const raw = state.jsonc.printParseErrorCode(code);
+      const messages = {
+        InvalidSymbol: "存在无效符号",
+        InvalidNumberFormat: "数字格式无效",
+        PropertyNameExpected: "此处需要属性名",
+        ValueExpected: "此处需要 JSON 值",
+        ColonExpected: "属性名后缺少冒号",
+        CommaExpected: "对象或数组元素之间缺少逗号",
+        CloseBraceExpected: "对象缺少右花括号",
+        CloseBracketExpected: "数组缺少右方括号",
+        EndOfFileExpected: "根对象结束后仍有内容",
+      };
+      return messages[raw] || raw;
+    }
+
+    function markerFromOffset(offset, length, message, severity, source = "AST") {
+      const start = state.model.getPositionAt(offset);
+      const end = state.model.getPositionAt(offset + Math.max(1, length));
+      return {
+        startLineNumber: start.lineNumber,
+        startColumn: start.column,
+        endLineNumber: end.lineNumber,
+        endColumn: end.column,
+        message,
+        severity,
+        source,
+      };
+    }
+
+    function nodeAtPath(path, payloadPath = false) {
+      let normalized = [...path].filter((item) => item !== "function-wrap[validate_query()]" && item !== "function-wrap[dispatch_operator()]");
+      if (payloadPath && !["factors", "derivatives", "filters"].includes(normalized[0])) return state.ast;
+      while (normalized.length) {
+        const node = state.jsonc.findNodeAtLocation(state.ast, normalized);
+        if (node) return node;
+        normalized = normalized.slice(0, -1);
+      }
+      return state.ast;
+    }
+
+    function addLocalMarker(markers, path, message, severity = state.monaco.MarkerSeverity.Error) {
+      const node = nodeAtPath(path);
+      if (node) markers.push(markerFromOffset(node.offset, node.length, message, severity));
+    }
+
+    function validateDerivative(value, path, markers) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        addLocalMarker(markers, path, "Derivative 必须是 JSON 对象");
+        return;
+      }
+      const spec = state.operatorMap.get(value.op);
+      if (!spec) {
+        addLocalMarker(markers, [...path, "op"], typeof value.op === "string" ? `不存在算符 ${JSON.stringify(value.op)}` : "op 为必填字符串");
+        return;
+      }
+      if (value.type !== spec.type) addLocalMarker(markers, [...path, "type"], `${spec.op} 的 type 必须为 ${spec.type}`);
+      const allowedTop = new Set(["type", "op", "fields", "params", ...(spec.type === "DIRECT" ? [] : ["on"])]);
+      for (const name of Object.keys(value)) {
+        if (!allowedTop.has(name)) addLocalMarker(markers, [...path, name], `${spec.type} 算符不接受属性 ${name}`);
+      }
+      validateSchemaObject(value.fields, spec.fields, [...path, "fields"], markers);
+      validateSchemaObject(value.params, spec.params, [...path, "params"], markers);
+      if (spec.type === "DIRECT" && "on" in value) addLocalMarker(markers, [...path, "on"], "DIRECT 算符不能包含 on");
+      if (value.on && typeof value.on === "object") {
+        validateDerivative(value.on, [...path, "on"], markers);
+        const outputKind = derivativeOutputKind(value.on);
+        if (outputKind && outputKind !== "BOOL") addLocalMarker(markers, [...path, "on"], `on 必须返回 BOOL，当前 ${value.on.op} 返回 ${outputKind}`);
+      }
+      walkNestedDerivatives(value.fields, [...path, "fields"], markers);
+    }
+
+    function walkNestedDerivatives(value, path, markers) {
+      if (!value || typeof value !== "object") return;
+      if (!Array.isArray(value) && typeof value.op === "string" && typeof value.type === "string") {
+        validateDerivative(value, path, markers);
+        return;
+      }
+      if (Array.isArray(value)) value.forEach((child, index) => walkNestedDerivatives(child, [...path, index], markers));
+      else Object.entries(value).forEach(([name, child]) => walkNestedDerivatives(child, [...path, name], markers));
+    }
+
+    function derivativeReferenceEntries(derivative, path) {
+      const entries = [];
+
+      function visitOperand(value, currentPath) {
+        if (typeof value === "string") {
+          entries.push({ name: value, path: currentPath, on: false });
+        } else if (Array.isArray(value)) {
+          value.forEach((item, index) => visitOperand(item, [...currentPath, index]));
+        } else if (value && typeof value === "object" && typeof value.op === "string" && typeof value.type === "string") {
+          visitDerivative(value, currentPath);
+        }
+      }
+
+      function visitDerivative(value, currentPath) {
+        if (value.fields && typeof value.fields === "object" && !Array.isArray(value.fields)) {
+          Object.entries(value.fields).forEach(([name, operand]) => visitOperand(operand, [...currentPath, "fields", name]));
+        }
+        if (typeof value.on === "string") {
+          entries.push({ name: value.on, path: [...currentPath, "on"], on: true });
+        } else if (value.on && typeof value.on === "object") {
+          visitDerivative(value.on, [...currentPath, "on"]);
+        }
+      }
+
+      visitDerivative(derivative, path);
+      return entries;
+    }
+
+    function validateReferences(derivatives, markers) {
+      const names = new Set(Object.keys(derivatives));
+      const available = new Set(databaseFactorNames());
+      const reserved = new Set(["time", "code"]);
+      const dependencies = new Map();
+
+      for (const [name, derivative] of Object.entries(derivatives)) {
+        const entries = derivativeReferenceEntries(derivative, ["derivatives", name]);
+        dependencies.set(name, new Set(entries.filter((entry) => names.has(entry.name)).map((entry) => entry.name)));
+        for (const entry of entries) {
+          if (entry.on) {
+            if (!names.has(entry.name)) {
+              addLocalMarker(markers, entry.path, `on 只能引用已定义的 BOOL 命名派生因子，当前不存在 ${entry.name}`);
+              continue;
+            }
+            if (derivativeOutputKind(derivatives[entry.name]) !== "BOOL") {
+              addLocalMarker(markers, entry.path, `on 引用的 ${entry.name} 必须返回 BOOL`);
+            }
+            continue;
+          }
+          if (!names.has(entry.name) && !available.has(entry.name) && !reserved.has(entry.name)) {
+            addLocalMarker(markers, entry.path, `不存在字段或命名派生因子 ${entry.name}`);
+          }
+        }
+      }
+
+      const states = new Map();
+      const path = [];
+      let cycleFound = false;
+      function visit(name) {
+        if (cycleFound || states.get(name) === 2) return;
+        if (states.get(name) === 1) {
+          const start = path.indexOf(name);
+          const cycle = [...path.slice(start), name];
+          addLocalMarker(markers, ["derivatives", name], `命名派生因子存在循环依赖：${cycle.join(" -> ")}`);
+          cycleFound = true;
+          return;
+        }
+        states.set(name, 1);
+        path.push(name);
+        for (const dependency of dependencies.get(name) || []) visit(dependency);
+        path.pop();
+        states.set(name, 2);
+      }
+      for (const name of names) visit(name);
+    }
+
+    function validateSchemaObject(value, schema, path, markers) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        addLocalMarker(markers, path, `${path.at(-1)} 必须是 JSON 对象`);
+        return;
+      }
+      const properties = schemaProperties(schema);
+      for (const required of schema.required || []) {
+        if (!(required in value)) addLocalMarker(markers, path, `缺少必填属性 ${required}`);
+      }
+      for (const [name, child] of Object.entries(value)) {
+        if (!(name in properties)) {
+          addLocalMarker(markers, [...path, name], `不接受属性 ${name}`);
+          continue;
+        }
+        if (path.at(-1) === "params") validatePrimitive(child, properties[name], [...path, name], markers);
+      }
+    }
+
+    function validatePrimitive(value, schema, path, markers) {
+      if (schema.enum && !schema.enum.includes(value)) addLocalMarker(markers, path, `必须是 ${schema.enum.map(JSON.stringify).join("、")}`);
+      const expected = schema.type;
+      if (expected === "integer" && !Number.isInteger(value)) addLocalMarker(markers, path, "必须是整数");
+      if (expected === "number" && typeof value !== "number") addLocalMarker(markers, path, "必须是数值");
+      if (expected === "boolean" && typeof value !== "boolean") addLocalMarker(markers, path, "必须是布尔值");
+      if (expected === "string" && typeof value !== "string") addLocalMarker(markers, path, "必须是字符串");
+      if (typeof value === "number") {
+        if (schema.minimum !== undefined && value < schema.minimum) addLocalMarker(markers, path, `不能小于 ${schema.minimum}`);
+        if (schema.maximum !== undefined && value > schema.maximum) addLocalMarker(markers, path, `不能大于 ${schema.maximum}`);
+        if (schema.exclusiveMinimum !== undefined && value <= schema.exclusiveMinimum) addLocalMarker(markers, path, `必须大于 ${schema.exclusiveMinimum}`);
+        if (schema.exclusiveMaximum !== undefined && value >= schema.exclusiveMaximum) addLocalMarker(markers, path, `必须小于 ${schema.exclusiveMaximum}`);
+      }
+    }
+
+    function validateRoot(value) {
+      const markers = [];
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        addLocalMarker(markers, [], "查询编辑内容必须是 JSON 对象");
+        return markers;
+      }
+      if (!elements.startDate.value) addLocalMarker(markers, [], "start_date 为必填项");
+      if (!elements.endDate.value) addLocalMarker(markers, [], "end_date 为必填项");
+      if (elements.startDate.value && elements.endDate.value && elements.startDate.value > elements.endDate.value) {
+        addLocalMarker(markers, [], "end_date 不能早于 start_date");
+      }
+      const allowed = new Set(["factors", "derivatives", "filters"]);
+      for (const name of Object.keys(value)) {
+        if (!allowed.has(name)) addLocalMarker(markers, [name], `查询编辑内容不接受属性 ${name}`);
+      }
+      const factors = Array.isArray(value.factors) ? value.factors : [];
+      const derivatives = value.derivatives && typeof value.derivatives === "object" && !Array.isArray(value.derivatives) ? value.derivatives : {};
+      const filters = Array.isArray(value.filters) ? value.filters : [];
+      if (!Array.isArray(value.factors)) addLocalMarker(markers, ["factors"], "factors 必须是字符串数组");
+      if (!value.derivatives || typeof value.derivatives !== "object" || Array.isArray(value.derivatives)) addLocalMarker(markers, ["derivatives"], "derivatives 必须是 JSON 对象");
+      if (!Array.isArray(value.filters)) addLocalMarker(markers, ["filters"], "filters 必须是字符串数组");
+      const available = new Set(databaseFactorNames());
+      factors.forEach((name, index) => {
+        if (typeof name !== "string" || !name.trim()) addLocalMarker(markers, ["factors", index], "factor 必须是非空字符串");
+        else if (!available.has(name)) addLocalMarker(markers, ["factors", index], `Worker 未声明 factor ${name}`);
+      });
+      filters.forEach((name, index) => {
+        if (typeof name !== "string" || !name.trim()) {
+          addLocalMarker(markers, ["filters", index], "filter 必须是非空字符串");
+        } else if (!Object.hasOwn(derivatives, name)) {
+          addLocalMarker(markers, ["filters", index], `filter 必须引用已定义的 BOOL 命名派生因子，当前不存在 ${name}`);
+        } else if (derivativeOutputKind(derivatives[name]) !== "BOOL") {
+          addLocalMarker(markers, ["filters", index], `filter ${name} 必须返回 BOOL`);
+        }
+      });
+      if (!factors.length && !Object.keys(derivatives).length) addLocalMarker(markers, [], "factors 和 derivatives 至少提供一项");
+      const factorNames = new Set(factors.filter((name) => typeof name === "string"));
+      for (const [name, derivative] of Object.entries(derivatives)) {
+        const path = ["derivatives", name];
+        if (!name.trim()) addLocalMarker(markers, path, "派生因子名称不能为空");
+        if (name === "time" || name === "code") addLocalMarker(markers, path, "派生因子不能使用保留名称");
+        if (factorNames.has(name)) addLocalMarker(markers, path, `与 factors 中的 ${name} 冲突`);
+        validateDerivative(derivative, path, markers);
+      }
+      validateReferences(derivatives, markers);
+      return markers;
+    }
+
+    function analyzeDocument() {
+      if (!state.jsonc || !state.model) return;
+      const text = state.model.getValue();
+      const errors = [];
+      state.ast = state.jsonc.parseTree(text, errors, { allowTrailingComma: true, disallowComments: false });
+      state.syntaxMarkers = errors.map((error) => markerFromOffset(error.offset, error.length, parseErrorMessage(error.error), state.monaco.MarkerSeverity.Error, "JSONC"));
+      state.parsed = state.ast ? state.jsonc.getNodeValue(state.ast) : null;
+      state.localMarkers = state.syntaxMarkers.length || !state.ast ? [] : validateRoot(state.parsed);
+      state.serverMarkers = [];
+      applyMarkers();
+      updateAstPath();
+      if (!state.syntaxMarkers.length && state.ast) scheduleServerValidation();
+    }
+
+    function applyMarkers() {
+      const markers = [...state.syntaxMarkers, ...state.localMarkers, ...state.serverMarkers];
+      state.monaco.editor.setModelMarkers(state.model, "core-query", markers);
+      const errors = markers.filter((marker) => marker.severity === state.monaco.MarkerSeverity.Error);
+      const warnings = markers.filter((marker) => marker.severity === state.monaco.MarkerSeverity.Warning);
+      elements.diagnosticButton.className = `diagnostic-link ${errors.length ? "has-error" : "valid"}`;
+      elements.diagnosticButton.textContent = errors.length
+        ? `${errors.length} errors${warnings.length ? ` · ${warnings.length} warnings` : ""}`
+        : warnings.length ? `${warnings.length} warnings` : "AST valid";
+      const ready = Boolean(state.editor && state.operators.length && state.connection && state.codesReady && !errors.length);
+      elements.runButton.disabled = !ready;
+      elements.queryNote.textContent = errors.length ? errors[0].message : ready ? "请求已通过 AST 与 Pydantic 校验" : "等待运行时组件";
+      if (!errors.length && !state.codesReady) {
+        elements.queryNote.textContent = state.codesLoading ? "正在获取指数最近成分股" : "codes 不能为空";
+      }
+    }
+
+    function scheduleServerValidation() {
+      clearTimeout(state.validationTimer);
+      const sequence = ++state.validationSequence;
+      state.validationTimer = setTimeout(async () => {
+        try {
+          const response = await fetch("/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(collectPayload()),
+          });
+          if (!response.ok) return;
+          const result = await response.json();
+          if (sequence !== state.validationSequence) return;
+          state.serverMarkers = (result.errors || []).map((issue) => {
+            const node = nodeAtPath(issue.location || [], true);
+            return markerFromOffset(node.offset, node.length, issue.message, state.monaco.MarkerSeverity.Error, "Pydantic");
+          });
+          applyMarkers();
+        } catch {
+          if (sequence === state.validationSequence) {
+            state.serverMarkers = [];
+            applyMarkers();
+          }
+        }
+      }, 360);
+    }
+
+    function updateAstPath() {
+      if (!state.editor || !state.ast) return;
+      const offset = state.model.getOffsetAt(state.editor.getPosition());
+      const node = state.jsonc.findNodeAtOffset(state.ast, offset, true);
+      if (!node) return;
+      const path = state.jsonc.getNodePath(node);
+      const label = path.length ? path.map((item) => typeof item === "number" ? `[${item}]` : item).join(" / ") : "/";
+      elements.astPath.textContent = `AST ${label} · ${node.type}`;
+    }
+
+    function parseList(value) {
+      return [...new Set(value.split(/[\s,，]+/).map((item) => item.trim()).filter(Boolean))];
+    }
+
+    function updateCodesReady() {
+      state.codesReady = parseList(elements.codes.value).length > 0;
+      if (state.editor) analyzeDocument();
+    }
+
+    async function applyCodeSource(source, manualCodes) {
+      const sequence = ++state.indexRequestSequence;
+      elements.codeSource.value = source;
+      if (source === "manual") {
+        if (Array.isArray(manualCodes)) state.manualCodes = manualCodes.join(", ");
+        elements.codes.readOnly = false;
+        elements.codes.placeholder = "000001.SZ, 600000.SH";
+        elements.codes.title = "";
+        elements.codes.value = state.manualCodes;
+        state.codesLoading = false;
+        updateCodesReady();
+        return;
+      }
+
+      elements.codes.readOnly = true;
+      elements.codes.placeholder = "正在获取最近成分股";
+      elements.codes.title = "";
+      elements.codes.value = "";
+      state.codesLoading = true;
+      state.codesReady = false;
+      if (state.editor) analyzeDocument();
+
+      try {
+        let result = state.indexCodesCache.get(source);
+        if (!result) {
+          const response = await fetch(`/indices/${encodeURIComponent(source)}/constituents`);
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.detail || `HTTP ${response.status}`);
+          }
+          result = await response.json();
+          state.indexCodesCache.set(source, result);
+        }
+        if (sequence !== state.indexRequestSequence || elements.codeSource.value !== source) return;
+        elements.codes.value = result.codes.join(", ");
+        elements.codes.title = `${result.index_code} · ${result.trade_date} · ${result.codes.length} 只`;
+        state.codesReady = result.codes.length > 0;
+      } catch (error) {
+        if (sequence !== state.indexRequestSequence || elements.codeSource.value !== source) return;
+        elements.codes.placeholder = "成分股获取失败，请切换为手动输入";
+        toast("股票池加载失败", error.message, "error", 7200);
+      } finally {
+        if (sequence === state.indexRequestSequence && elements.codeSource.value === source) {
+          state.codesLoading = false;
+          updateCodesReady();
+        }
+      }
+    }
+
+    function collectPayload() {
+      const document = state.parsed && typeof state.parsed === "object" && !Array.isArray(state.parsed) ? state.parsed : {};
+      return {
+        start_date: elements.startDate.value,
+        end_date: elements.endDate.value,
+        lookback: elements.lookback.value.trim() || "0D",
+        codes: parseList(elements.codes.value),
+        factors: Array.isArray(document.factors) ? document.factors : [],
+        derivatives: document.derivatives && typeof document.derivatives === "object" && !Array.isArray(document.derivatives) ? document.derivatives : {},
+        filters: Array.isArray(document.filters) ? document.filters : [],
+      };
+    }
+
+    function bindConfigControls() {
+      for (const id of ["startDate", "endDate", "lookback"]) {
+        elements[id].addEventListener("input", () => {
+          if (state.editor) analyzeDocument();
+        });
+      }
+      elements.codes.addEventListener("input", () => {
+        if (elements.codeSource.value !== "manual") return;
+        state.manualCodes = elements.codes.value;
+        updateCodesReady();
+      });
+      elements.codeSource.addEventListener("change", () => applyCodeSource(elements.codeSource.value));
+    }
+
+    function formatDocument() {
+      if (!state.editor || !state.jsonc) return Promise.resolve();
+      const edits = state.jsonc.format(state.model.getValue(), undefined, {
+        insertSpaces: true,
+        tabSize: 2,
+        eol: "\n",
+      });
+      if (!edits.length) return Promise.resolve();
+      state.applyingCompletion = true;
+      state.editor.executeEdits("format-json", edits.map((edit) => {
+        const start = state.model.getPositionAt(edit.offset);
+        const end = state.model.getPositionAt(edit.offset + edit.length);
+        return {
+          range: new state.monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+          text: edit.content,
+          forceMoveMarkers: true,
+        };
+      }));
+      state.applyingCompletion = false;
+      return Promise.resolve();
+    }
+
+    function initializeQueryConfig() {
+      const now = new Date();
+      const today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      elements.startDate.value = today;
+      elements.endDate.value = today;
+      elements.lookback.value = "0D";
+      return applyCodeSource("000300.SH");
+    }
+
+    function quoteIdentifier(name) {
+      return `"${String(name).replaceAll('"', '""')}"`;
+    }
+
+    function quoteLiteral(value) {
+      return `'${String(value).replaceAll("'", "''")}'`;
+    }
+
+    function formatTimestamp(value, type) {
+      if (value instanceof Date) return value.toISOString().slice(0, 19).replace("T", " ");
+      let milliseconds;
+      const normalizedType = type.toUpperCase();
+      if (typeof value === "bigint") {
+        if (normalizedType === "DATE") milliseconds = Number(value) * 86400000;
+        else {
+          const absolute = value < 0n ? -value : value;
+          if (absolute >= 100000000000000000n) milliseconds = Number(value / 1000000n);
+          else if (absolute >= 100000000000000n) milliseconds = Number(value / 1000n);
+          else if (absolute >= 100000000000n) milliseconds = Number(value);
+          else milliseconds = Number(value * 1000n);
+        }
+      } else if (typeof value === "number") {
+        if (normalizedType === "DATE") milliseconds = value * 86400000;
+        else {
+          const absolute = Math.abs(value);
+          if (absolute >= 1e17) milliseconds = value / 1e6;
+          else if (absolute >= 1e14) milliseconds = value / 1e3;
+          else if (absolute >= 1e11) milliseconds = value;
+          else milliseconds = value * 1e3;
+        }
+      } else if (typeof value === "string") {
+        const source = value.trim();
+        const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(source) ? `${source}T00:00:00Z` : source.includes("T") ? source : `${source.replace(" ", "T")}Z`);
+        if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 19).replace("T", " ");
+      }
+      if (milliseconds !== undefined) {
+        const parsed = new Date(milliseconds);
+        if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 19).replace("T", " ");
+      }
+      return null;
+    }
+
+    function formatCell(value, column) {
+      if (value === null || value === undefined) return { text: "NULL", className: "null" };
+      if (column === "time") {
+        const timestamp = formatTimestamp(value, state.resultTypes.get(column) || "");
+        if (timestamp) return { text: timestamp, className: "" };
+      }
+      if (typeof value === "bigint") return { text: value.toString(), className: "number" };
+      if (typeof value === "number") {
+        const text = Number.isInteger(value) ? value.toString() : Number(value.toPrecision(12)).toString();
+        return { text, className: "number" };
+      }
+      if (typeof value === "boolean") return { text: value ? "true" : "false", className: "boolean" };
+      if (value instanceof Date) return { text: value.toISOString().replace("T", " ").replace(".000Z", ""), className: "" };
+      return { text: String(value), className: "" };
+    }
+
+    function currentWhereClause() {
+      if (!state.filter || !state.resultColumns.length) return "";
+      const pattern = quoteLiteral(`%${state.filter}%`);
+      return `WHERE ${state.resultColumns.map((column) => `CAST(${quoteIdentifier(column)} AS VARCHAR) ILIKE ${pattern}`).join(" OR ")}`;
+    }
+
+    function currentOrderClause() {
+      return state.sort ? `ORDER BY ${quoteIdentifier(state.sort.column)} ${state.sort.direction}` : "";
+    }
+
+    function updatePagination() {
+      const pages = state.filteredRows ? Math.ceil(state.filteredRows / state.pageSize) : 0;
+      if (pages && state.page > pages) state.page = pages;
+      elements.pageLabel.textContent = `${pages ? state.page : 0} / ${pages}`;
+      elements.firstPageButton.disabled = state.page <= 1;
+      elements.previousPageButton.disabled = state.page <= 1;
+      elements.nextPageButton.disabled = !pages || state.page >= pages;
+      elements.lastPageButton.disabled = !pages || state.page >= pages;
+      elements.rowMetric.textContent = state.filteredRows.toLocaleString("zh-CN");
+      elements.columnMetric.textContent = state.resultColumns.length.toString();
+      elements.elapsedMetric.textContent = state.lastElapsed < 1000 ? `${Math.round(state.lastElapsed)} ms` : `${(state.lastElapsed / 1000).toFixed(2)} s`;
+    }
+
+    async function renderResultPage() {
+      if (!state.connection || !state.resultColumns.length) return;
+      const where = currentWhereClause();
+      const countResult = await state.connection.query(`SELECT count(*) AS count FROM query_result ${where}`);
+      state.filteredRows = Number(countResult.toArray()[0].count);
+      updatePagination();
+      const offset = (state.page - 1) * state.pageSize;
+      const result = await state.connection.query(`SELECT * FROM query_result ${where} ${currentOrderClause()} LIMIT ${state.pageSize} OFFSET ${Math.max(0, offset)}`);
+      const rows = result.toArray();
+      const thead = elements.resultTable.tHead;
+      const tbody = elements.resultTable.tBodies[0];
+      thead.replaceChildren();
+      tbody.replaceChildren();
+      const headerRow = document.createElement("tr");
+      for (const column of state.resultColumns) {
+        const th = document.createElement("th");
+        th.textContent = column;
+        th.title = `${column} · ${state.resultTypes.get(column) || "ANY"}`;
+        if (state.sort?.column === column) {
+          const indicator = document.createElement("span");
+          indicator.className = "sort-indicator";
+          indicator.textContent = state.sort.direction === "ASC" ? "↑" : "↓";
+          th.appendChild(indicator);
+        }
+        th.addEventListener("click", async () => {
+          state.sort = state.sort?.column === column
+            ? { column, direction: state.sort.direction === "ASC" ? "DESC" : "ASC" }
+            : { column, direction: "ASC" };
+          state.page = 1;
+          await renderResultPage();
+        });
+        headerRow.appendChild(th);
+      }
+      thead.appendChild(headerRow);
+      const fragment = document.createDocumentFragment();
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        for (const column of state.resultColumns) {
+          const td = document.createElement("td");
+          const cell = formatCell(row[column], column);
+          td.textContent = cell.text;
+          td.className = cell.className;
+          td.title = cell.text;
+          tr.appendChild(td);
+        }
+        fragment.appendChild(tr);
+      }
+      tbody.appendChild(fragment);
+      elements.emptyState.style.display = rows.length ? "none" : "grid";
+      elements.resultLabel.textContent = `${state.filteredRows.toLocaleString("zh-CN")} rows · DuckDB`;
+    }
+
+    async function loadParquet(buffer) {
+      const fileName = `query-${Date.now()}.parquet`;
+      if (state.resultFile) {
+        try { await state.db.dropFile(state.resultFile); } catch { /* previous file may already be released */ }
+      }
+      await state.db.registerFileBuffer(fileName, new Uint8Array(buffer));
+      await state.connection.query(`CREATE OR REPLACE VIEW query_result AS SELECT * FROM read_parquet(${quoteLiteral(fileName)})`);
+      const description = await state.connection.query("DESCRIBE query_result");
+      const fields = description.toArray();
+      state.resultColumns = fields.map((field) => String(field.column_name));
+      state.resultTypes = new Map(fields.map((field) => [String(field.column_name), String(field.column_type)]));
+      state.resultFile = fileName;
+      state.resultBuffer = buffer;
+      state.sort = null;
+      state.filter = "";
+      state.page = 1;
+      elements.tableFilter.value = "";
+      await renderResultPage();
+      elements.downloadParquetButton.disabled = false;
+      elements.downloadCsvButton.disabled = false;
+    }
+
+    async function executeQuery() {
+      analyzeDocument();
+      const markers = state.monaco.editor.getModelMarkers({ resource: state.model.uri });
+      if (markers.some((marker) => marker.severity === state.monaco.MarkerSeverity.Error)) {
+        toast("查询未执行", "请先修复编辑器中的校验错误", "error");
+        return;
+      }
+      const started = performance.now();
+      elements.runButton.disabled = true;
+      elements.runButton.querySelector("span").textContent = "查询中";
+      setRuntimeStatus("busy", "DolphinDB query");
+      elements.queryNote.textContent = "正在请求 Parquet 并载入 DuckDB-Wasm";
+      try {
+        const response = await fetch(DEFAULT_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(collectPayload()),
+        });
+        if (!response.ok) {
+          const detail = await response.text();
+          throw new Error(`HTTP ${response.status}: ${detail.slice(0, 1200)}`);
+        }
+        const buffer = await response.arrayBuffer();
+        await loadParquet(buffer);
+        state.lastElapsed = performance.now() - started;
+        updatePagination();
+        setRuntimeStatus("ready", "Query ready");
+        elements.queryNote.textContent = `${(buffer.byteLength / 1024).toFixed(1)} KiB Parquet 已载入浏览器`;
+        toast("查询完成", `${state.totalRows || state.filteredRows} 行结果已载入 DuckDB-Wasm`);
+      } catch (error) {
+        setRuntimeStatus("error", "Query failed");
+        elements.queryNote.textContent = error.message;
+        toast("查询失败", error.message, "error", 7200);
+      } finally {
+        elements.runButton.querySelector("span").textContent = "执行查询";
+        applyMarkers();
+      }
+    }
+
+    function downloadBuffer(buffer, name, type) {
+      const url = URL.createObjectURL(new Blob([buffer], { type }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function downloadCsv() {
+      if (!state.connection) return;
+      const fileName = `query-result-${Date.now()}.csv`;
+      await state.connection.query(`COPY (SELECT * FROM query_result ${currentWhereClause()} ${currentOrderClause()}) TO ${quoteLiteral(fileName)} (HEADER, DELIMITER ',')`);
+      const buffer = await state.db.copyFileToBuffer(fileName);
+      await state.db.dropFile(fileName);
+      downloadBuffer(buffer, "query-result.csv", "text/csv;charset=utf-8");
+    }
+
+    function bindEvents() {
+      elements.themeButton.addEventListener("click", () => {
+        const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = theme;
+        localStorage.setItem("core-query-theme", theme);
+        if (state.monaco) state.monaco.editor.setTheme(theme === "dark" ? "core-dark" : "core-light");
+      });
+      elements.diagnosticButton.addEventListener("click", () => {
+        const markers = state.monaco.editor.getModelMarkers({ resource: state.model.uri });
+        if (!markers.length) return;
+        state.editor.setPosition({ lineNumber: markers[0].startLineNumber, column: markers[0].startColumn });
+        state.editor.revealPositionInCenter(state.editor.getPosition());
+        state.editor.focus();
+      });
+      elements.runButton.addEventListener("click", executeQuery);
+      let filterTimer;
+      elements.tableFilter.addEventListener("input", () => {
+        clearTimeout(filterTimer);
+        filterTimer = setTimeout(async () => {
+          state.filter = elements.tableFilter.value.trim();
+          state.page = 1;
+          await renderResultPage();
+        }, 220);
+      });
+      elements.pageSize.addEventListener("change", async () => {
+        state.pageSize = Number(elements.pageSize.value);
+        state.page = 1;
+        await renderResultPage();
+      });
+      elements.firstPageButton.addEventListener("click", async () => { state.page = 1; await renderResultPage(); });
+      elements.previousPageButton.addEventListener("click", async () => { state.page = Math.max(1, state.page - 1); await renderResultPage(); });
+      elements.nextPageButton.addEventListener("click", async () => { state.page += 1; await renderResultPage(); });
+      elements.lastPageButton.addEventListener("click", async () => { state.page = Math.ceil(state.filteredRows / state.pageSize); await renderResultPage(); });
+      elements.downloadParquetButton.addEventListener("click", () => downloadBuffer(state.resultBuffer, "query-result.parquet", "application/vnd.apache.parquet"));
+      elements.downloadCsvButton.addEventListener("click", () => downloadCsv().catch((error) => toast("CSV 导出失败", error.message, "error")));
+      bindConfigControls();
+    }
+
+    async function boot() {
+      const savedTheme = localStorage.getItem("core-query-theme");
+      if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
+      refreshIcons();
+      bindEvents();
+      try {
+        const [jsonc, monaco] = await Promise.all([import(CDN.jsonc), loadMonaco()]);
+        state.jsonc = jsonc;
+        state.monaco = monaco;
+        await Promise.all([loadOperators(), loadAvailableFields(), loadIndexPresets(), loadEditorFont()]);
+        initializeEditor();
+        state.monaco.editor.remeasureFonts();
+        state.editor.layout();
+        await initializeQueryConfig();
+        await initializeDuckDB();
+        setRuntimeStatus("ready", "Runtime ready");
+        elements.queryNote.textContent = "请求已通过 AST 与 Pydantic 校验";
+        applyMarkers();
+      } catch (error) {
+        setRuntimeStatus("error", "Runtime failed");
+        elements.queryNote.textContent = error.message;
+        toast("初始化失败", error.message, "error", 9000);
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>
