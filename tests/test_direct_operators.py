@@ -48,13 +48,14 @@ def _comparison(
     left: pd.Series,
     right: pd.Series,
     function: Callable[[float, float], bool],
-) -> list[bool]:
-    """按 NULL 小于有效值且同类型 NULL 相等的规则计算有序比较。"""
-    result: list[bool] = []
+) -> list[bool | None]:
+    """按任一操作数缺失就传播 NULL 的规则计算比较。"""
+    result: list[bool | None] = []
     for lhs, rhs in zip(left, right, strict=True):
-        lhs_value = -np.inf if _missing(lhs) else float(lhs)
-        rhs_value = -np.inf if _missing(rhs) else float(rhs)
-        result.append(bool(function(lhs_value, rhs_value)))
+        if _missing(lhs) or _missing(rhs):
+            result.append(None)
+        else:
+            result.append(bool(function(float(lhs), float(rhs))))
     return result
 
 
@@ -139,8 +140,7 @@ def _direct_contracts(source: pd.DataFrame) -> dict[str, DirectContract]:
     dates = source["date"]
 
     eq = [
-        (_missing(lhs) and _missing(rhs))
-        or (not _missing(lhs) and not _missing(rhs) and lhs == rhs)
+        None if _missing(lhs) or _missing(rhs) else lhs == rhs
         for lhs, rhs in zip(left, right, strict=True)
     ]
     null_if = [
@@ -179,7 +179,7 @@ def _direct_contracts(source: pd.DataFrame) -> dict[str, DirectContract]:
         "binary.minimum": DirectContract(direct("binary.minimum", {"left": "left", "right": "right"}), _arithmetic(left, right, min)),
         "binary.mod": DirectContract(direct("binary.mod", {"left": "left", "right": "right"}), _arithmetic(left, right, operator.mod, zero_is_null=True)),
         "binary.mul": DirectContract(direct("binary.mul", {"left": "left", "right": "right"}), _arithmetic(left, right, operator.mul)),
-        "binary.ne": DirectContract(direct("binary.ne", {"left": "left", "right": "right"}), [not value for value in eq]),
+        "binary.ne": DirectContract(direct("binary.ne", {"left": "left", "right": "right"}), [None if value is None else not value for value in eq]),
         "binary.null_if": DirectContract(direct("binary.null_if", {"left": "left", "right": "right"}), null_if),
         "binary.or": DirectContract(direct("binary.or", {"left": "bool_left", "right": "bool_right"}), _logical(source["bool_left"], source["bool_right"], operator.or_)),
         "binary.pow": DirectContract(direct("binary.pow", {"left": "pow_base", "right": "pow_exp"}), np.power(source["pow_base"], source["pow_exp"])),

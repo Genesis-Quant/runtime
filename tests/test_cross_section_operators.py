@@ -110,13 +110,15 @@ def _regression_values(group: pd.DataFrame) -> dict[str, object]:
     residual = pd.Series(np.nan, index=group.index)
     if np.isfinite(slope):
         residual.loc[valid] = y - intercept - slope * x
+    paired_left = pd.Series(x)
+    paired_right = pd.Series(y)
     return {
         "alpha": intercept,
         "beta": slope,
         "corr": left.corr(right),
         "cov": left.cov(right),
-        "rank_corr": left.rank(method="average").corr(
-            right.rank(method="average")
+        "rank_corr": paired_left.rank(method="average").corr(
+            paired_right.rank(method="average")
         ),
         "residual": residual,
     }

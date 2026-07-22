@@ -50,8 +50,8 @@ class DirectBinaryGtOperator(DirectOperator):
 
             Notes
             -----
-            NULL 处理：有序比较采用 DolphinDB 的排序语义，NULL 小于任意同类型非 NULL 值，两个同类型
-            NULL 相等；因此结果是确定的 BOOL，不传播 NULL。
+            NULL 处理：任一操作数为 NULL 时结果为 BOOL NULL。需要判断缺失值时请显式使用
+            unary.is_null 或 unary.not_null；该规则不会让 NULL 按 DolphinDB 排序最小值参与筛选。
 
             广播与类型：标量可与向量广播，两个向量必须等长；比较前的类型兼容性由 DolphinDB 判断。
 
@@ -62,11 +62,11 @@ class DirectBinaryGtOperator(DirectOperator):
             >>> direct_binary_gt(left, right)
             [false, false, true]
 
-            NULL 按最小值参与有序比较：
+            NULL 不参与有序比较：
             >>> direct_binary_gt(int([1, NULL, NULL]), int([0, 1, NULL]))
-            [true, false, false]
+            [true, NULL, NULL]
             */
-            return left > right
+            return iif(isNull(left) || isNull(right), bool(NULL), left > right)
         }
         """
     )

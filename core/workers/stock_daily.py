@@ -30,9 +30,12 @@ class StockDailyWorker(DateWorker):
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场未复权日行情。"""
         current = normalize_date(current_date, "current_date")
-        response = pro.daily(
-            trade_date=current.strftime("%Y%m%d"),
-            fields=",".join(("ts_code", "trade_date", *self.factors)),
+        response = self.retry(
+            lambda: pro.daily(
+                trade_date=current.strftime("%Y%m%d"),
+                fields=",".join(("ts_code", "trade_date", *self.factors)),
+            ),
+            context=f"{self}[{current:%Y-%m-%d}]",
         )
 
         if response is None or response.empty:
@@ -73,9 +76,12 @@ class StockDailyBasicWorker(DateWorker):
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场估值和市值指标。"""
         current = normalize_date(current_date, "current_date")
-        response = pro.daily_basic(
-            trade_date=current.strftime("%Y%m%d"),
-            fields=",".join(("ts_code", "trade_date", *self.factors)),
+        response = self.retry(
+            lambda: pro.daily_basic(
+                trade_date=current.strftime("%Y%m%d"),
+                fields=",".join(("ts_code", "trade_date", *self.factors)),
+            ),
+            context=f"{self}[{current:%Y-%m-%d}]",
         )
 
         if response is None or response.empty:
@@ -99,9 +105,12 @@ class StockAdjFactorWorker(DateWorker):
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场复权因子。"""
         current = normalize_date(current_date, "current_date")
-        response = pro.adj_factor(
-            trade_date=current.strftime("%Y%m%d"),
-            fields=",".join(("ts_code", "trade_date", *self.factors)),
+        response = self.retry(
+            lambda: pro.adj_factor(
+                trade_date=current.strftime("%Y%m%d"),
+                fields=",".join(("ts_code", "trade_date", *self.factors)),
+            ),
+            context=f"{self}[{current:%Y-%m-%d}]",
         )
 
         if response is None or response.empty:
@@ -137,11 +146,14 @@ class StockHfqWorker(StockWorker):
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的后复权日行情。"""
-        response = ts.pro_bar(
-            ts_code=code,
-            adj="hfq",
-            start_date=start_date.strftime("%Y%m%d"),
-            end_date=end_date.strftime("%Y%m%d"),
+        response = self.retry(
+            lambda: ts.pro_bar(
+                ts_code=code,
+                adj="hfq",
+                start_date=start_date.strftime("%Y%m%d"),
+                end_date=end_date.strftime("%Y%m%d"),
+            ),
+            context=f"{self}[{code}]",
         )
 
         if response is None or response.empty:

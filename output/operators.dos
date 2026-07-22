@@ -463,8 +463,8 @@ def direct_binary_eq(left, right) {
 
     Notes
     -----
-    NULL 处理：比较采用 DolphinDB 的 NULL 值语义；同类型 NULL 与 NULL
-    被视为相等，NULL 与非 NULL 不相等。输出始终为非 NULL BOOL。
+    NULL 处理：任一操作数为 NULL 时结果为 BOOL NULL。需要判断缺失值时请显式使用
+    unary.is_null 或 unary.not_null；该规则可防止未知比较结果被误作有效筛选条件。
 
     广播与类型：标量可与向量广播；跨 dtype 比较遵循 DolphinDB
     的公共类型转换规则，不做字符串形式的宽松比较。
@@ -476,11 +476,11 @@ def direct_binary_eq(left, right) {
     >>> direct_binary_eq(left, right)
     [false, true, false]
 
-    DolphinDB 的 NULL 相等语义：
+    NULL 不参与等值判断：
     >>> direct_binary_eq(int([1, NULL, NULL]), int([1, 1, NULL]))
-    [true, false, true]
+    [true, NULL, NULL]
     */
-    return left == right
+    return iif(isNull(left) || isNull(right), bool(NULL), left == right)
 }
 
 def direct_binary_floor_div(left, right) {
@@ -548,8 +548,8 @@ def direct_binary_ge(left, right) {
 
     Notes
     -----
-    NULL 处理：有序比较采用 DolphinDB 的排序语义，NULL 小于任意同类型非 NULL 值，两个同类型
-    NULL 相等；因此结果是确定的 BOOL，不传播 NULL。
+    NULL 处理：任一操作数为 NULL 时结果为 BOOL NULL。需要判断缺失值时请显式使用
+    unary.is_null 或 unary.not_null；该规则不会让 NULL 按 DolphinDB 排序最小值参与筛选。
 
     广播与类型：标量可与向量广播，两个向量必须等长；比较前的类型兼容性由 DolphinDB 判断。
 
@@ -560,11 +560,11 @@ def direct_binary_ge(left, right) {
     >>> direct_binary_ge(left, right)
     [false, true, true]
 
-    NULL 按最小值参与有序比较：
+    NULL 不参与有序比较：
     >>> direct_binary_ge(int([1, NULL, NULL]), int([0, 1, NULL]))
-    [true, false, true]
+    [true, NULL, NULL]
     */
-    return left >= right
+    return iif(isNull(left) || isNull(right), bool(NULL), left >= right)
 }
 
 def direct_binary_gt(left, right) {
@@ -587,8 +587,8 @@ def direct_binary_gt(left, right) {
 
     Notes
     -----
-    NULL 处理：有序比较采用 DolphinDB 的排序语义，NULL 小于任意同类型非 NULL 值，两个同类型
-    NULL 相等；因此结果是确定的 BOOL，不传播 NULL。
+    NULL 处理：任一操作数为 NULL 时结果为 BOOL NULL。需要判断缺失值时请显式使用
+    unary.is_null 或 unary.not_null；该规则不会让 NULL 按 DolphinDB 排序最小值参与筛选。
 
     广播与类型：标量可与向量广播，两个向量必须等长；比较前的类型兼容性由 DolphinDB 判断。
 
@@ -599,11 +599,11 @@ def direct_binary_gt(left, right) {
     >>> direct_binary_gt(left, right)
     [false, false, true]
 
-    NULL 按最小值参与有序比较：
+    NULL 不参与有序比较：
     >>> direct_binary_gt(int([1, NULL, NULL]), int([0, 1, NULL]))
-    [true, false, false]
+    [true, NULL, NULL]
     */
-    return left > right
+    return iif(isNull(left) || isNull(right), bool(NULL), left > right)
 }
 
 def direct_binary_le(left, right) {
@@ -626,8 +626,8 @@ def direct_binary_le(left, right) {
 
     Notes
     -----
-    NULL 处理：有序比较采用 DolphinDB 的排序语义，NULL 小于任意同类型非 NULL 值，两个同类型
-    NULL 相等；因此结果是确定的 BOOL，不传播 NULL。
+    NULL 处理：任一操作数为 NULL 时结果为 BOOL NULL。需要判断缺失值时请显式使用
+    unary.is_null 或 unary.not_null；该规则不会让 NULL 按 DolphinDB 排序最小值参与筛选。
 
     广播与类型：标量可与向量广播，两个向量必须等长；比较前的类型兼容性由 DolphinDB 判断。
 
@@ -638,11 +638,11 @@ def direct_binary_le(left, right) {
     >>> direct_binary_le(left, right)
     [true, true, false]
 
-    NULL 按最小值参与有序比较：
+    NULL 不参与有序比较：
     >>> direct_binary_le(int([1, NULL, NULL]), int([0, 1, NULL]))
-    [false, true, true]
+    [false, NULL, NULL]
     */
-    return left <= right
+    return iif(isNull(left) || isNull(right), bool(NULL), left <= right)
 }
 
 def direct_binary_lt(left, right) {
@@ -665,8 +665,8 @@ def direct_binary_lt(left, right) {
 
     Notes
     -----
-    NULL 处理：有序比较采用 DolphinDB 的排序语义，NULL 小于任意同类型非 NULL 值，两个同类型
-    NULL 相等；因此结果是确定的 BOOL，不传播 NULL。
+    NULL 处理：任一操作数为 NULL 时结果为 BOOL NULL。需要判断缺失值时请显式使用
+    unary.is_null 或 unary.not_null；该规则不会让 NULL 按 DolphinDB 排序最小值参与筛选。
 
     广播与类型：标量可与向量广播，两个向量必须等长；比较前的类型兼容性由 DolphinDB 判断。
 
@@ -677,11 +677,11 @@ def direct_binary_lt(left, right) {
     >>> direct_binary_lt(left, right)
     [true, false, false]
 
-    NULL 按最小值参与有序比较：
+    NULL 不参与有序比较：
     >>> direct_binary_lt(int([1, NULL, NULL]), int([0, 1, NULL]))
-    [false, true, false]
+    [false, NULL, NULL]
     */
-    return left < right
+    return iif(isNull(left) || isNull(right), bool(NULL), left < right)
 }
 
 def direct_binary_maximum(left, right) {
@@ -869,8 +869,8 @@ def direct_binary_ne(left, right) {
 
     Notes
     -----
-    NULL 处理：比较采用 DolphinDB 的 NULL 值语义；同类型 NULL 与 NULL
-    被视为不满足不相等，NULL 与非 NULL 不相等。输出始终为非 NULL BOOL。
+    NULL 处理：任一操作数为 NULL 时结果为 BOOL NULL。需要判断缺失值时请显式使用
+    unary.is_null 或 unary.not_null；该规则可防止未知比较结果被误作有效筛选条件。
 
     广播与类型：标量可与向量广播；跨 dtype 比较遵循 DolphinDB
     的公共类型转换规则，不做字符串形式的宽松比较。
@@ -882,11 +882,11 @@ def direct_binary_ne(left, right) {
     >>> direct_binary_ne(left, right)
     [true, false, true]
 
-    DolphinDB 的 NULL 不等语义：
+    NULL 不参与不等判断：
     >>> direct_binary_ne(int([1, NULL, NULL]), int([1, 1, NULL]))
-    [false, true, false]
+    [false, NULL, NULL]
     */
-    return left != right
+    return iif(isNull(left) || isNull(right), bool(NULL), left != right)
 }
 
 def direct_binary_null_if(left, right) {
@@ -9592,9 +9592,10 @@ def cs_binary_cov(left, right) {
 
 def cs_binary_rank_corr(left, right) {
     /*
-    对两个向量分别排名后计算当前截面的 Pearson 相关系数。
+    对两个向量的成对有效观测分别排名，再计算当前截面的 Pearson 相关系数。
 
-    先分别计算 left 和 right 的截面排名，再对排名结果计算 Pearson 相关系数，因此结果等价于 Spearman 相关系数。
+    先排除任一侧为 NULL 的观测，再分别排名并计算 Pearson 相关系数，因此结果等价于
+    使用成对完整样本计算的 Spearman 相关系数。
 
     相关系数是标量，并广播为与 left 等长的向量。
 
@@ -9612,7 +9613,8 @@ def cs_binary_rank_corr(left, right) {
 
     Notes
     -----
-    NULL 处理：先分别对有效值排名，再计算秩相关系数，有效配对不足时统计量为 NULL。
+    NULL 处理：先排除 left 或 right 为 NULL 的整条观测，再对同一批有效样本分别排名；
+    有效配对不足时统计量为 NULL。
 
     计算边界：并列值按 DolphinDB 默认排名处理；秩相关系数广播到整个截面。
 
@@ -9630,9 +9632,11 @@ def cs_binary_rank_corr(left, right) {
 
     成对忽略缺失观测：
     >>> cs_binary_rank_corr(left, right)
-    [0.928571, 0.928571, 0.928571, 0.928571, 0.928571]
+    [1, 1, 1, 1, 1]
     */
-    return broadcast_like(corr(rank(left), rank(right)), left)
+    valid = isValid(left) && isValid(right)
+    value = corr(rank(left[valid]), rank(right[valid]))
+    return broadcast_like(value, left)
 }
 
 def cs_binary_residual(left, right) {

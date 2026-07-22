@@ -50,8 +50,8 @@ class DirectBinaryEqOperator(DirectOperator):
 
             Notes
             -----
-            NULL 处理：比较采用 DolphinDB 的 NULL 值语义；同类型 NULL 与 NULL
-            被视为相等，NULL 与非 NULL 不相等。输出始终为非 NULL BOOL。
+            NULL 处理：任一操作数为 NULL 时结果为 BOOL NULL。需要判断缺失值时请显式使用
+            unary.is_null 或 unary.not_null；该规则可防止未知比较结果被误作有效筛选条件。
 
             广播与类型：标量可与向量广播；跨 dtype 比较遵循 DolphinDB
             的公共类型转换规则，不做字符串形式的宽松比较。
@@ -63,11 +63,11 @@ class DirectBinaryEqOperator(DirectOperator):
             >>> direct_binary_eq(left, right)
             [false, true, false]
 
-            DolphinDB 的 NULL 相等语义：
+            NULL 不参与等值判断：
             >>> direct_binary_eq(int([1, NULL, NULL]), int([1, 1, NULL]))
-            [true, false, true]
+            [true, NULL, NULL]
             */
-            return left == right
+            return iif(isNull(left) || isNull(right), bool(NULL), left == right)
         }
         """
     )

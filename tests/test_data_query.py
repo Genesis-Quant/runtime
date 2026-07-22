@@ -1,6 +1,7 @@
 """验证统一长表查询、依赖提取、宽表整理和 DSL 衔接。"""
 
 import json
+from datetime import timedelta
 from typing import Any
 
 import numpy as np
@@ -48,6 +49,26 @@ def test_factor_query_normalizes_lists_and_accepts_derivatives() -> None:
     assert request.codes == ["A", "B"]
     assert request.factors == ["close", "is_st"]
     assert request.derivatives["double_close"].op == "binary.mul"
+    assert request.lookback == timedelta(0)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (timedelta(hours=6), timedelta(hours=6)),
+        ("10D", timedelta(days=10)),
+        ("P2DT12H", timedelta(days=2, hours=12)),
+    ],
+)
+def test_factor_query_parses_lookback_timedelta(
+    value: str | timedelta,
+    expected: timedelta,
+) -> None:
+    """lookback 接受 pandas 和 ISO 8601 TimeDelta 字符串。"""
+    request = factor_query.FactorQuery.model_validate(
+        _valid_request(lookback=value)
+    )
+    assert request.lookback == expected
 
 
 def test_factor_query_accepts_all_codes() -> None:
@@ -64,8 +85,12 @@ def test_factor_query_accepts_all_codes() -> None:
         ({"start_date": "bad"}, "不是有效日期"),
         ({"start_date": "2024-02-01", "end_date": "2024-01-01"}, "不能晚于"),
         ({"codes": []}, "codes 不能为空"),
+        ({"lookback": "-1D"}, "lookback 不能小于 0"),
+        ({"lookback": "not-a-duration"}, "lookback 不是有效 TimeDelta"),
+        ({"lookback": 1}, "lookback 必须是 timedelta 或 TimeDelta 字符串"),
         ({"codes": ["A", " "]}, "codes 不能包含空值"),
         ({"factors": [], "derivatives": {}}, "至少提供一项"),
+        ({"factors": ["time"]}, "factors 不能使用保留名称"),
         (
             {
                 "factors": ["x"],
@@ -100,11 +125,11 @@ def test_factor_query_rejects_invalid_contract(
 
 def test_normalize_names_rejects_non_strings_and_empty_values() -> None:
     """内部依赖列表同样严格要求非空字符串并保持顺序去重。"""
-    assert factor_query._normalize_names(["a", "a", "b"], "names") == ["a", "b"]
+    assert factor_query.normalize_names(["a", "a", "b"], "names") == ["a", "b"]
     with pytest.raises(ValueError, match="必须全部是字符串"):
-        factor_query._normalize_names(["a", 1], "names")  # type: ignore[list-item]
+        factor_query.normalize_names(["a", 1], "names")  # type: ignore[list-item]
     with pytest.raises(ValueError, match="不能包含空值"):
-        factor_query._normalize_names([" "], "names")
+        factor_query.normalize_names([" "], "names")
 
 
 def test_derivative_factors_walks_nested_fields_on_and_named_dependencies() -> None:
@@ -153,8 +178,14 @@ class QuerySession:
     def run(self, script: str):
         """按当前值、基准值或行宇宙查询返回数据。"""
         self.scripts.append(script)
-        if "select distinct time, code" in script:
-            return self.universe
+        if "select distinct time" in script:
+            if self.universe is None:
+                return None
+            return self.universe[["time"]].drop_duplicates()
+        if "select distinct code" in script:
+            if self.universe is None:
+                return None
+            return self.universe[["code"]].drop_duplicates()
         if "time < coreQueryStart" in script:
             return self.baseline
         if "select time, code, factor, value" in script:
@@ -174,25 +205,34 @@ def _long(rows: list[tuple[str, str, str, float]]) -> pd.DataFrame:
 
 
 def test_fetch_query_parts_queries_current_baseline_and_anchor() -> None:
-    """显式股票查询上传代码，普通因子取基准，精确日频因子不取基准。"""
+    """显式股票共享全市场交易日，只有财报因子查询区间前基准。"""
     current = _long([("2024-01-02", "A", "close", 11.0)])
-    baseline = _long([("2024-01-01", "A", "close", 10.0)])
+    baseline = _long([("2024-01-01", "A", "total_assets", 10.0)])
     universe = pd.DataFrame(
-        {"time": pd.to_datetime(["2024-01-02"]), "code": ["A"]}
+        {
+            "time": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+            "code": ["A", "B"],
+        }
     )
     session = QuerySession(current=current, baseline=baseline, universe=universe)
     parts = factor_query.fetch_query_parts(
         session,
         start=pd.Timestamp("2024-01-02"),
+        output_start=pd.Timestamp("2024-01-02"),
         end=pd.Timestamp("2024-01-04"),
         codes=["A"],
-        factors=["close", "is_st", "weight_000300SH"],
+        factors=["close", "total_assets", "is_st", "weight_000300SH"],
     )
     assert parts[0].equals(current) and parts[1].equals(baseline)
-    assert parts[2].equals(universe)
+    assert parts[2].to_dict("records") == [
+        {"time": pd.Timestamp("2024-01-02"), "code": "A"},
+        {"time": pd.Timestamp("2024-01-03"), "code": "A"},
+    ]
     uploaded = {key for values in session.uploads for key in values}
     assert {
         "coreQueryCodes",
+        "coreQueryOutputStart",
+        "coreQueryEndExclusive",
         "coreQueryFactors",
         "coreQueryCarryFactors",
         "coreQueryAnchorFactors",
@@ -202,7 +242,7 @@ def test_fetch_query_parts_queries_current_baseline_and_anchor() -> None:
         for values in session.uploads
         if "coreQueryCarryFactors" in values
     )
-    assert baseline_upload.tolist() == ["close"]
+    assert baseline_upload.tolist() == ["total_assets"]
 
 
 def test_fetch_query_parts_handles_no_factors_all_codes_and_null_responses() -> None:
@@ -211,6 +251,7 @@ def test_fetch_query_parts_handles_no_factors_all_codes_and_null_responses() -> 
     current, baseline, universe = factor_query.fetch_query_parts(
         session,
         start=pd.Timestamp("2024-01-02"),
+        output_start=pd.Timestamp("2024-01-02"),
         end=pd.Timestamp("2024-01-04"),
         codes=None,
         factors=[],
@@ -220,26 +261,92 @@ def test_fetch_query_parts_handles_no_factors_all_codes_and_null_responses() -> 
     assert not any("coreQueryCodes" in values for values in session.uploads)
 
 
+def test_fetch_query_parts_expands_every_stock_to_every_trading_date() -> None:
+    """全股票查询把各股票零散行情日期扩展为统一的完整交易日日历。"""
+    session = QuerySession(
+        universe=pd.DataFrame(
+            {
+                "time": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                "code": ["A", "B"],
+            }
+        )
+    )
+
+    _, _, calendar = factor_query.fetch_query_parts(
+        session,
+        start=pd.Timestamp("2024-01-02"),
+        output_start=pd.Timestamp("2024-01-02"),
+        end=pd.Timestamp("2024-01-03"),
+        codes=None,
+        factors=[],
+    )
+
+    assert calendar.to_dict("records") == [
+        {"time": pd.Timestamp("2024-01-02"), "code": "A"},
+        {"time": pd.Timestamp("2024-01-03"), "code": "A"},
+        {"time": pd.Timestamp("2024-01-02"), "code": "B"},
+        {"time": pd.Timestamp("2024-01-03"), "code": "B"},
+    ]
+
+
+def test_fetch_query_parts_handles_empty_automatic_code_scope() -> None:
+    """计算区间有交易日但输出区间没有股票时直接返回空结果。"""
+    class EmptyCodeSession(QuerySession):
+        """只在自动股票范围查询中返回空表。"""
+
+        def run(self, script: str):
+            """保留交易日响应，并模拟输出区间没有股票。"""
+            if "select distinct code" in script:
+                self.scripts.append(script)
+                return pd.DataFrame({"code": pd.Series(dtype="object")})
+            return super().run(script)
+
+    session = EmptyCodeSession(
+        universe=pd.DataFrame(
+            {
+                "time": pd.to_datetime(["2024-01-01"]),
+                "code": ["A"],
+            }
+        )
+    )
+    current, baseline, calendar = factor_query.fetch_query_parts(
+        session,
+        start=pd.Timestamp("2024-01-01"),
+        output_start=pd.Timestamp("2024-01-02"),
+        end=pd.Timestamp("2024-01-03"),
+        codes=None,
+        factors=["close"],
+    )
+    assert current.empty and baseline.empty and calendar.empty
+    assert not any("coreQueryCodes" in values for values in session.uploads)
+
+
 def test_fetch_query_parts_skips_baseline_for_exact_daily_factors() -> None:
-    """is_st 和 weight_* 都是精确日值，不能继承开始日前状态。"""
-    session = QuerySession(current=None, universe=pd.DataFrame(columns=["time", "code"]))
+    """行情、ST 和 weight_* 都不能继承开始日前的值。"""
+    session = QuerySession(
+        current=None,
+        universe=pd.DataFrame(
+            {"time": pd.to_datetime(["2024-01-02"]), "code": ["A"]}
+        ),
+    )
     current, baseline, _ = factor_query.fetch_query_parts(
         session,
         start=pd.Timestamp("2024-01-02"),
+        output_start=pd.Timestamp("2024-01-02"),
         end=pd.Timestamp("2024-01-04"),
         codes=["A"],
-        factors=["is_st", "weight_000300SH"],
+        factors=["close", "is_st", "weight_000300SH"],
     )
     assert current.empty and baseline.empty
     assert not any("coreQueryCarryFactors" in values for values in session.uploads)
 
 
 def test_build_source_fills_exact_and_carries_regular_factors() -> None:
-    """基准 close 跨入区间，ST/权重按日补零，缺失 factor 保留 NULL。"""
+    """价格不填、财报前填、ST/权重补零，未知 factor 保留 NULL。"""
     baseline = _long(
         [
-            ("2024-01-01", "A", "close", 10.0),
-            ("2024-01-01", "B", "close", 20.0),
+            ("2024-01-01", "A", "total_assets", 100.0),
+            ("2024-01-01", "B", "total_assets", 200.0),
         ]
     )
     current = _long(
@@ -256,7 +363,13 @@ def test_build_source_fills_exact_and_carries_regular_factors() -> None:
             "code": ["A"] * 3 + ["B"] * 3,
         }
     )
-    factors = ["close", "is_st", "weight_000300SH", "missing"]
+    factors = [
+        "close",
+        "total_assets",
+        "is_st",
+        "weight_000300SH",
+        "missing",
+    ]
     result = factor_query.build_source(
         current,
         baseline,
@@ -265,10 +378,50 @@ def test_build_source_fills_exact_and_carries_regular_factors() -> None:
         start=pd.Timestamp("2024-01-02"),
         end=pd.Timestamp("2024-01-04"),
     )
-    assert result["close"].tolist() == [11.0, 11.0, 14.0, 20.0, 20.0, 20.0]
+    assert result["close"].iloc[[0, 2]].tolist() == [11.0, 14.0]
+    assert result["close"].iloc[[1, 3, 4, 5]].isna().all()
+    assert result["total_assets"].tolist() == [
+        100.0,
+        100.0,
+        100.0,
+        200.0,
+        200.0,
+        200.0,
+    ]
     assert result["is_st"].tolist() == [0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
     assert result["weight_000300SH"].tolist() == [5.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     assert result["missing"].isna().all()
+
+
+def test_build_source_applies_weekend_events_on_next_universe_row() -> None:
+    """周末财报进入内部填充时间线，但结果只保留周五和下周一行情行。"""
+    baseline = _long(
+        [("2024-01-04", "A", "total_assets", 100.0)]
+    )
+    current = _long(
+        [("2024-01-06", "A", "total_assets", 200.0)]
+    )
+    universe = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2024-01-05", "2024-01-08"]),
+            "code": ["A", "A"],
+        }
+    )
+
+    result = factor_query.build_source(
+        current,
+        baseline,
+        universe,
+        ["total_assets"],
+        start=pd.Timestamp("2024-01-05"),
+        end=pd.Timestamp("2024-01-08"),
+    )
+
+    assert result["time"].tolist() == [
+        pd.Timestamp("2024-01-05"),
+        pd.Timestamp("2024-01-08"),
+    ]
+    assert result["total_assets"].tolist() == [100.0, 200.0]
 
 
 def test_build_source_supports_empty_values_and_empty_universe() -> None:
@@ -277,8 +430,8 @@ def test_build_source_supports_empty_values_and_empty_universe() -> None:
         {"time": pd.to_datetime(["2024-01-02"]), "code": ["A"]}
     )
     with_anchor = factor_query.build_source(
-        factor_query._empty_long(),
-        factor_query._empty_long(),
+        factor_query.empty_long(),
+        factor_query.empty_long(),
         universe,
         ["close", "is_st"],
         start=pd.Timestamp("2024-01-02"),
@@ -288,8 +441,8 @@ def test_build_source_supports_empty_values_and_empty_universe() -> None:
     assert with_anchor.loc[0, "is_st"] == 0
 
     empty = factor_query.build_source(
-        factor_query._empty_long(),
-        factor_query._empty_long(),
+        _long([("2024-01-02", "A", "close", 10.0)]),
+        factor_query.empty_long(),
         pd.DataFrame(columns=["time", "code"]),
         ["close"],
         start=pd.Timestamp("2024-01-02"),
@@ -311,7 +464,7 @@ def test_build_source_with_only_exact_factors_does_not_forward_fill() -> None:
     )
     result = factor_query.build_source(
         current,
-        factor_query._empty_long(),
+        factor_query.empty_long(),
         universe,
         ["is_st", "weight_000300SH"],
         start=pd.Timestamp("2024-01-02"),
@@ -321,13 +474,97 @@ def test_build_source_with_only_exact_factors_does_not_forward_fill() -> None:
     assert result["weight_000300SH"].tolist() == [100.0, 0.0]
 
 
-def test_reindex_long_normalizes_none_and_column_order() -> None:
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        (
+            pd.DataFrame(
+                {
+                    "time": ["2024-01-02"],
+                    "code": ["A"],
+                    "factor": ["close"],
+                    "value": [10.0],
+                }
+            ),
+            "time 列必须为 datetime64",
+        ),
+        (
+            pd.DataFrame(
+                {
+                    "time": pd.to_datetime(["2024-01-02"]),
+                    "code": ["A"],
+                    "factor": ["close"],
+                    "value": ["10"],
+                }
+            ),
+            "value 列必须为 float",
+        ),
+    ],
+)
+def test_check_long_rejects_invalid_dtypes(
+    data: pd.DataFrame,
+    message: str,
+) -> None:
+    """最新写入契约之外的长表 dtype 在查询边界直接报错。"""
+    with pytest.raises(ValueError, match=message):
+        factor_query.check_long(data, "测试数据")
+
+
+def test_check_universe_rejects_invalid_time_dtype() -> None:
+    """行情锚点 time 不是 datetime64 时报告数据契约错误。"""
+    universe = pd.DataFrame({"time": ["2024-01-02"], "code": ["A"]})
+    with pytest.raises(ValueError, match="交易日日历的 time 列必须为 datetime64"):
+        factor_query.check_universe(universe)
+
+
+def test_select_columns_normalizes_none_and_column_order() -> None:
     """空响应和乱序表均返回统一四列契约。"""
-    assert factor_query._reindex_long(None).empty
+    assert factor_query.select_columns(
+        None,
+        factor_query.LONG_COLUMNS,
+        "测试查询",
+    ).empty
     value = pd.DataFrame(
-        {"value": [1.0], "factor": ["x"], "code": ["A"], "time": [pd.Timestamp("2024-01-01")]}
+        {
+            "value": [1.0],
+            "factor": ["x"],
+            "code": ["A"],
+            "time": [pd.Timestamp("2024-01-01")],
+        }
     )
-    assert list(factor_query._reindex_long(value).columns) == list(factor_query.LONG_COLUMNS)
+    result = factor_query.select_columns(
+        value,
+        factor_query.LONG_COLUMNS,
+        "测试查询",
+    )
+    assert list(result.columns) == list(factor_query.LONG_COLUMNS)
+
+    exact = _long([("2024-01-01", "A", "x", 1.0)])
+    assert factor_query.select_columns(
+        exact,
+        factor_query.LONG_COLUMNS,
+        "测试查询",
+    ) is exact
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ([], "必须返回 DataFrame"),
+        (pd.DataFrame({"time": []}), "返回结果缺少列"),
+    ],
+)
+def test_select_columns_rejects_invalid_database_responses(
+    value: object,
+    message: str,
+) -> None:
+    """数据库返回错误类型或缺列时在查询边界报告明确上下文。"""
+    with pytest.raises((TypeError, ValueError), match=message):
+        factor_query.select_columns(
+            value,
+            factor_query.LONG_COLUMNS,
+            "测试查询",
+        )
 
 
 def test_query_source_uses_borrowed_and_owned_sessions(monkeypatch) -> None:
@@ -342,12 +579,52 @@ def test_query_source_uses_borrowed_and_owned_sessions(monkeypatch) -> None:
         required_factors=["volume"],
     )
     assert list(result.columns) == ["time", "code", "close", "volume"]
+    assert result["code"].tolist() == ["A", "B"]
     assert not borrowed.closed
 
     owned = QuerySession(current=None, baseline=None, universe=universe)
     monkeypatch.setattr(factor_query, "create_session", lambda: owned)
     factor_query.query_source(_valid_request())
     assert owned.closed
+
+    with pytest.raises(ValueError, match="required_factors 不能使用保留名称"):
+        factor_query.query_source(
+            _valid_request(),
+            session=borrowed,
+            required_factors=["time"],
+        )
+
+
+def test_query_source_loads_lookback_before_output_start() -> None:
+    """lookback 扩展 source 起点，同时保留原始输出起点供股票范围查询。"""
+    universe = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2023-12-31", "2024-01-02"]),
+            "code": ["A", "A"],
+        }
+    )
+    session = QuerySession(
+        current=_long(
+            [
+                ("2023-12-31", "A", "close", 9.0),
+                ("2024-01-02", "A", "close", 10.0),
+            ]
+        ),
+        universe=universe,
+    )
+
+    result = factor_query.query_source(
+        _valid_request(codes=["A"], lookback="2D"),
+        session=session,
+    )
+
+    assert result["time"].tolist() == [
+        pd.Timestamp("2023-12-31"),
+        pd.Timestamp("2024-01-02"),
+    ]
+    uploaded = session.uploads[0]
+    assert uploaded["coreQueryStart"] == pd.Timestamp("2023-12-31")
+    assert uploaded["coreQueryOutputStart"] == pd.Timestamp("2024-01-02")
 
 
 class DslSession(QuerySession):
@@ -357,13 +634,30 @@ class DslSession(QuerySession):
         """模拟加载脚本及命名派生列计算。"""
         self.scripts.append(script)
         if "compute_factors(coreDslSource" in script:
-            upload = next(values for values in self.uploads if "coreDslSource" in values)
+            upload = next(
+                values for values in self.uploads if "coreDslSource" in values
+            )
             result = upload["coreDslSource"].copy()
             result["double_close"] = result["close"] * 2
             return result
         if script.startswith("use ta"):
             return None
         return super().run(script)
+
+
+class ResultDslSession(QuerySession):
+    """返回指定 DSL 结果，用于验证执行边界。"""
+
+    def __init__(self, computed: object) -> None:
+        super().__init__()
+        self.computed = computed
+
+    def run(self, script: str):
+        """加载脚本时返回空，计算时返回测试指定对象。"""
+        self.scripts.append(script)
+        if "compute_factors(coreDslSource" in script:
+            return self.computed
+        return None
 
 
 def test_execute_query_runs_validated_definitions_in_same_session(monkeypatch) -> None:
@@ -401,6 +695,67 @@ def test_execute_query_runs_validated_definitions_in_same_session(monkeypatch) -
     assert json.loads(definitions_json)["double_close"]["op"] == "binary.mul"
 
 
+@pytest.mark.parametrize(
+    ("computed", "message"),
+    [
+        (None, "必须返回 DataFrame"),
+        (
+            pd.DataFrame(
+                {
+                    "time": pd.to_datetime(["2024-01-02"]),
+                    "code": ["A"],
+                    "close": [10.0],
+                }
+            ),
+            "缺少输出列",
+        ),
+        (
+            pd.DataFrame(
+                {
+                    "time": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                    "code": ["A", "A"],
+                    "close": [10.0, 11.0],
+                    "double_close": [20.0, 22.0],
+                }
+            ),
+            "改变了行数",
+        ),
+    ],
+)
+def test_execute_query_rejects_invalid_dsl_results(
+    monkeypatch,
+    computed: object,
+    message: str,
+) -> None:
+    """DSL 返回 None、缺列或改变行数时不能把损坏结果交给调用方。"""
+    source = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2024-01-02"]),
+            "code": ["A"],
+            "close": [10.0],
+        }
+    )
+    monkeypatch.setattr(
+        factor_query,
+        "query_source",
+        lambda *args, **kwargs: source,
+    )
+    request = _valid_request(
+        derivatives={
+            "double_close": _direct(
+                "binary.mul",
+                {"left": "close", "right": 2},
+            )
+        }
+    )
+
+    with pytest.raises((TypeError, RuntimeError), match=message):
+        factor_query.execute_query(
+            request,
+            session=ResultDslSession(computed),
+        )
+
+
 def test_execute_query_reads_real_long_table_and_feeds_dsl(
     monkeypatch,
     ddb_session,
@@ -412,6 +767,8 @@ def test_execute_query_reads_real_long_table_and_feeds_dsl(
                 [
                     "2024-01-01",
                     "2024-01-01",
+                    "2024-01-01",
+                    "2024-01-01",
                     "2024-01-02",
                     "2024-01-02",
                     "2024-01-03",
@@ -420,10 +777,23 @@ def test_execute_query_reads_real_long_table_and_feeds_dsl(
                     "2024-01-03",
                 ]
             ),
-            "code": ["A", "B", "A", "B", "A", "A", "B", "A"],
+            "code": [
+                "A",
+                "B",
+                "A",
+                "B",
+                "A",
+                "B",
+                "A",
+                "A",
+                "B",
+                "A",
+            ],
             "factor": [
                 "pb",
                 "pb",
+                "total_assets",
+                "total_assets",
                 "close",
                 "close",
                 "close",
@@ -431,7 +801,18 @@ def test_execute_query_reads_real_long_table_and_feeds_dsl(
                 "close",
                 "is_st",
             ],
-            "value": [1.5, 2.5, 11.0, 21.0, 12.0, 1.6, 22.0, 1.0],
+            "value": [
+                1.5,
+                2.5,
+                100.0,
+                200.0,
+                11.0,
+                21.0,
+                12.0,
+                1.6,
+                22.0,
+                1.0,
+            ],
         }
     )
     ddb_session.upload({"coreQueryFixtureRaw": source})
@@ -450,24 +831,104 @@ from coreQueryFixtureRaw
     result = factor_query.execute_query(
         _valid_request(
             codes=None,
-            factors=["pb", "is_st"],
+            factors=["pb", "total_assets", "is_st"],
             derivatives={
-                "double_pb": _direct(
-                    "binary.mul", {"left": "pb", "right": 2}
+                "double_assets": _direct(
+                    "binary.mul", {"left": "total_assets", "right": 2}
                 )
             },
         ),
         session=ddb_session,
     )
 
-    assert result[["code", "pb", "is_st", "double_pb"]].to_dict(
-        "records"
-    ) == [
-        {"code": "A", "pb": 1.5, "is_st": 0.0, "double_pb": 3.0},
-        {"code": "A", "pb": 1.6, "is_st": 1.0, "double_pb": 3.2},
-        {"code": "B", "pb": 2.5, "is_st": 0.0, "double_pb": 5.0},
-        {"code": "B", "pb": 2.5, "is_st": 0.0, "double_pb": 5.0},
+    columns = ["code", "total_assets", "is_st", "double_assets"]
+    assert result[columns].to_dict("records") == [
+        {
+            "code": "A",
+            "total_assets": 100.0,
+            "is_st": 0.0,
+            "double_assets": 200.0,
+        },
+        {
+            "code": "A",
+            "total_assets": 100.0,
+            "is_st": 1.0,
+            "double_assets": 200.0,
+        },
+        {
+            "code": "B",
+            "total_assets": 200.0,
+            "is_st": 0.0,
+            "double_assets": 400.0,
+        },
+        {
+            "code": "B",
+            "total_assets": 200.0,
+            "is_st": 0.0,
+            "double_assets": 400.0,
+        },
     ]
+    assert result["pb"].iloc[1] == 1.6
+    assert result["pb"].iloc[[0, 2, 3]].isna().all()
+
+
+def test_execute_query_uses_lookback_for_first_ts_value(
+    monkeypatch,
+    ddb_session,
+) -> None:
+    """真实 DolphinDB TS 使用预热数据计算首个输出日，返回时移除预热行。"""
+    source = pd.DataFrame(
+        {
+            "time": pd.to_datetime(
+                ["2024-01-01", "2024-01-02", "2024-01-03"]
+            ),
+            "code": ["A", "A", "A"],
+            "factor": ["close", "close", "close"],
+            "value": [10.0, 11.0, 12.0],
+        }
+    )
+    ddb_session.upload({"coreQueryLookbackRaw": source})
+    ddb_session.run(
+        """
+coreQueryLookback = select
+    time,
+    symbol(code) as code,
+    symbol(factor) as factor,
+    value
+from coreQueryLookbackRaw
+"""
+    )
+    monkeypatch.setattr(factor_query, "CORE_TABLE", "coreQueryLookback")
+    change = Derivative.model_validate(
+        {
+            "type": "TS",
+            "op": "unary.pct_change",
+            "fields": {"col": "close"},
+            "params": {"periods": 1},
+            "on": _direct("unary.not_null", {"col": "close"}),
+        }
+    )
+    request = _valid_request(
+        start_date="2024-01-02",
+        end_date="2024-01-03",
+        codes=["A"],
+        factors=[],
+        derivatives={"change": change},
+    )
+
+    cold = factor_query.execute_query(request, session=ddb_session)
+    warm = factor_query.execute_query(
+        {**request, "lookback": "1D"},
+        session=ddb_session,
+    )
+
+    assert cold["time"].tolist() == pd.to_datetime(
+        ["2024-01-02", "2024-01-03"]
+    ).tolist()
+    assert pd.isna(cold["change"].iloc[0])
+    np.testing.assert_allclose(cold["change"].iloc[1], 12 / 11 - 1)
+    assert warm["time"].tolist() == cold["time"].tolist()
+    np.testing.assert_allclose(warm["change"], [0.1, 12 / 11 - 1])
 
 
 def test_execute_query_handles_empty_and_raw_only_results(monkeypatch) -> None:
@@ -529,3 +990,22 @@ def test_available_factors_does_not_close_borrowed_session() -> None:
     session.run = lambda script: pd.DataFrame({"factor": ["close"]})
     assert factor_query.available_factors(session=session) == ["close"]
     assert not session.closed
+
+
+@pytest.mark.parametrize(
+    ("result", "error", "message"),
+    [
+        ([], TypeError, "必须返回 DataFrame"),
+        (pd.DataFrame({"name": ["close"]}), ValueError, "缺少列"),
+    ],
+)
+def test_available_factors_rejects_invalid_database_responses(
+    result: object,
+    error: type[Exception],
+    message: str,
+) -> None:
+    """factor 元数据返回错误类型或缺列时给出明确错误。"""
+    session = QuerySession()
+    session.run = lambda script: result
+    with pytest.raises(error, match=message):
+        factor_query.available_factors(session=session)

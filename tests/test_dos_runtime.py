@@ -648,3 +648,29 @@ def test_complete_dsl_on_expression_filters_before_ts_and_cs(ddb_session) -> Non
     result = compute_factors(ddb_session, source, definitions)
     assert_vector_equal(result["positive_cumsum"], [1.0, np.nan, 6.0, 10.0, 30.0, np.nan])
     assert_vector_equal(result["positive_demean"], [-4.5, np.nan, 0.0, 4.5, 0.0, np.nan])
+
+
+def test_null_comparison_does_not_select_rows_for_on(ddb_session) -> None:
+    """比较中的 NULL 保持未知，并由 on 规范化为 false 后排除。"""
+    source = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2024-01-02"] * 3),
+            "code": ["A", "B", "C"],
+            "x": [np.nan, 5.0, 15.0],
+        }
+    )
+    below_ten = direct("binary.lt", {"left": "x", "right": 10})
+    result = compute_factors(
+        ddb_session,
+        source,
+        {
+            "below_ten": below_ten,
+            "selected_mean": cross_section(
+                "unary.mean",
+                {"col": "x"},
+                on=below_ten,
+            ),
+        },
+    )
+    assert_vector_equal(result["below_ten"], [None, True, False])
+    assert_vector_equal(result["selected_mean"], [np.nan, 5.0, np.nan])

@@ -50,9 +50,12 @@ class IndexWeightWorker(DateWorker):
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取当前日期可用的最近指数快照并生成非零权重。"""
         current = normalize_date(current_date, "current_date")
-        response = pro.index_weight(
-            index_code=self.index_code,
-            end_date=current.strftime("%Y%m%d"),
+        response = self.retry(
+            lambda: pro.index_weight(
+                index_code=self.index_code,
+                end_date=current.strftime("%Y%m%d"),
+            ),
+            context=f"{self}[{current:%Y-%m-%d}]",
         )
 
         if response is None or response.empty:

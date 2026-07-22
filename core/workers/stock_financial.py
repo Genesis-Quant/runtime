@@ -116,6 +116,10 @@ CASHFLOW_FACTORS = tuple(
     for factor in CASHFLOW_RAW_FACTORS
     for suffix in FLOW_SUFFIXES
 )
+# 查询层只对这些按公告日存储的财报字段执行前向填充。
+FINANCIAL_FACTORS = frozenset(
+    (*BALANCE_FACTORS, *INCOME_FACTORS, *CASHFLOW_FACTORS, *INDICATOR_FACTORS)
+)
 
 
 def first_shoot(
@@ -240,14 +244,20 @@ class StockBalanceSheetWorker(StockWorker):
         """获取一只股票的资产负债表。"""
         ann_date_col = "f_ann_date"
 
-        response = pro.balancesheet(
-            ts_code=code,
-            start_date=pd.Timestamp(
-                year=start_date.year - 1,
-                month=start_date.month,
-                day=1,
-            ).strftime("%Y%m%d"),
-            end_date=end_date.strftime("%Y%m%d"),
+        response = self.fetch_paginated(
+            pro.balancesheet,
+            params={
+                "ts_code": code,
+                "start_date": pd.Timestamp(
+                    year=start_date.year - 1,
+                    month=start_date.month,
+                    day=1,
+                ).strftime("%Y%m%d"),
+                "end_date": end_date.strftime("%Y%m%d"),
+            },
+            page_size=100,
+            context=f"{self}[{code}].balancesheet",
+            stop_on_short=True,
         )
 
         if response is None or response.empty:
@@ -280,14 +290,20 @@ class StockIncomeWorker(StockWorker):
         """获取一只股票的利润表并计算报告期和 TTM 因子。"""
         ann_date_col = "f_ann_date"
 
-        response = pro.income(
-            ts_code=code,
-            start_date=pd.Timestamp(
-                year=start_date.year - 2,
-                month=start_date.month,
-                day=1,
-            ).strftime("%Y%m%d"),
-            end_date=end_date.strftime("%Y%m%d"),
+        response = self.fetch_paginated(
+            pro.income,
+            params={
+                "ts_code": code,
+                "start_date": pd.Timestamp(
+                    year=start_date.year - 2,
+                    month=start_date.month,
+                    day=1,
+                ).strftime("%Y%m%d"),
+                "end_date": end_date.strftime("%Y%m%d"),
+            },
+            page_size=100,
+            context=f"{self}[{code}].income",
+            stop_on_short=True,
         )
         if response is None or response.empty:
             return self.EMPTY
@@ -320,14 +336,20 @@ class StockCashflowWorker(StockWorker):
         """获取一只股票的现金流量表并计算报告期和 TTM 因子。"""
         ann_date_col = "f_ann_date"
 
-        response = pro.cashflow(
-            ts_code=code,
-            start_date=pd.Timestamp(
-                year=start_date.year - 2,
-                month=start_date.month,
-                day=1,
-            ).strftime("%Y%m%d"),
-            end_date=end_date.strftime("%Y%m%d"),
+        response = self.fetch_paginated(
+            pro.cashflow,
+            params={
+                "ts_code": code,
+                "start_date": pd.Timestamp(
+                    year=start_date.year - 2,
+                    month=start_date.month,
+                    day=1,
+                ).strftime("%Y%m%d"),
+                "end_date": end_date.strftime("%Y%m%d"),
+            },
+            page_size=100,
+            context=f"{self}[{code}].cashflow",
+            stop_on_short=True,
         )
 
         if response is None or response.empty:
@@ -361,14 +383,20 @@ class StockFinaIndicatorWorker(StockWorker):
         """获取一只股票的财务指标。"""
         ann_date_col = "ann_date"
 
-        response = pro.fina_indicator(
-            ts_code=code,
-            start_date=pd.Timestamp(
-                year=start_date.year - 1,
-                month=start_date.month,
-                day=1,
-            ).strftime("%Y%m%d"),
-            end_date=end_date.strftime("%Y%m%d"),
+        response = self.fetch_paginated(
+            pro.fina_indicator,
+            params={
+                "ts_code": code,
+                "start_date": pd.Timestamp(
+                    year=start_date.year - 1,
+                    month=start_date.month,
+                    day=1,
+                ).strftime("%Y%m%d"),
+                "end_date": end_date.strftime("%Y%m%d"),
+            },
+            page_size=100,
+            context=f"{self}[{code}].fina_indicator",
+            stop_on_short=True,
         )
 
         if response is None or response.empty:

@@ -35,9 +35,10 @@ class CrossSectionBinaryRankCorrOperator(CrossSectionOperator):
         """
         def cs_binary_rank_corr(left, right) {
             /*
-            对两个向量分别排名后计算当前截面的 Pearson 相关系数。
+            对两个向量的成对有效观测分别排名，再计算当前截面的 Pearson 相关系数。
 
-            先分别计算 left 和 right 的截面排名，再对排名结果计算 Pearson 相关系数，因此结果等价于 Spearman 相关系数。
+            先排除任一侧为 NULL 的观测，再分别排名并计算 Pearson 相关系数，因此结果等价于
+            使用成对完整样本计算的 Spearman 相关系数。
 
             相关系数是标量，并广播为与 left 等长的向量。
 
@@ -55,7 +56,8 @@ class CrossSectionBinaryRankCorrOperator(CrossSectionOperator):
 
             Notes
             -----
-            NULL 处理：先分别对有效值排名，再计算秩相关系数，有效配对不足时统计量为 NULL。
+            NULL 处理：先排除 left 或 right 为 NULL 的整条观测，再对同一批有效样本分别排名；
+            有效配对不足时统计量为 NULL。
 
             计算边界：并列值按 DolphinDB 默认排名处理；秩相关系数广播到整个截面。
 
@@ -73,9 +75,11 @@ class CrossSectionBinaryRankCorrOperator(CrossSectionOperator):
 
             成对忽略缺失观测：
             >>> cs_binary_rank_corr(left, right)
-            [0.928571, 0.928571, 0.928571, 0.928571, 0.928571]
+            [1, 1, 1, 1, 1]
             */
-            return broadcast_like(corr(rank(left), rank(right)), left)
+            valid = isValid(left) && isValid(right)
+            value = corr(rank(left[valid]), rank(right[valid]))
+            return broadcast_like(value, left)
         }
         """,
         dependencies=(BROADCAST_LIKE,)

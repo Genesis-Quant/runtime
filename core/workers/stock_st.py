@@ -23,9 +23,12 @@ class StockSTWorker(DateWorker):
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的 ST 股票名单。"""
         current = normalize_date(current_date, "current_date")
-        response = pro.stock_st(
-            trade_date=current.strftime("%Y%m%d"),
-            fields="ts_code,trade_date",
+        response = self.retry(
+            lambda: pro.stock_st(
+                trade_date=current.strftime("%Y%m%d"),
+                fields="ts_code,trade_date",
+            ),
+            context=f"{self}[{current:%Y-%m-%d}]",
         )
 
         if response is None or response.empty:
