@@ -8,6 +8,7 @@ from typing import Any
 
 WORKER_ORDER = (
     "daily",
+    "limit",
     "daily-basic",
     "adj-factor",
     "hfq",
@@ -21,6 +22,7 @@ WORKER_ORDER = (
 
 WORKER_DESCRIPTIONS = {
     "daily": "全市场未复权日行情",
+    "limit": "全市场每日涨跌停价格",
     "daily-basic": "全市场每日估值和市值指标",
     "adj-factor": "全市场复权因子",
     "hfq": "逐股票后复权日行情",
@@ -35,6 +37,8 @@ WORKER_DESCRIPTIONS = {
 WORKER_ALIASES = {
     "stock-daily": "daily",
     "stockdailyworker": "daily",
+    "stock-limit": "limit",
+    "stocklimitworker": "limit",
     "stock-daily-basic": "daily-basic",
     "stockdailybasicworker": "daily-basic",
     "stock-adj-factor": "adj-factor",
@@ -58,6 +62,7 @@ WORKER_ALIASES = {
 
 DATE_WORKERS = frozenset({
     "daily",
+    "limit",
     "daily-basic",
     "adj-factor",
     "st",
@@ -260,11 +265,13 @@ def create_workers(
         StockFinaIndicatorWorker,
         StockHfqWorker,
         StockIncomeWorker,
+        StockLimitWorker,
         StockSTWorker,
     )
 
     date_types = {
         "daily": StockDailyWorker,
+        "limit": StockLimitWorker,
         "daily-basic": StockDailyBasicWorker,
         "adj-factor": StockAdjFactorWorker,
         "st": StockSTWorker,

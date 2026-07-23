@@ -51,7 +51,7 @@ class BaseWorker(ABC):
             throttle: int = 8,
             max_retries: int = 3,
             retry_interval: float = 1.0,
-            batch_size: int = 200_000,
+            batch_size: int = 800_000,
             overwrite: bool = False,
     ) -> None:
         """初始化所有 Worker 共享的日期、并发和写入配置。"""

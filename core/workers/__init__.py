@@ -8,6 +8,7 @@ from .base import BaseWorker, DateWorker, StockWorker
 from .index_weight import IndexWeightWorker
 from .stock_daily import (
     StockHfqWorker,
+    StockLimitWorker,
     StockDailyWorker,
     StockAdjFactorWorker,
     StockDailyBasicWorker
@@ -26,6 +27,7 @@ def available_factors() -> tuple[str, ...]:
     """返回全部固定 Worker 和配置指数 Worker 声明的 factor。"""
     workers = [
         StockDailyWorker(),
+        StockLimitWorker(),
         StockDailyBasicWorker(),
         StockAdjFactorWorker(),
         StockHfqWorker(),
@@ -51,6 +53,7 @@ __all__ = [
     "StockFinaIndicatorWorker",
     "StockHfqWorker",
     "StockIncomeWorker",
+    "StockLimitWorker",
     "StockSTWorker",
     "StockWorker",
     "available_factors",
