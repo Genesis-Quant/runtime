@@ -18,6 +18,29 @@ FILL_NULL_COLUMN = DolphinDBFunction(
     dependencies=(REQUIRE_TABLE_COLUMNS,),
 )
 
+FILL_CROSS_SECTION_NULL_COLUMN = DolphinDBFunction(
+    """
+    def fill_cross_section_null_column(mutable source, name, groups, value) {
+        // 仅在至少存在一个有效值的截面内填充 NULL，空截面保持 NULL。
+        require_table_columns(source, [string(name)], "fill_cross_section_null_column")
+        if (!is_vector_form(groups) || size(groups) != source.rows()) {
+            throw "fill_cross_section_null_column 的 groups 必须与 source 等长"
+        }
+        if (source.rows() == 0) return source
+
+        values = source[string(name)]
+        observed = contextby(any, !isNull(values), groups)
+        source[string(name)] = iif(
+            observed,
+            nullFill(values, value),
+            values
+        )
+        return source
+    }
+    """,
+    dependencies=(IS_VECTOR_FORM, REQUIRE_TABLE_COLUMNS),
+)
+
 FORWARD_FILL_COLUMN = DolphinDBFunction(
     """
     def forward_fill_column(mutable source, name, groups, order) {
@@ -113,6 +136,7 @@ TALIB_MOVING_AVERAGE = DolphinDBFunction(
 )
 
 __all__ = [
+    "FILL_CROSS_SECTION_NULL_COLUMN",
     "FILL_NULL_COLUMN",
     "FORWARD_FILL_COLUMN",
     "MASK_EXPANDING_RESULT",

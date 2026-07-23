@@ -77,13 +77,31 @@ def execute_query(
         )
         for factor in source_factors:
             name = json.dumps(factor, ensure_ascii=False)
-            if factor == IS_ST_FACTOR or factor.startswith(WEIGHT_PREFIX):
+            if factor == IS_ST_FACTOR:
                 current_session.run(
                     f"""
                     coreQuerySource = fill_null_column(
                         coreQuerySource,
                         {name},
                         0.0
+                    )
+                    """
+                )
+
+            elif factor.startswith(WEIGHT_PREFIX):
+                current_session.run(
+                    f"""
+                    coreQuerySource = fill_cross_section_null_column(
+                        coreQuerySource,
+                        {name},
+                        coreQuerySource.time,
+                        0.0
+                    )
+                    coreQuerySource = forward_fill_column(
+                        coreQuerySource,
+                        {name},
+                        coreQuerySource.code,
+                        coreQuerySource.time
                     )
                     """
                 )

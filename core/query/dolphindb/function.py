@@ -94,8 +94,8 @@ def collect_functions(functions: Iterable[DolphinDBFunction]) -> tuple[DolphinDB
         visited.add(function.name)
         ordered.append(function)
 
-    for function in functions:
-        visit(function)
+    for f in functions:
+        visit(f)
     return tuple(ordered)
 
 

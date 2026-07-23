@@ -8,6 +8,7 @@ from core.query.dolphindb.common.form import (
     REQUIRE_TABLE_COLUMNS,
 )
 from core.query.dolphindb.common.time_series import (
+    FILL_CROSS_SECTION_NULL_COLUMN,
     FILL_NULL_COLUMN,
     FORWARD_FILL_COLUMN,
 )
@@ -537,6 +538,7 @@ TOOL_FUNCTIONS = (
     REQUIRE_KEY,
     REQUIRE_VECTOR,
     REQUIRE_COLUMN,
+    FILL_CROSS_SECTION_NULL_COLUMN,
     FILL_NULL_COLUMN,
     FORWARD_FILL_COLUMN,
     BUILD_FACTOR_SOURCE,
@@ -585,6 +587,7 @@ __all__ = [
     "EVALUATE_NODE",
     "EVALUATE_OPERAND",
     "EVALUATE_OPERANDS",
+    "FILL_CROSS_SECTION_NULL_COLUMN",
     "FILTER_FACTORS",
     "FINALIZE_FACTOR_SOURCE",
     "NORMALIZE_ON",
