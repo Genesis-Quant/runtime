@@ -160,7 +160,19 @@ class Paginator:
             )
 
         if pages:
-            result = pd.concat(pages, ignore_index=True)
+            all_null_columns = [
+                column
+                for column in expected_columns or ()
+                if all(page[column].isna().all() for page in pages)
+            ]
+            concat_pages = [page.dropna(axis="columns", how="all") for page in pages]
+            result = pd.concat(concat_pages, ignore_index=True)
+            for column in all_null_columns:
+                result[column] = pd.concat(
+                    [page[column] for page in pages],
+                    ignore_index=True,
+                )
+            result = result.reindex(columns=expected_columns)
         elif empty_result is not None:
             result = empty_result
         else:

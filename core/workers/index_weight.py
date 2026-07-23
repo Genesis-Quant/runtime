@@ -32,8 +32,8 @@ class IndexWeightWorker(DateWorker):
             throttle: int = 8,
             max_retries: int = 3,
             retry_interval: float = 1.0,
-            batch_size: int = 200_000,
-            chunk_size: int = 10,
+            batch_size: int = 800_000,
+            chunk_size: int = 50,
             overwrite: bool = False,
     ) -> None:
         """使用固定指数代码初始化逐自然日更新流程。"""

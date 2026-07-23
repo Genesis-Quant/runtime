@@ -23,140 +23,162 @@ from core.utils import (
 from core.workers.stock_financial import FINANCIAL_FACTORS
 
 
-def execute_query(
-        request: FactorQuery | dict[str, Any],
-        *,
-        session: Any | None = None,
-) -> pd.DataFrame:
-    """在同一 DolphinDB 会话中依次完成查询、填充、DSL 计算和筛选。"""
-    started = time.perf_counter()
+def build_query_table(
+    request: FactorQuery | dict[str, Any],
+    *,
+    session: Any,
+) -> tuple[FactorQuery, list[str]]:
+    """在给定会话中构造 ``coreDslOutput``，供查询和回测直接复用。"""
     query = (
         request
         if isinstance(request, FactorQuery)
         else FactorQuery.model_validate(request)
     )
-    output_start, output_end = normalize_date_range(query.start_date, query.end_date)
+    output_start, output_end = normalize_date_range(
+        query.start_date,
+        query.end_date,
+    )
     calculation_start = (output_start - query.lookback).normalize()
     source_factors = query.source_factors()
-    output_columns = [TIME_COLUMN, CODE_COLUMN, *query.factors, *query.derivatives]
+    output_columns = [
+        TIME_COLUMN,
+        CODE_COLUMN,
+        *query.factors,
+        *query.derivatives,
+    ]
     dates = get_trading_dates(calculation_start, output_end)
     definitions = {
         name: derivative.model_dump(mode="json")
         for name, derivative in query.derivatives.items()
     }
 
+    session.upload(
+        {
+            "coreQueryStart": calculation_start,
+            "coreQueryEndExclusive": output_end + timedelta(days=1),
+            "coreQueryCodes": np.asarray(query.codes, dtype=str),
+            "coreQueryFactors": np.asarray(source_factors, dtype=str),
+            "coreQueryDates": dates.to_numpy(dtype="datetime64[ms]"),
+            "coreDslDefinitionsJson": json.dumps(
+                definitions,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            "coreDslFilters": np.asarray(query.filters, dtype=str),
+            "coreDslOutputColumns": np.asarray(output_columns, dtype=str),
+            "coreOutputStart": output_start,
+            "coreOutputEndExclusive": output_end + timedelta(days=1),
+        }
+    )
+    session.run(build_script())
+    session.run(
+        f"""
+        coreQuerySource = build_factor_source(
+            {CORE_TABLE},
+            coreQueryCodes,
+            coreQueryFactors,
+            coreQueryDates,
+            coreQueryStart,
+            coreQueryEndExclusive
+        )
+        """
+    )
+    for factor in source_factors:
+        name = json.dumps(factor, ensure_ascii=False)
+        if factor == IS_ST_FACTOR:
+            session.run(
+                f"""
+                coreQuerySource = fill_null_column(
+                    coreQuerySource,
+                    {name},
+                    0.0
+                )
+                """
+            )
+        elif factor.startswith(WEIGHT_PREFIX):
+            session.run(
+                f"""
+                coreQuerySource = fill_cross_section_null_column(
+                    coreQuerySource,
+                    {name},
+                    coreQuerySource.time,
+                    0.0
+                )
+                coreQuerySource = forward_fill_column(
+                    coreQuerySource,
+                    {name},
+                    coreQuerySource.code,
+                    coreQuerySource.time
+                )
+                """
+            )
+        elif factor in FINANCIAL_FACTORS:
+            session.run(
+                f"""
+                coreQuerySource = forward_fill_column(
+                    coreQuerySource,
+                    {name},
+                    coreQuerySource.code,
+                    coreQuerySource.time
+                )
+                """
+            )
+
+    session.run(
+        """
+        coreQuerySource = finalize_factor_source(
+            coreQuerySource,
+            coreQueryFactors
+        )
+
+        coreDslComputed = compute_factors(
+            coreQuerySource,
+            fromStdJson(coreDslDefinitionsJson)
+        )
+
+        coreDslFiltered = filter_factors(
+            coreDslComputed,
+            coreDslFilters
+        )
+
+        coreDslOutput = project_factor_output(
+            coreDslFiltered,
+            coreDslOutputColumns,
+            coreOutputStart,
+            coreOutputEndExclusive
+        )
+        """
+    )
+
+    source_rows = session.run("coreQuerySource.rows()")
+    computed_rows = session.run("coreDslComputed.rows()")
+    if computed_rows != source_rows:
+        raise RuntimeError(
+            "DolphinDB DSL 计算改变了行数："
+            f"输入 {source_rows:,} 行，输出 {computed_rows:,} 行"
+        )
+    return query, output_columns
+
+
+def execute_query(
+    request: FactorQuery | dict[str, Any],
+    *,
+    session: Any | None = None,
+) -> pd.DataFrame:
+    """在同一 DolphinDB 会话中依次完成查询、填充、DSL 计算和筛选。"""
+    started = time.perf_counter()
     owns_session = session is None
     current_session = create_session() if owns_session else session
     try:
-        current_session.upload(
-            {
-                "coreQueryStart": calculation_start,
-                "coreQueryEndExclusive": output_end + timedelta(days=1),
-                "coreQueryCodes": np.asarray(query.codes, dtype=str),
-                "coreQueryFactors": np.asarray(source_factors, dtype=str),
-                "coreQueryDates": dates.to_numpy(dtype="datetime64[ms]"),
-                "coreDslDefinitionsJson": json.dumps(definitions, ensure_ascii=False, separators=(",", ":")),
-                "coreDslFilters": np.asarray(query.filters, dtype=str),
-                "coreDslOutputColumns": np.asarray(output_columns, dtype=str),
-                "coreOutputStart": output_start,
-                "coreOutputEndExclusive": output_end + timedelta(days=1),
-            }
+        _, output_columns = build_query_table(
+            request,
+            session=current_session,
         )
-        current_session.run(build_script())
-        current_session.run(
-            f"""
-            coreQuerySource = build_factor_source(
-                {CORE_TABLE},
-                coreQueryCodes,
-                coreQueryFactors,
-                coreQueryDates,
-                coreQueryStart,
-                coreQueryEndExclusive
-            )
-            """
-        )
-        for factor in source_factors:
-            name = json.dumps(factor, ensure_ascii=False)
-            if factor == IS_ST_FACTOR:
-                current_session.run(
-                    f"""
-                    coreQuerySource = fill_null_column(
-                        coreQuerySource,
-                        {name},
-                        0.0
-                    )
-                    """
-                )
-
-            elif factor.startswith(WEIGHT_PREFIX):
-                current_session.run(
-                    f"""
-                    coreQuerySource = fill_cross_section_null_column(
-                        coreQuerySource,
-                        {name},
-                        coreQuerySource.time,
-                        0.0
-                    )
-                    coreQuerySource = forward_fill_column(
-                        coreQuerySource,
-                        {name},
-                        coreQuerySource.code,
-                        coreQuerySource.time
-                    )
-                    """
-                )
-
-            elif factor in FINANCIAL_FACTORS:
-                current_session.run(
-                    f"""
-                    coreQuerySource = forward_fill_column(
-                        coreQuerySource,
-                        {name},
-                        coreQuerySource.code,
-                        coreQuerySource.time
-                    )
-                    """
-                )
-
-        current_session.run(
-            """
-            coreQuerySource = finalize_factor_source(
-                coreQuerySource,
-                coreQueryFactors
-            )
-
-            coreDslComputed = compute_factors(
-                coreQuerySource,
-                fromStdJson(coreDslDefinitionsJson)
-            )
-
-            coreDslFiltered = filter_factors(
-                coreDslComputed,
-                coreDslFilters
-            )
-
-            coreDslOutput = project_factor_output(
-                coreDslFiltered,
-                coreDslOutputColumns,
-                coreOutputStart,
-                coreOutputEndExclusive
-            )
-            """
-        )
-
-        source_rows = current_session.run("coreQuerySource.rows()")
-        computed_rows = current_session.run("coreDslComputed.rows()")
         result = current_session.run("coreDslOutput")
 
-        if computed_rows != source_rows:
-            raise RuntimeError(
-                "DolphinDB DSL 计算改变了行数："
-                f"输入 {source_rows:,} 行，输出 {computed_rows:,} 行"
-            )
         if not isinstance(result, pd.DataFrame):
             raise TypeError(
-                "DolphinDB 查询必须返回 DataFrame，"
-                f"当前为 {type(result).__name__}"
+                f"DolphinDB 查询必须返回 DataFrame，当前为 {type(result).__name__}"
             )
         if tuple(result.columns) != tuple(output_columns):
             raise ValueError(
@@ -164,7 +186,7 @@ def execute_query(
                 f"期望 {output_columns}，实际 {list(result.columns)}"
             )
         logger.success(
-            f"因子查询完成，结果={result.shape}，"
+            f"因子查询完成，结果 {result.shape}，"
             f"耗时 {time.perf_counter() - started:.2f} 秒"
         )
         return result.reset_index(drop=True)
@@ -176,4 +198,4 @@ def execute_query(
             current_session.close()
 
 
-__all__ = ["execute_query"]
+__all__ = ["build_query_table", "execute_query"]

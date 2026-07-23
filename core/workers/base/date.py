@@ -48,7 +48,7 @@ class DateWorker(BaseWorker, ABC):
             throttle: int = 8,
             max_retries: int = 3,
             retry_interval: float = 1.0,
-            batch_size: int = 1_000_000,
+            batch_size: int = 800_000,
             overwrite: bool = False,
     ) -> None:
         """初始化逐日更新范围、并发配置和分块大小。"""

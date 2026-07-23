@@ -21,6 +21,7 @@ class StockDailyWorker(DateWorker):
             "high",
             "low",
             "close",
+            "pre_close",
             "change",
             "pct_chg",
             "vol",
@@ -32,6 +33,40 @@ class StockDailyWorker(DateWorker):
         current = normalize_date(current_date, "current_date")
         response = self.retry(
             lambda: pro.daily(
+                trade_date=current.strftime("%Y%m%d"),
+                fields=",".join(("ts_code", "trade_date", *self.factors)),
+            ),
+            context=f"{self}[{current:%Y-%m-%d}]",
+        )
+
+        if response is None or response.empty:
+            return self.EMPTY
+
+        data = response.rename(
+            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
+        )
+        return self.melt(current, data)
+
+
+class StockLimitWorker(DateWorker):
+    """通过 stk_limit 接口按自然日更新全市场涨跌停价格。"""
+
+    def __str__(self) -> str:
+        """返回涨跌停价格 Worker 标识。"""
+        return "<StockLimitWorker>"
+
+    @property
+    def factors(self) -> tuple[str, ...]:
+        return (
+            "up_limit",
+            "down_limit"
+        )
+
+    def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
+        """获取一个自然日的全市场涨跌停价格。"""
+        current = normalize_date(current_date, "current_date")
+        response = self.retry(
+            lambda: pro.stk_limit(
                 trade_date=current.strftime("%Y%m%d"),
                 fields=",".join(("ts_code", "trade_date", *self.factors)),
             ),
