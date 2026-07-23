@@ -1,0 +1,103 @@
+// 验证日频引擎的生命周期、回调参数以及最后一根 Bar 的处理。
+
+config = dict(STRING, ANY)
+config["startDate"] = 2025.01.02
+config["endDate"] = 2025.01.07
+config["strategyGroup"] = "stock"
+config["cash"] = double(100000)
+config["commission"] = double(0)
+config["tax"] = double(0)
+config["dataType"] = int(4)
+config["msgAsTable"] = true
+config["matchingMode"] = int(2)
+
+def lifecycleInitialize(mutable context) {
+    context["initializeCount"] = 1
+    context["beforeTradingCount"] = 0
+    context["onBarCount"] = 0
+    context["onSnapshotCount"] = 0
+    context["onOrderCount"] = 0
+    context["onTradeCount"] = 0
+    context["afterTradingCount"] = 0
+    context["finalizeCount"] = 0
+    context["barTimes"] = array(TIMESTAMP, 0)
+    context["barRowCounts"] = array(INT, 0)
+    context["trace"] = ["initialize"]
+}
+
+def lifecycleBeforeTrading(mutable context) {
+    context["beforeTradingCount"] += 1
+    context["trace"].append!("beforeTrading")
+}
+
+def lifecycleOnBar(mutable context, msg, indicator) {
+    context["onBarCount"] += 1
+    context["trace"].append!("onBar")
+    context["barTimes"].append!(take(msg.tradeTime[0], 1))
+    context["barRowCounts"].append!(take(int(msg.rows()), 1))
+    if (context["onBarCount"] == 1) {
+        context["msgType"] = typestr(msg)
+        context["indicatorType"] = typestr(indicator)
+        context["firstSymbol"] = string(msg.symbol[0])
+        context["firstScore"] = msg.score[0]
+    }
+}
+
+def lifecycleOnSnapshot(mutable context, msg, indicator) {
+    context["onSnapshotCount"] += 1
+}
+
+def lifecycleOnOrder(mutable context, order) {
+    context["onOrderCount"] += 1
+}
+
+def lifecycleOnTrade(mutable context, trade) {
+    context["onTradeCount"] += 1
+}
+
+def lifecycleAfterTrading(mutable context) {
+    context["afterTradingCount"] += 1
+    context["trace"].append!("afterTrading")
+}
+
+def lifecycleFinalize(mutable context) {
+    context["finalizeCount"] += 1
+    context["trace"].append!("finalize")
+}
+
+tradeTimes = temporalAdd(
+    timestamp([2025.01.02, 2025.01.03, 2025.01.06, 2025.01.07]),
+    15,
+    "h"
+)
+
+quotation = table(
+    symbol(take("000001.XSHE", 4)) as symbol,
+    tradeTimes as tradeTime,
+    double([10.0, 10.5, 11.0, 11.5]) as open,
+    double([9.5, 10.0, 10.5, 11.0]) as low,
+    double([11.0, 11.5, 12.0, 12.5]) as high,
+    double([10.5, 11.0, 11.5, 12.0]) as close,
+    long([1000, 1100, 1200, 1300]) as volume,
+    double([11.0, 11.5, 12.0, 12.5]) as upLimitPrice,
+    double([9.0, 9.5, 10.0, 10.5]) as downLimitPrice,
+    double([9.8, 10.5, 11.0, 11.5]) as prevClosePrice,
+    double([0.1, 0.2, 0.3, 0.4]) as score
+)
+
+testEngine = Backtest::createBacktestEngine(
+    testEngineName,
+    config,
+    ,
+    lifecycleInitialize,
+    lifecycleBeforeTrading,
+    lifecycleOnBar,
+    lifecycleOnSnapshot,
+    lifecycleOnOrder,
+    lifecycleOnTrade,
+    lifecycleAfterTrading,
+    lifecycleFinalize
+)
+
+Backtest::appendQuotationMsg(testEngine, quotation)
+Backtest::appendEndMarker(testEngine)

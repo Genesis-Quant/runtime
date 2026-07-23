@@ -68,6 +68,10 @@ class BacktestRunRequest(BaseModel):
         ...,
         description="DolphinDB 回调名称到函数定义的映射。",
     )
+    utils: dict[str, str] = Field(
+        default_factory=dict,
+        description="工具函数名称到独立 DolphinDB 函数定义的映射。",
+    )
     name: str | None = Field(
         default=None,
         min_length=1,

@@ -220,6 +220,7 @@ def execute_backtest(request: BacktestRunRequest) -> dict[str, Any]:
         output = run_backtest(
             request.query,
             request.callbacks,
+            utils=request.utils,
             codes_query=request.codes_query,
             name=request.name,
             config=request.config,

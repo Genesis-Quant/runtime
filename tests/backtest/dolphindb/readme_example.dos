@@ -1,0 +1,142 @@
+// 原样复现 README 主示例，验证文档中的回调次数、成交和最终权益。
+
+config = dict(STRING, ANY)
+config["startDate"] = 2025.01.02
+config["endDate"] = 2025.01.10
+config["strategyGroup"] = "stock"
+config["cash"] = double(2000000)
+config["commission"] = double(0.0003)
+config["tax"] = double(0.001)
+config["dataType"] = int(4)
+config["msgAsTable"] = true
+config["matchingMode"] = int(2)
+
+def readmeInitialize(mutable context) {
+    context["initializeCount"] = 1
+    context["beforeTradingCount"] = 0
+    context["onBarCount"] = 0
+    context["onSnapshotCount"] = 0
+    context["onOrderCount"] = 0
+    context["onTradeCount"] = 0
+    context["afterTradingCount"] = 0
+    context["finalizeCount"] = 0
+    context["submitted"] = false
+}
+
+def readmeBeforeTrading(mutable context) {
+    context["beforeTradingCount"] += 1
+}
+
+def readmeOnBar(mutable context, msg, indicator) {
+    context["onBarCount"] += 1
+    if (context["onBarCount"] == 1) {
+        context["msgType"] = typestr(msg)
+        context["indicatorType"] = typestr(indicator)
+        context["firstSymbol"] = string(msg.symbol[0])
+        context["firstTradeTime"] = msg.tradeTime[0]
+        context["firstOpen"] = msg.open[0]
+        context["firstClose"] = msg.close[0]
+        context["firstPositionTarget"] = msg.positionTarget[0]
+        context["firstFactorScore"] = msg.factorScore[0]
+        context["firstMarketRegime"] = msg.marketRegime[0]
+        context["firstSignal"] = array(DOUBLE, 0).append!(msg.signal.row(0))
+        context["signalType"] = typestr(msg.signal)
+    }
+
+    if (!context["submitted"] && msg.positionTarget[0] == 1) {
+        context["submitted"] = true
+        Backtest::submitOrder(
+            context.engine,
+            (
+                msg.symbol[0],
+                context.tradeTime,
+                0,
+                msg.close[0],
+                long(100),
+                1
+            ),
+            "doc-buy"
+        )
+    }
+}
+
+def readmeOnSnapshot(mutable context, msg, indicator) {
+    context["onSnapshotCount"] += 1
+}
+
+def readmeOnOrder(mutable context, order) {
+    context["onOrderCount"] += 1
+}
+
+def readmeOnTrade(mutable context, trade) {
+    context["onTradeCount"] += 1
+}
+
+def readmeAfterTrading(mutable context) {
+    context["afterTradingCount"] += 1
+}
+
+def readmeFinalize(mutable context) {
+    context["finalizeCount"] += 1
+}
+
+signalColumn = array(DOUBLE[], 0, 7).append!([
+    0.10 0.20,
+    0.20 0.30,
+    0.30 0.40,
+    0.40 0.50,
+    0.50 0.60,
+    0.60 0.70,
+    0.70 0.80
+])
+
+tradeDates = timestamp([
+    2025.01.02,
+    2025.01.03,
+    2025.01.06,
+    2025.01.07,
+    2025.01.08,
+    2025.01.09,
+    2025.01.10
+])
+
+quotation = table(
+    symbol(take("000001.XSHE", 7)) as symbol,
+    temporalAdd(tradeDates, 15, "h") as tradeTime,
+    double([11.73, 11.44, 11.38, 11.42, 11.50, 11.50, 11.40]) as open,
+    double([11.39, 11.36, 11.22, 11.37, 11.40, 11.35, 11.28]) as low,
+    double([11.77, 11.54, 11.48, 11.53, 11.63, 11.50, 11.46]) as high,
+    double([11.43, 11.38, 11.44, 11.51, 11.50, 11.40, 11.30]) as close,
+    long([
+        181959699, 115468044, 108553630, 74786288,
+        106238601, 75148330, 79813351
+    ]) as volume,
+    double([
+        2102923.078, 1320520.978, 1234305.778, 858329.049,
+        1223598.997, 857836.086, 905005.041
+    ]) as amount,
+    double([12.87, 12.57, 12.52, 12.58, 12.66, 12.65, 12.54]) as upLimitPrice,
+    double([10.53, 10.29, 10.24, 10.30, 10.36, 10.35, 10.26]) as downLimitPrice,
+    double([11.70, 11.43, 11.38, 11.44, 11.51, 11.50, 11.40]) as prevClosePrice,
+    int([1, 1, 0, 0, 1, 1, 0]) as positionTarget,
+    double([0.82, 0.76, -0.15, -0.23, 0.61, 0.55, -0.31]) as factorScore,
+    ["bull", "bull", "neutral", "bear", "bull", "neutral", "bear"] as marketRegime,
+    signalColumn as signal
+)
+
+testEngine = Backtest::createBacktestEngine(
+    testEngineName,
+    config,
+    ,
+    readmeInitialize,
+    readmeBeforeTrading,
+    readmeOnBar,
+    readmeOnSnapshot,
+    readmeOnOrder,
+    readmeOnTrade,
+    readmeAfterTrading,
+    readmeFinalize
+)
+
+Backtest::appendQuotationMsg(testEngine, quotation)
+Backtest::appendEndMarker(testEngine)

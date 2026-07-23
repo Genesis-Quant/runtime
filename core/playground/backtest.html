@@ -80,7 +80,7 @@
     }
 
     .brand, .header-actions, .nav, .status-pill, .button, .editor-tabs,
-    .callback-tabs, .result-tabs, .result-meta {
+    .function-tabs, .result-tabs, .result-meta {
       display: flex;
       align-items: center;
     }
@@ -251,9 +251,9 @@
       padding: 0 10px 0 12px;
     }
 
-    .editor-tabs, .callback-tabs, .result-tabs { gap: 4px; }
+    .editor-tabs, .function-tabs, .result-tabs { gap: 4px; }
 
-    .editor-tab, .callback-tab, .result-tab {
+    .editor-tab, .function-tab, .result-tab {
       border: 0;
       border-radius: 4px;
       background: transparent;
@@ -263,12 +263,12 @@
     }
 
     .editor-tab { height: 29px; padding: 0 10px; }
-    .callback-tab { height: 26px; padding: 0 8px; font-size: 10px; }
+    .function-tab { height: 26px; padding: 0 8px; font-size: 10px; }
     .result-tab { height: 29px; padding: 0 9px; }
-    .editor-tab:hover, .callback-tab:hover, .result-tab:hover { color: var(--text); background: var(--panel-3); }
-    .editor-tab.active, .callback-tab.active, .result-tab.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent); }
-    .callback-tabs { overflow-x: auto; scrollbar-width: none; }
-    .callback-tabs.hidden { display: none; }
+    .editor-tab:hover, .function-tab:hover, .result-tab:hover { color: var(--text); background: var(--panel-3); }
+    .editor-tab.active, .function-tab.active, .result-tab.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent); }
+    .function-tabs { overflow-x: auto; scrollbar-width: none; }
+    .function-tabs.hidden { display: none; }
 
     .editor-shell { flex: 1; min-height: 260px; position: relative; }
     #editor { position: absolute; inset: 0; }
@@ -543,7 +543,7 @@
         </div>
         <div class="field">
           <label for="lookback">lookback</label>
-          <input id="lookback" value="60D" spellcheck="false">
+          <input id="lookback" value="180D" spellcheck="false">
         </div>
         <div class="field">
           <label for="matchingMode">matching_mode</label>
@@ -575,9 +575,10 @@
         <div class="editor-tabs">
           <button class="editor-tab" data-editor="codesQuery"><i data-lucide="filter"></i> CODES DSL</button>
           <button class="editor-tab active" data-editor="query"><i data-lucide="braces"></i> MSG DSL</button>
+          <button class="editor-tab" data-editor="utils"><i data-lucide="wrench"></i> Utils</button>
           <button class="editor-tab" data-editor="strategy"><i data-lucide="code-2"></i> Strategy</button>
         </div>
-        <div id="callbackTabs" class="callback-tabs hidden"></div>
+        <div id="functionTabs" class="function-tabs hidden"></div>
       </div>
       <div class="editor-shell"><div id="editor"></div></div>
       <div class="editor-footer">
@@ -731,48 +732,270 @@
           fields: { col: "close" },
           params: {},
         },
-        eligible: {
+        inIndex: {
+          type: "DIRECT",
+          op: "binary.gt",
+          fields: { left: "weight_000300SH", right: 0 },
+          params: {},
+        },
+        dailyReturn: {
+          type: "TS",
+          op: "unary.log_return",
+          fields: { col: "close_hfq" },
+          params: { periods: 1 },
+        },
+        momentum: {
+          type: "TS",
+          op: "unary.pct_change",
+          fields: { col: "close_hfq" },
+          params: { periods: 60 },
+        },
+        volatility: {
+          type: "TS",
+          op: "unary.rolling_std",
+          fields: { col: "dailyReturn" },
+          params: { window: 20, min_periods: 20 },
+        },
+        factorReady: {
           type: "DIRECT",
           op: "multiary.and",
           fields: {
             cols: [
+              "inIndex",
               { type: "DIRECT", op: "binary.eq", fields: { left: "is_st", right: 0 }, params: {} },
               { type: "DIRECT", op: "binary.gt", fields: { left: "pe", right: 0 }, params: {} },
-              { type: "DIRECT", op: "binary.lt", fields: { left: "pe", right: 50 }, params: {} },
+              { type: "DIRECT", op: "binary.lt", fields: { left: "pe", right: 80 }, params: {} },
+              { type: "DIRECT", op: "binary.gt", fields: { left: "roe", right: 0 }, params: {} },
+              { type: "DIRECT", op: "binary.gt", fields: { left: "circ_mv", right: 0 }, params: {} },
+              { type: "DIRECT", op: "unary.is_finite", fields: { col: "momentum" }, params: {} },
+              { type: "DIRECT", op: "unary.is_finite", fields: { col: "volatility" }, params: {} },
+              { type: "DIRECT", op: "binary.gt", fields: { left: "volatility", right: 0 }, params: {} },
               "tradable",
             ],
           },
           params: {},
         },
-        momentum: {
-          type: "TS",
-          op: "unary.pct_change",
-          fields: { col: "close" },
-          params: { periods: 20 },
-        },
-        score: {
+        valueScore: {
           type: "CS",
           op: "unary.zscore",
-          fields: { col: "momentum" },
+          fields: {
+            col: {
+              type: "CS",
+              op: "unary.winsorize_mad",
+              fields: {
+                col: {
+                  type: "DIRECT",
+                  op: "unary.neg",
+                  fields: { col: "pe" },
+                  params: {},
+                },
+              },
+              params: { n: 3, scale: 1.4826 },
+              on: "factorReady",
+            },
+          },
           params: { ddof: 0 },
-          on: "eligible",
+          on: "factorReady",
         },
-        rawSignal: {
+        qualityScore: {
+          type: "CS",
+          op: "unary.zscore",
+          fields: {
+            col: {
+              type: "CS",
+              op: "unary.winsorize_mad",
+              fields: { col: "roe" },
+              params: { n: 3, scale: 1.4826 },
+              on: "factorReady",
+            },
+          },
+          params: { ddof: 0 },
+          on: "factorReady",
+        },
+        momentumScore: {
+          type: "CS",
+          op: "unary.zscore",
+          fields: {
+            col: {
+              type: "CS",
+              op: "unary.winsorize_mad",
+              fields: { col: "momentum" },
+              params: { n: 3, scale: 1.4826 },
+              on: "factorReady",
+            },
+          },
+          params: { ddof: 0 },
+          on: "factorReady",
+        },
+        lowRiskScore: {
+          type: "CS",
+          op: "unary.zscore",
+          fields: {
+            col: {
+              type: "CS",
+              op: "unary.winsorize_mad",
+              fields: {
+                col: {
+                  type: "DIRECT",
+                  op: "unary.neg",
+                  fields: { col: "volatility" },
+                  params: {},
+                },
+              },
+              params: { n: 3, scale: 1.4826 },
+              on: "factorReady",
+            },
+          },
+          params: { ddof: 0 },
+          on: "factorReady",
+        },
+        compositeScore: {
+          type: "DIRECT",
+          op: "multiary.mean",
+          fields: {
+            cols: ["valueScore", "qualityScore", "momentumScore", "lowRiskScore"],
+          },
+          params: {},
+        },
+        scoreReady: {
+          type: "DIRECT",
+          op: "multiary.and",
+          fields: {
+            cols: [
+              "factorReady",
+              { type: "DIRECT", op: "unary.is_finite", fields: { col: "compositeScore" }, params: {} },
+            ],
+          },
+          params: {},
+        },
+        selected: {
           type: "CS",
           op: "unary.top_n",
-          fields: { col: "score" },
-          params: { n: 5 },
-          on: "eligible",
+          fields: { col: "compositeScore" },
+          params: { n: 20 },
+          on: "scoreReady",
         },
       },
       filters: ["tradable"],
     };
 
+    const UTILS_TEMPLATES = {
+      getBacktestHistory: `def getBacktestHistory(context) {
+    // 返回截至当前 msg 信号日的完整 DSL 计算历史，拒绝时间未对齐的数据。
+    if (!("coreBacktestSignalTime" in context)) {
+        throw "context 缺少 coreBacktestSignalTime"
+    }
+    signalDate = date(context["coreBacktestSignalTime"])
+    source = objByName("coreDslComputed")
+    history = select *
+    from source
+    where date(time) <= signalDate
+    if (history.rows() == 0) {
+        throw "当前 msg 信号日以前没有 DSL 历史数据"
+    }
+    if (max(date(history.time)) != signalDate) {
+        throw "DSL 历史数据最后日期与 msg 日期不一致"
+    }
+    return history
+}`,
+      riskParityCovariance: `def riskParityCovariance(source, codes, window) {
+    // 使用信号日及之前的共同有效收益率估计完整样本协方差矩阵。
+    signalDate = max(date(source.time))
+    history = select
+        date(time) as time,
+        code,
+        dailyReturn
+    from source
+    where
+        date(time) <= signalDate,
+        date(time) >= temporalAdd(signalDate, -180, "d"),
+        code in codes,
+        !isNull(dailyReturn)
+    if (history.rows() == 0) {
+        throw "风险平价没有可用的历史收益率"
+    }
+
+    historyWide = select
+        last(dailyReturn) as dailyReturn
+    from history
+    pivot by time, code
+    historyWide = select top 90 * from historyWide order by time desc
+    returnColumns = historyWide[codes]
+
+    validRows = take(true, historyWide.rows())
+    for (index in 0..(size(codes) - 1)) {
+        validRows = validRows && !isNull(returnColumns[index])
+    }
+    validIndices = (0..(historyWide.rows() - 1))[validRows]
+    if (size(validIndices) < window) {
+        throw "风险平价共同有效收益率不足 60 期"
+    }
+    validIndices = validIndices[0:window]
+
+    count = size(codes)
+    covariance = matrix(DOUBLE, count, count)
+    for (leftIndex in 0..(count - 1)) {
+        leftReturns = double(returnColumns[leftIndex][validIndices])
+        for (rightIndex in leftIndex..(count - 1)) {
+            rightReturns = double(returnColumns[rightIndex][validIndices])
+            value = covar(leftReturns, rightReturns)
+            covariance[leftIndex, rightIndex] = value
+            covariance[rightIndex, leftIndex] = value
+        }
+    }
+
+    largestVariance = max(diag(covariance))
+    if (isNull(largestVariance) || largestVariance <= 0) {
+        throw "风险平价协方差矩阵没有正方差"
+    }
+    for (index in 0..(count - 1)) {
+        covariance[index, index] += largestVariance * 1e-10
+    }
+    return (covariance, size(validIndices))
+}`,
+      equalRiskContributionWeights: `def equalRiskContributionWeights(covariance, maxIterations, tolerance) {
+    // 求解每只股票对组合方差贡献相等的非负、满仓权重。
+    count = rows(covariance)
+    if (count == 0 || cols(covariance) != count) {
+        throw "风险平价协方差矩阵必须为非空方阵"
+    }
+
+    budgets = take(1.0 / count, count)
+    weights = take(1.0, count)
+    for (iteration in 0..(maxIterations - 1)) {
+        previous = weights.copy()
+        for (index in 0..(count - 1)) {
+            diagonal = covariance[index, index]
+            if (isNull(diagonal) || diagonal <= 0) {
+                throw "风险平价协方差矩阵对角线必须为正"
+            }
+            row = flatten(covariance[index,])
+            cross = sum(row * weights) - diagonal * weights[index]
+            weights[index] = (
+                -cross + sqrt(
+                    cross * cross +
+                    4.0 * diagonal * budgets[index]
+                )
+            ) / (2.0 * diagonal)
+        }
+        if (max(abs(weights - previous)) <= tolerance) break
+    }
+    return weights / sum(weights)
+}`,
+    };
+
     const STRATEGY_TEMPLATES = {
       initialize: `def initialize(mutable context) {
     // 当前插件版本可能调用两次 initialize，因此初始化必须幂等。
-    if (!("orderSize" in context)) {
-        context["orderSize"] = 100
+    if (!("targetExposure" in context)) {
+        context["targetExposure"] = 0.95
+        context["rebalanceCount"] = 0
+        context["lastSelectedCount"] = 0
+        context["lastWeightSum"] = 0.0
+        context["lastCovarianceObservations"] = 0
+        context["lastRiskContributionMin"] = 0.0
+        context["lastRiskContributionMax"] = 0.0
+        context["lastInverseVolatilityDistance"] = 0.0
     }
 }`,
       beforeTrading: `def beforeTrading(mutable context) {
@@ -781,15 +1004,79 @@
       onBar: `def onBar(mutable context, msg, indicator) {
     if (msg.rows() == 0) return
 
-    // msg 是上一交易日的完整数据，context.tradeTime 是当前撮合日。
+    // 使用上一交易日权重，在当前交易日开盘执行风险平价调仓。
+    portfolio = Backtest::getStockTotalPortfolios(context.engine)
+    if (portfolio.rows() == 0) return
+    totalEquity = portfolio.totalEquity[0]
+    if (isNull(totalEquity) || totalEquity <= 0) return
+
+    selectedIndices = (0..(msg.rows() - 1))[bool(nullFill(msg.selected, false))]
+    selectedCount = size(selectedIndices)
+    if (selectedCount == 0) return
+
+    selectedCodes = symbol(
+        strReplace(
+            strReplace(
+                string(msg.symbol[selectedIndices]),
+                ".XSHE",
+                ".SZ"
+            ),
+            ".XSHG",
+            ".SH"
+        )
+    )
+    history = getBacktestHistory(context)
+    context["lastHistoryDate"] = max(date(history.time))
+    context["lastMessageDate"] = date(msg.tradeTime[0])
+    covarianceResult = riskParityCovariance(
+        history,
+        selectedCodes,
+        60
+    )
+    covariance = covarianceResult[0]
+    selectedWeights = equalRiskContributionWeights(
+        covariance,
+        1000,
+        1e-12
+    )
+    weights = take(0.0, msg.rows())
+    weights[selectedIndices] = selectedWeights
+
+    targetPositions = long(
+        floor(
+            totalEquity * context["targetExposure"] * weights /
+            msg.close / 100.0
+        ) * 100
+    )
+    context["rebalanceCount"] += 1
+    context["lastSelectedCount"] = selectedCount
+    context["lastWeightSum"] = sum(weights)
+    context["lastCovarianceObservations"] = covarianceResult[1]
+
+    marginalRisk = take(0.0, selectedCount)
+    variances = take(0.0, selectedCount)
+    for (index in 0..(selectedCount - 1)) {
+        marginalRisk[index] = sum(
+            flatten(covariance[index,]) * selectedWeights
+        )
+        variances[index] = covariance[index, index]
+    }
+    riskContributions = selectedWeights * marginalRisk
+    context["lastRiskContributionMin"] = min(riskContributions)
+    context["lastRiskContributionMax"] = max(riskContributions)
+    inverseVolatility = 1.0 / sqrt(variances)
+    inverseVolatility = inverseVolatility / sum(inverseVolatility)
+    context["lastInverseVolatilityDistance"] = max(
+        abs(selectedWeights - inverseVolatility)
+    )
+
+    // 先卖出被剔除或超配的持仓，释放资金。
     for (index in 0..(msg.rows() - 1)) {
         symbol = msg.symbol[index]
         position = Backtest::getPosition(context.engine, symbol)
-        longPosition = position.longPosition.sum()
-        selected = msg.rawSignal[index] == 1
-
-        if (selected && longPosition < 1) {
-            // 市价单由 matchingMode=2 按当前撮合日开盘价成交。
+        longPosition = long(nullFill(position.longPosition.sum(), 0))
+        targetPosition = targetPositions[index]
+        if (longPosition > targetPosition) {
             Backtest::submitOrder(
                 context.engine,
                 (
@@ -797,24 +1084,36 @@
                     context.tradeTime,
                     0,
                     msg.close[index],
-                    context["orderSize"],
-                    1
-                ),
-                "signal-buy"
-            )
-        } else if (!selected && longPosition > 0) {
-            Backtest::submitOrder(
-                context.engine,
-                (
-                    symbol,
-                    context.tradeTime,
-                    0,
-                    msg.close[index],
-                    longPosition,
+                    longPosition - targetPosition,
                     3
                 ),
-                "signal-sell"
+                "risk-parity-sell"
             )
+        }
+    }
+
+    // 再买入低配股票；5% 现金缓冲用于费用和开盘跳空。
+    buyIndices = (0..(msg.rows() - 1))[targetPositions > 0]
+    if (size(buyIndices) > 0) {
+        for (index in buyIndices) {
+            symbol = msg.symbol[index]
+            position = Backtest::getPosition(context.engine, symbol)
+            longPosition = long(nullFill(position.longPosition.sum(), 0))
+            targetPosition = targetPositions[index]
+            if (longPosition <= targetPosition - 100) {
+                Backtest::submitOrder(
+                    context.engine,
+                    (
+                        symbol,
+                        context.tradeTime,
+                        0,
+                        msg.close[index],
+                        targetPosition - longPosition,
+                        1
+                    ),
+                    "risk-parity-buy"
+                )
+            }
         }
     }
 }`,
@@ -837,8 +1136,10 @@
       editor: null,
       codesQueryModel: null,
       queryModel: null,
+      utilityModels: new Map(),
       strategyModels: new Map(),
       editorKind: "query",
+      utility: "getBacktestHistory",
       callback: "onBar",
       result: null,
       table: "trade_details",
@@ -850,7 +1151,7 @@
     const ids = [
       "runtimeStatus", "themeButton", "operatorCount", "startDate", "endDate", "lookback",
       "matchingMode", "cash", "commission", "tax", "engineName",
-      "callbackTabs", "editor", "editorPath", "editorStatus", "runNote", "runButton",
+      "functionTabs", "editor", "editorPath", "editorStatus", "runNote", "runButton",
       "emptyDashboard", "resultContent", "resultName", "resultDescription", "messageRows",
       "elapsed", "totalReturn", "annualReturn", "sharpeRatio", "maxDrawdown", "equityChart",
       "riskChart", "tableShell", "resultTable", "contextView", "tableCaption", "tableNote",
@@ -946,6 +1247,13 @@
         "json",
         monaco.Uri.parse("inmemory://core/backtest-query.json"),
       );
+      for (const [name, definition] of Object.entries(UTILS_TEMPLATES)) {
+        state.utilityModels.set(name, monaco.editor.createModel(
+          definition,
+          "dolphindb",
+          monaco.Uri.parse(`inmemory://core/utils/${name}.dos`),
+        ));
+      }
       for (const callback of CALLBACKS) {
         state.strategyModels.set(callback, monaco.editor.createModel(
           STRATEGY_TEMPLATES[callback],
@@ -971,6 +1279,8 @@
       state.editor.onDidChangeModelContent(() => {
         if (state.editorKind === "strategy") {
           elements.editorStatus.textContent = `${state.callback} 已修改`;
+        } else if (state.editorKind === "utils") {
+          elements.editorStatus.textContent = `${state.utility} 已修改`;
         } else {
           const label = state.editorKind === "codesQuery" ? "CODES" : "MSG";
           elements.editorStatus.textContent = `${label} DSL 已修改`;
@@ -978,14 +1288,25 @@
       });
     }
 
-    function buildCallbackTabs() {
-      elements.callbackTabs.replaceChildren();
-      for (const callback of CALLBACKS) {
+    function buildFunctionTabs() {
+      elements.functionTabs.replaceChildren();
+      const names = state.editorKind === "utils"
+        ? [...state.utilityModels.keys()]
+        : CALLBACKS;
+      const selectedName = state.editorKind === "utils"
+        ? state.utility
+        : state.callback;
+      for (const name of names) {
         const button = document.createElement("button");
-        button.className = `callback-tab${callback === state.callback ? " active" : ""}`;
-        button.textContent = callback;
-        button.addEventListener("click", () => switchCallback(callback));
-        elements.callbackTabs.appendChild(button);
+        button.className = `function-tab${name === selectedName ? " active" : ""}`;
+        button.textContent = name;
+        button.addEventListener(
+          "click",
+          () => state.editorKind === "utils"
+            ? switchUtility(name)
+            : switchCallback(name),
+        );
+        elements.functionTabs.appendChild(button);
       }
     }
 
@@ -994,7 +1315,11 @@
       document.querySelectorAll(".editor-tab").forEach((button) => {
         button.classList.toggle("active", button.dataset.editor === kind);
       });
-      elements.callbackTabs.classList.toggle("hidden", kind !== "strategy");
+      elements.functionTabs.classList.toggle(
+        "hidden",
+        kind !== "utils" && kind !== "strategy",
+      );
+      buildFunctionTabs();
       if (kind === "codesQuery") {
         state.editor.setModel(state.codesQueryModel);
         elements.editorPath.textContent = "backtest-codes-query.json";
@@ -1003,6 +1328,10 @@
         state.editor.setModel(state.queryModel);
         elements.editorPath.textContent = "backtest-query.json";
         elements.editorStatus.textContent = "完整 msg 定义";
+      } else if (kind === "utils") {
+        state.editor.setModel(state.utilityModels.get(state.utility));
+        elements.editorPath.textContent = `utils/${state.utility}.dos`;
+        elements.editorStatus.textContent = "DolphinDB utility";
       } else {
         state.editor.setModel(state.strategyModels.get(state.callback));
         elements.editorPath.textContent = `${state.callback}.dos`;
@@ -1013,11 +1342,26 @@
 
     function switchCallback(callback) {
       state.callback = callback;
-      buildCallbackTabs();
+      buildFunctionTabs();
       state.editor.setModel(state.strategyModels.get(callback));
       elements.editorPath.textContent = `${callback}.dos`;
       elements.editorStatus.textContent = "DolphinDB callback";
       state.editor.focus();
+    }
+
+    function switchUtility(utility) {
+      state.utility = utility;
+      buildFunctionTabs();
+      state.editor.setModel(state.utilityModels.get(utility));
+      elements.editorPath.textContent = `utils/${utility}.dos`;
+      elements.editorStatus.textContent = "DolphinDB utility";
+      state.editor.focus();
+    }
+
+    function utilsPayload() {
+      return Object.fromEntries(
+        [...state.utilityModels].map(([name, model]) => [name, model.getValue()]),
+      );
     }
 
     function callbacksPayload() {
@@ -1061,6 +1405,7 @@
           ...body,
           codes: [],
         },
+        utils: utilsPayload(),
         callbacks: callbacksPayload(),
         config: {
           cash: numberValue(elements.cash, "cash"),
@@ -1255,7 +1600,7 @@
       const savedTheme = localStorage.getItem("core-query-theme");
       if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
       refreshIcons();
-      buildCallbackTabs();
+      buildFunctionTabs();
       bindEvents();
       try {
         const [monaco] = await Promise.all([loadMonaco(), loadOperators()]);

@@ -1,6 +1,7 @@
 """使用因子 DSL 构造日频消息，并运行 DolphinDB Backtest 策略。"""
 
 from collections.abc import Mapping
+import re
 import time
 from typing import Any, TypeAlias
 from uuid import uuid4
@@ -24,6 +25,7 @@ from core.utils import CODE_COLUMN, TIME_COLUMN, logger, normalize_date_range
 from .schema import BacktestResult
 
 Callback: TypeAlias = str | DolphinDBFunction
+Utility: TypeAlias = str | DolphinDBFunction
 
 CALLBACK_NAMES = (
     "initialize",
@@ -56,6 +58,7 @@ DAILY_REQUIRED_COLUMNS = (
     "prevClosePrice",
 )
 SELECTION_COLUMN = "coreBacktestSelected"
+SIGNAL_TIME_CONTEXT_KEY = "coreBacktestSignalTime"
 SYSTEM_COLUMNS = frozenset(("symbol", "tradeTime", SELECTION_COLUMN))
 RESERVED_CONFIG = frozenset(
     ("startDate", "endDate", "strategyGroup", "dataType", "msgAsTable")
@@ -71,14 +74,33 @@ DEFAULT_CONFIG = {
 def _prepare_callbacks(
     callbacks: Mapping[str, Callback],
     *,
+    utils: Mapping[str, Utility] | None,
     token: str,
 ) -> tuple[str, dict[str, str], str]:
-    """规范回调定义，补齐旧版引擎要求的空回调。"""
+    """先定义工具函数，再规范回调并补齐旧版引擎要求的空回调。"""
     unknown = set(callbacks) - set(CALLBACK_NAMES)
     if unknown:
         raise ValueError(f"未知回调函数：{sorted(unknown)}")
     if "onBar" not in callbacks:
         raise ValueError("日频回测必须传入 onBar 回调函数")
+
+    utility_functions: dict[str, DolphinDBFunction] = {}
+    for utility_name, utility in (utils or {}).items():
+        if not isinstance(utility_name, str) or not utility_name:
+            raise ValueError("utils 的键必须是非空函数名")
+        function = (
+            utility
+            if isinstance(utility, DolphinDBFunction)
+            else DolphinDBFunction(utility)
+        )
+        if function.name != utility_name:
+            raise ValueError(
+                f"utils[{utility_name!r}] 定义的函数名是 {function.name!r}，"
+                "键名必须与函数名一致"
+            )
+        if len(re.findall(r"(?m)^[ \t]*def\s+", function.definition)) != 1:
+            raise ValueError(f"utils[{utility_name!r}] 只能定义一个工具函数")
+        utility_functions[utility_name] = function
 
     functions: dict[str, DolphinDBFunction] = {}
     for callback_name in CALLBACK_NAMES:
@@ -93,6 +115,10 @@ def _prepare_callbacks(
             if isinstance(callback, DolphinDBFunction)
             else DolphinDBFunction(callback)
         )
+        if len(re.findall(r"(?m)^[ \t]*def\s+", function.definition)) != 1:
+            raise ValueError(
+                f"{callback_name} 只能定义一个回调函数，工具函数请放入 utils"
+            )
         expected_count = len(CALLBACK_PARAMETERS[callback_name].split(","))
         if len(function.parameters) != expected_count:
             raise ValueError(
@@ -101,7 +127,20 @@ def _prepare_callbacks(
             )
         functions[callback_name] = function
 
-    definitions = render_functions(collect_functions(functions.values()))
+    callback_function_names = {function.name for function in functions.values()}
+    if collisions := set(utility_functions) & callback_function_names:
+        raise ValueError(
+            f"utils 与 callbacks 存在重名函数：{sorted(collisions)}"
+        )
+
+    definitions = render_functions(
+        collect_functions(
+            (
+                *utility_functions.values(),
+                *functions.values(),
+            )
+        )
+    )
     names = {
         callback_name: function.name for callback_name, function in functions.items()
     }
@@ -117,6 +156,7 @@ def {wrapper_name}(mutable context, msg, indicator) {{
     if ("{context_key}" in context) {{
         previousMessage = context["{context_key}"]
         if (previousMessage.rows() > 0) {{
+            context["{SIGNAL_TIME_CONTEXT_KEY}"] = previousMessage.tradeTime[0]
             {user_on_bar}(context, previousMessage, indicator)
         }}
     }}
@@ -186,6 +226,7 @@ def run_backtest(
     request: FactorQuery | dict[str, Any],
     callbacks: Mapping[str, Callback],
     *,
+    utils: Mapping[str, Utility] | None = None,
     codes_query: FactorQuery | dict[str, Any] | None = None,
     name: str | None = None,
     config: Mapping[str, Any] | None = None,
@@ -193,6 +234,7 @@ def run_backtest(
 ) -> BacktestResult:
     """用 DSL 输出作为完整 msg 表，同步运行一次股票日频回测。
 
+    ``utils`` 中每项必须是一个独立工具函数，框架会在所有回调之前定义它们。
     ``codes_query`` 存在时，先执行该 DSL，并把结果中的去重代码作为正式
     ``request`` 的股票范围。
     框架在执行层缓存当日经过 filters 的完整消息，并在下一交易日调用
@@ -222,6 +264,11 @@ def run_backtest(
         if config_name in merged_config:
             merged_config[config_name] = float(merged_config[config_name])
 
+    callback_script, callback_names, callback_context_key = _prepare_callbacks(
+        callbacks,
+        utils=utils,
+        token=uuid4().hex,
+    )
     owns_session = session is None
     current_session = create_session() if owns_session else session
     engine_created = False
@@ -275,10 +322,6 @@ def run_backtest(
             *user_message_columns,
             SELECTION_COLUMN,
         ]
-        callback_script, callback_names, callback_context_key = _prepare_callbacks(
-            callbacks,
-            token=uuid4().hex,
-        )
         bool_columns = [
             column
             for column, derivative in query.derivatives.items()
@@ -496,5 +539,6 @@ def run_backtest(
 __all__ = [
     "BacktestResult",
     "Callback",
+    "Utility",
     "run_backtest",
 ]

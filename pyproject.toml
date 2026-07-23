@@ -33,6 +33,10 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "dolphindb: requires a running DolphinDB server with Backtest plugins",
+    "backtest: exercises DolphinDB Backtest plugin behavior",
+]
 addopts = [
     "--strict-config",
     "--strict-markers",

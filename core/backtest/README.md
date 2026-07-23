@@ -3,7 +3,8 @@
 本文只说明 DolphinDB Backtest 插件的股票日频模式，不涉及外部查询系统或其他
 封装。
 
-文中的代码和输出全部来自同一次真实运行：
+第 1 至 16 节的主示例代码和输出来自同一次真实运行；第 17 节另外列出相互
+独立、可重复执行的纯 DolphinDB 和项目集成测试：
 
 ```text
 DolphinDB Server:                2.00.18 2026.02.07 LINUX x86_64
@@ -232,6 +233,16 @@ Backtest::getConfig(engine)
 | 数组向量扩展字段 | 必须为 `signal` | `DOUBLE[]` |
 
 这四种形式全部是可选的。插件不要求行情表必须存在 `signal`。
+
+`BOOL` 不在支持范围内。向行情表增加 `BOOL` 扩展列后调用
+`appendQuotationMsg`，Backtest `2.00.18.11` 实际返回：
+
+```text
+[PLUGIN::BACKTEST] Not support BOOL in extend columns.
+```
+
+需要传入布尔信号时，应先转换为 `INT`，用 `0`、`1` 表示 false、true。项目的
+`run_backtest` 会自动把静态类型为 BOOL 的命名派生因子转换为 `INT`。
 
 本次使用了四个有明确示例含义的扩展字段：
 
@@ -517,6 +528,37 @@ typestr(msg.signal)         = FAST DOUBLE[] VECTOR
 2025-01-10 触发了 `beforeTrading` 和 `afterTrading`，但没有触发 `onBar`。这是
 Backtest 2.00.18.11 对本次整表追加的实际表现。若最后一个策略日也必须执行
 `onBar`，输入中还需要包含下一个有效时间点，再发送结束标记。
+
+### 8.4 多股票整表与消息生命周期
+
+使用两只股票、三个时间戳共 6 行行情进行独立测试，`msgAsTable=true` 时实测：
+
+```text
+beforeTradingCount = 3
+onBarCount          = 2
+afterTradingCount   = 3
+onBar 行数           = [2, 2]
+onBar 时间           = [2025-01-02 15:00:00, 2025-01-03 15:00:00]
+```
+
+同一时间戳的两只股票会组成一张两行表传入 `onBar`，不会逐股票调用。最后一个
+时间戳仍然只触发盘前和盘后回调，不触发 `onBar`。
+
+`msg` 及其列向量由插件复用。把 `msg.score` 直接保存到 `context`，回测结束后
+看到的是缓冲区后续写入的值，不是保存时的快照：
+
+```dos
+// 错误：保存的是后续会被插件改写的列引用。
+context["scoreReference"] = msg.score
+
+// 正确：复制当前回调中的值。
+context["firstScores"] = array(DOUBLE, 0).append!(msg.score)
+context["firstSymbols"] = string(msg.symbol)
+```
+
+实测第一根 Bar 的 `score` 为 `[0.8, 0.2]`，直接保存引用后最终变成最后一批
+缓冲区值 `[0.6, 0.4]`；显式复制后仍为 `[0.8, 0.2]`。标量
+`msg.score[0]` 会立即取值，不存在该引用问题。
 
 ## 9. `onSnapshot`
 
@@ -1056,7 +1098,222 @@ tradeDate   cash          totalMarketValue  totalEquity   totalFee
 2025-01-10  1998826.6481  1130.0            1999956.6481  0.3519
 ```
 
-## 17. 官方参考
+## 17. 自动化实测
+
+### 17.1 纯 DolphinDB 插件测试
+
+纯 DolphinDB 测试策略位于 `tests/backtest/dolphindb`：
+
+| 文件 | 验证内容 |
+| --- | --- |
+| `readme_example.dos` | 原样复现本文 7 行主示例及其成交、费用和最终权益 |
+| `lifecycle.dos` | 八类回调次数、参数类型、最后一根 Bar 不触发 `onBar` |
+| `matching.dos` | `matchingMode=2` 开盘撮合、订单/成交回调、费用和权益 |
+| `batch_message.dos` | 多股票整表消息、扩展列值、消息缓冲区复用 |
+| `bool_extension.dos` | `BOOL` 扩展列被插件明确拒绝 |
+
+对应断言位于 `tests/backtest/test_dolphindb_plugin.py`。本机运行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest `
+    tests\backtest\test_dolphindb_plugin.py -q --no-cov
+```
+
+当前 Backtest `2.00.18.11` 纯插件实测结果：
+
+```text
+5 passed
+```
+
+`matching.dos` 的独立可核算结果如下：
+
+```text
+初始资金                  100000.0
+2025-01-02 买入 100 股     10.0
+2025-01-03 卖出 100 股     12.0
+买入手续费                  1.0
+卖出手续费                  1.2
+卖出印花税                  2.4
+最终权益               100195.4
+```
+
+测试读取结果后都会执行 `dropBacktestEngine`，不会在服务端留下测试引擎。
+
+### 17.2 项目 `run_backtest` 测试
+
+项目集成测试位于 `tests/backtest/test_project_backtest.py`，使用数据库中固定的
+`000001.SZ` 2025-01-02 至 2025-01-13 行情，验证从因子查询、DSL、消息构造到
+Backtest 插件的完整链路。
+
+| 测试 | 验证内容 |
+| --- | --- |
+| `test_previous_signal_executes_at_current_open_and_accounts_exactly` | 前一日信号、下一交易日开盘撮合、BOOL 转 INT、NULL 信号退出、费用与权益 |
+| `test_playground_risk_parity_default_runs_end_to_end` | 从页面读取默认对象，运行动态沪深 300 多因子策略，验证完整协方差 ERC 权重 |
+| `test_backtest_validates_independent_utility_definitions` | `utils` 键名校验，以及禁止在回调中附加工具函数 |
+| `test_filters_only_pass_selected_previous_rows` | `filters` 标记、上一交易日消息缓存和回调日期 |
+| `test_callback_failure_drops_engine` | 用户回调抛错后的异常传播和引擎清理 |
+
+本机运行全部回测测试：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\backtest -q --no-cov
+```
+
+当前纯插件 5 项、项目封装 6 项共 11 项实测结果：
+
+```text
+11 passed
+```
+
+项目封装与纯插件的日频时序不同：
+
+| 层级 | 用户策略收到的数据 | `matchingMode=2` 的撮合日 |
+| --- | --- | --- |
+| 纯插件 | 当前交易日 `msg` | 当前交易日开盘 |
+| 项目 `run_backtest` | 缓存的上一交易日 `msg` | 当前交易日开盘 |
+
+项目测试共输入 8 个交易日。插件自身对前 7 个时间点触发 `onBar`；项目第一轮
+回调只缓存 2025-01-02 消息，因此用户策略实际执行 6 次：
+
+```text
+信号日期:
+2025-01-02, 2025-01-03, 2025-01-06,
+2025-01-07, 2025-01-08, 2025-01-09
+
+执行日期:
+2025-01-03, 2025-01-06, 2025-01-07,
+2025-01-08, 2025-01-09, 2025-01-10
+```
+
+因此查询必须在最后一个需要执行策略的交易日之后再包含一根真实行情。本例用
+2025-01-13 冲刷 2025-01-10 的插件回调。最后输入日只用于推进插件，不会传给
+用户 `onBar`。
+
+项目把 BOOL 派生列转为 `INT` 后送入插件，本例中 `rawSignal` 在回调里的实测
+类型为 `FAST INT VECTOR`。截面 `on` 以外的行会得到 NULL；策略应使用：
+
+```dos
+selected = nullFill(msg.rawSignal[index], false)
+```
+
+不能直接使用 `!msg.rawSignal[index]` 判断退出，否则 NULL 不会变成 true。项目
+Playground 的默认策略已采用上述写法。
+
+`filters` 的语义是决定哪些上一日行会进入用户回调。某行未通过筛选时，策略不会
+收到一条“筛选结果为 false”的消息。因此会影响持仓退出的条件不应只写在
+`filters` 中；应保留为消息中的 BOOL/INT 派生列，并在策略中把 false 或 NULL
+解释为退出信号。
+
+真实行情两轮交易的逐项结果：
+
+```text
+2025-01-03 买入 100 股 @ 11.44
+2025-01-06 卖出 100 股 @ 11.38
+2025-01-07 买入 100 股 @ 11.42
+2025-01-10 卖出 100 股 @ 11.40
+
+价差损益   -8.000
+手续费      4.564
+印花税      4.556
+总费用      9.120
+最终损益  -17.120
+最终权益 999982.880
+```
+
+成功和回调失败两个路径都验证了引擎清理，测试完成后
+`Backtest::getBacktestEngineList()` 中不存在对应测试引擎。
+
+### 17.3 Playground 默认多因子风险平价策略
+
+Playground 默认策略先使用 `codes_query` 取得回测区间内出现过的沪深 300 成分股，
+正式查询再通过每日 `weight_000300SH > 0` 判断动态成分资格。截面还要求：
+
+```text
+非 ST
+0 < PE < 80
+ROE > 0
+流通市值 > 0
+60 日动量和 20 日波动率有效
+当日存在可交易价格
+```
+
+因子使用后复权收盘价计算收益，避免分红除权直接污染动量和波动率：
+
+```text
+价值因子     -PE
+质量因子      ROE
+动量因子      close_hfq 的 60 期收益
+低风险因子   -20 期日对数收益率标准差
+```
+
+四个因子分别在有效股票截面内执行 3 倍 MAD 缩尾和 z-score，再等权平均：
+
+```text
+compositeScore =
+    mean(valueScore, qualityScore, momentumScore, lowRiskScore)
+```
+
+每天选取综合得分最高的 20 只股票。选股只决定资产集合，不直接决定权重。策略在
+信号日及以前的数据中取得这些股票最近 60 个共同有效的日收益率，估计包含相关性的
+完整样本协方差矩阵 `Σ`，并在对角线加入最大方差 `1e-10` 倍的微小扰动以提高数值
+稳定性。
+
+历史截取、协方差估计和 ERC 求解分别作为独立函数放在请求的 `utils` 中。框架在
+调用 `onBar` 前把当前消息时间写入 `context["coreBacktestSignalTime"]`。
+`getBacktestHistory(context)` 返回不晚于该信号日的 `coreDslComputed`，并强制
+校验历史表最大日期等于 `msg.tradeTime` 的日期，避免读取未来数据。
+
+框架先定义 `utils`，再定义 `callbacks`；每个映射项只能包含一个完整函数，工具
+函数不能附加在 `initialize` 或其他回调定义后面。
+
+```python
+run_backtest(
+    query,
+    callbacks,
+    utils={
+        "getBacktestHistory": history_definition,
+        "riskParityCovariance": risk_parity_covariance_definition,
+        "equalRiskContributionWeights": erc_weights_definition,
+    },
+)
+```
+
+`utils` 的键必须与定义中的 DolphinDB 函数名完全一致。
+
+权重使用等风险贡献（Equal Risk Contribution, ERC）风险平价。股票 `i` 对组合
+方差的贡献定义为：
+
+```text
+RC[i] = weight[i] * (Σ * weight)[i]
+
+weight[i] >= 0
+sum(weight) = 1
+RC[1] = RC[2] = ... = RC[20]
+```
+
+策略通过循环坐标下降求解上述权重。这里使用的是完整协方差矩阵，而不是仅使用
+方差对角线的逆波动率近似。协方差和权重均只使用上一交易日及以前的数据。
+
+端到端测试从 Playground 页面读取实际默认 DSL 和回调，在真实沪深 300 数据上
+运行，并直接断言最后一期：
+
+```text
+selectedCount = 20
+covarianceObservations = 60
+sum(weight) = 1
+min(RC) = max(RC)
+max(abs(weight - normalizedInverseVolatility)) > 0
+```
+
+策略使用目标权益的 95%，按 100 股整手计算目标持仓，留下 5% 处理费用和次日
+开盘跳空。每次调仓先卖出被剔除或超配持仓，再买入低配持仓。信号来自上一交易日，
+订单由 `matchingMode=2` 在当前交易日开盘撮合。
+
+当前 `createBacktestEngine` 模式下，
+`Backtest::getStockTotalPortfolios(context.engine)` 实际返回一行内存表，策略通过
+`portfolio.totalEquity[0]` 读取总权益。
+
+## 18. 官方参考
 
 - [Backtest 插件总览与回调说明](https://docs.dolphindb.cn/zh/plugins/backtest.html)
 - [Backtest 接口说明](https://docs.dolphindb.cn/zh/plugins/backtest/interface_description.html)
