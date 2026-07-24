@@ -1,6 +1,7 @@
 """在 DolphinDB 内完成统一因子查询、填充和 DSL 计算。"""
 
 import json
+import re
 import time
 from datetime import timedelta
 from typing import Any
@@ -8,9 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from core.database.session import CORE_TABLE, create_session
-from core.query.dolphindb.script import build_script
-from core.query.schema import FactorQuery
+from core.database import CORE_TABLE, create_session
 from core.utils import (
     CODE_COLUMN,
     IS_ST_FACTOR,
@@ -20,15 +19,30 @@ from core.utils import (
     logger,
     normalize_date_range,
 )
-from core.workers.stock_financial import FINANCIAL_FACTORS
+from core.workers import FINANCIAL_FACTORS
+
+from .schema import FactorQuery
+
+REFERENCE_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
 
 def build_query_table(
     request: FactorQuery | dict[str, Any],
     *,
     session: Any,
+    computed_ref: str,
+    filtered_ref: str,
 ) -> tuple[FactorQuery, list[str]]:
-    """在给定会话中构造 ``coreDslOutput``，供查询和回测直接复用。"""
+    """在会话中构造命名结果表，只返回查询模型和输出列元数据。"""
+    for label, reference in (
+        ("computed_ref", computed_ref),
+        ("filtered_ref", filtered_ref),
+    ):
+        if REFERENCE_PATTERN.fullmatch(reference) is None:
+            raise ValueError(f"{label} 不是合法的 DolphinDB 变量名：{reference!r}")
+    if computed_ref == filtered_ref:
+        raise ValueError("computed_ref 和 filtered_ref 不能相同")
+
     query = (
         request
         if isinstance(request, FactorQuery)
@@ -70,7 +84,7 @@ def build_query_table(
             "coreOutputEndExclusive": output_end + timedelta(days=1),
         }
     )
-    session.run(build_script())
+    session.run("use query")
     session.run(
         f"""
         coreQuerySource = build_factor_source(
@@ -98,7 +112,7 @@ def build_query_table(
         elif factor.startswith(WEIGHT_PREFIX):
             session.run(
                 f"""
-                coreQuerySource = fill_cross_section_null_column(
+                coreQuerySource = fill_observed_group_null_column(
                     coreQuerySource,
                     {name},
                     coreQuerySource.time,
@@ -125,33 +139,26 @@ def build_query_table(
             )
 
     session.run(
-        """
+        f"""
         coreQuerySource = finalize_factor_source(
             coreQuerySource,
             coreQueryFactors
         )
 
-        coreDslComputed = compute_factors(
+        {computed_ref} = compute_factors(
             coreQuerySource,
             fromStdJson(coreDslDefinitionsJson)
         )
 
-        coreDslFiltered = filter_factors(
-            coreDslComputed,
+        {filtered_ref} = filter_factors(
+            {computed_ref},
             coreDslFilters
-        )
-
-        coreDslOutput = project_factor_output(
-            coreDslFiltered,
-            coreDslOutputColumns,
-            coreOutputStart,
-            coreOutputEndExclusive
         )
         """
     )
 
     source_rows = session.run("coreQuerySource.rows()")
-    computed_rows = session.run("coreDslComputed.rows()")
+    computed_rows = session.run(f"{computed_ref}.rows()")
     if computed_rows != source_rows:
         raise RuntimeError(
             "DolphinDB DSL 计算改变了行数："
@@ -170,11 +177,24 @@ def execute_query(
     owns_session = session is None
     current_session = create_session() if owns_session else session
     try:
+        unfiltered_data_ref = "coreQueryUnfilteredFactorData"
+        filtered_data_ref = "coreQueryFilteredFactorData"
         _, output_columns = build_query_table(
             request,
             session=current_session,
+            computed_ref=unfiltered_data_ref,
+            filtered_ref=filtered_data_ref,
         )
-        result = current_session.run("coreDslOutput")
+        result = current_session.run(
+            f"""
+            project_factor_output(
+                {filtered_data_ref},
+                coreDslOutputColumns,
+                coreOutputStart,
+                coreOutputEndExclusive
+            )
+            """
+        )
 
         if not isinstance(result, pd.DataFrame):
             raise TypeError(

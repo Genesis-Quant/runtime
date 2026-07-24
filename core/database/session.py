@@ -9,15 +9,15 @@ import numpy as np
 import pandas as pd
 
 from config import DOLPHIN
-from core.utils.schema import (
+from core.utils import (
     CODE_COLUMN,
     CORE_COLUMNS,
     FACTOR_COLUMN,
     TIME_COLUMN,
     VALUE_COLUMN,
+    logger,
     normalize_factors,
 )
-from core.utils.logging import logger
 
 logger.info(f"DolphinDB: {DOLPHIN.HOST}:{DOLPHIN.PORT}")
 
@@ -33,14 +33,14 @@ CORE_TABLE = (
 )
 
 
-def create_session():
+def create_session() -> Any:
     """连接 DolphinDB，不检查或初始化业务库表。"""
     session = dolphindb.session()
     if session.connect(
-            DOLPHIN.HOST,
-            DOLPHIN.PORT,
-            DOLPHIN.USERNAME,
-            DOLPHIN.PASSWORD,
+        DOLPHIN.HOST,
+        DOLPHIN.PORT,
+        DOLPHIN.USERNAME,
+        DOLPHIN.PASSWORD,
     ):
         return session
     session.close()
@@ -50,9 +50,11 @@ def create_session():
 def ensure_core_table(session: Any, factors: list[str]) -> None:
     """统一因子库表缺失时，使用已有会话完成初始化。"""
     if session.run(
-            f"existsDatabase({_ddb_string(DOLPHIN.DATABASE)})"
+        f"existsDatabase({_ddb_string(DOLPHIN.DATABASE)})"
     ) and session.run(
-        f"existsTable({_ddb_string(DOLPHIN.DATABASE)}, {_ddb_string(DOLPHIN.TABLE)})"
+        "existsTable("
+        f"{_ddb_string(DOLPHIN.DATABASE)}, "
+        f"{_ddb_string(DOLPHIN.TABLE)})"
     ):
         return
 
@@ -117,9 +119,9 @@ def ensure_core_table(session: Any, factors: list[str]) -> None:
 
 
 def ensure_factor_partitions(
-        values: Iterable[str],
-        *,
-        session: Any | None = None,
+    values: Iterable[str],
+    *,
+    session: Any | None = None,
 ) -> list[str]:
     """补建缺失的 factor VALUE 分区并返回新增分区。"""
     factors = normalize_factors(values)
@@ -162,10 +164,10 @@ class CoreTableWriter:
     """
 
     def __init__(
-            self,
-            factors: Iterable[str],
-            *,
-            thread_count: int = 3,
+        self,
+        factors: Iterable[str],
+        *,
+        thread_count: int = 3,
     ) -> None:
         """保存固定 factor 和写入配置，首次追加数据时再建立连接。"""
         if thread_count <= 0:

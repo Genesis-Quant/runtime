@@ -1,7 +1,6 @@
 """提供查询 Playground 页面及其辅助 HTTP 路由。"""
 
 from datetime import date
-import json
 from pathlib import Path
 from typing import Any, cast, get_args
 
@@ -11,14 +10,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ValidationError
 
 from config import INDEX_CODES
-from core.backtest import run_backtest
-from core.query.operator import Derivative
-from core.query.schema import FactorQuery
+from core.query import Derivative, FactorQuery
 from core.utils import pro
 from core.workers import available_factors
 
 from .schema import (
-    BacktestRunRequest,
     IndexConstituentsResponse,
     IndexPreset,
     OperatorSpec,
@@ -27,8 +23,9 @@ from .schema import (
 )
 
 
-INDEX_FILE = Path(__file__).with_name("index.html")
 BACKTEST_FILE = Path(__file__).with_name("backtest.html")
+INDEX_FILE = Path(__file__).with_name("index.html")
+QUERY_FILE = Path(__file__).with_name("query.html")
 SUPPORTED_INDEX_CODES: tuple[str, ...] = tuple(
     str(index_code) for index_code in INDEX_CODES
 )
@@ -43,9 +40,15 @@ router = APIRouter(tags=["playground"])
 
 
 @router.get("/", include_in_schema=False)
+def playground_console() -> FileResponse:
+    """返回 Core Playground 入口页。"""
+    return FileResponse(INDEX_FILE, media_type="text/html")
+
+
+@router.get("/query", include_in_schema=False)
 def query_console() -> FileResponse:
     """返回统一因子查询前端。"""
-    return FileResponse(INDEX_FILE, media_type="text/html")
+    return FileResponse(QUERY_FILE, media_type="text/html")
 
 
 @router.get("/backtest", include_in_schema=False)
@@ -197,55 +200,6 @@ def validate_query(
             ],
         )
     return ValidationResponse(valid=True)
-
-
-def _frame_payload(frame: pd.DataFrame) -> dict[str, Any]:
-    """把插件表转换为保留列顺序且兼容浏览器的 JSON 数据。"""
-    return {
-        "columns": list(frame.columns),
-        "rows": json.loads(
-            frame.to_json(
-                orient="records",
-                date_format="iso",
-                date_unit="ms",
-            )
-        ),
-    }
-
-
-@router.post("/backtest/run", response_model=None)
-def execute_backtest(request: BacktestRunRequest) -> dict[str, Any]:
-    """执行 DSL 日频回测并返回可视化所需的全部标准结果。"""
-    try:
-        output = run_backtest(
-            request.query,
-            request.callbacks,
-            utils=request.utils,
-            codes_query=request.codes_query,
-            name=request.name,
-            config=request.config,
-        )
-    except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-
-    context = json.loads(
-        pd.DataFrame([{"context": output.context}]).to_json(
-            orient="records",
-            date_format="iso",
-            date_unit="ms",
-        )
-    )[0]["context"]
-    return {
-        "name": output.name,
-        "message_rows": output.message_rows,
-        "context": context,
-        "trade_details": _frame_payload(output.trade_details),
-        "daily_positions": _frame_payload(output.daily_positions),
-        "daily_portfolios": _frame_payload(output.daily_portfolios),
-        "return_summary": _frame_payload(output.return_summary),
-        "daily_trading_statistics": _frame_payload(output.daily_trading_statistics),
-        "engine_stat": _frame_payload(output.engine_stat),
-    }
 
 
 __all__ = ["router"]

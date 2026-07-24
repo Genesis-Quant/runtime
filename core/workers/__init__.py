@@ -7,17 +7,18 @@ from config import INDEX_CODES
 from .base import BaseWorker, DateWorker, StockWorker
 from .index_weight import IndexWeightWorker
 from .stock_daily import (
+    StockAdjFactorWorker,
+    StockDailyBasicWorker,
+    StockDailyWorker,
     StockHfqWorker,
     StockLimitWorker,
-    StockDailyWorker,
-    StockAdjFactorWorker,
-    StockDailyBasicWorker
 )
 from .stock_financial import (
-    StockIncomeWorker,
-    StockCashflowWorker,
+    FINANCIAL_FACTORS,
     StockBalanceSheetWorker,
-    StockFinaIndicatorWorker
+    StockCashflowWorker,
+    StockFinaIndicatorWorker,
+    StockIncomeWorker,
 )
 from .stock_st import StockSTWorker
 
@@ -44,6 +45,7 @@ def available_factors() -> tuple[str, ...]:
 __all__ = [
     "BaseWorker",
     "DateWorker",
+    "FINANCIAL_FACTORS",
     "IndexWeightWorker",
     "StockAdjFactorWorker",
     "StockBalanceSheetWorker",

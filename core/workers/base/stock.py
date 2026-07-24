@@ -26,7 +26,6 @@ from core.database import (
 
 from .worker import BaseWorker
 
-
 MAX_FAILURE_SAMPLES = 10
 
 

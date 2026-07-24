@@ -1,0 +1,30 @@
+"""导出 backtest DolphinDB 模块函数。"""
+
+from .build_backtest_message import BUILD_BACKTEST_MESSAGE
+from .data import GET_HISTORY_DATA, GET_LAST_DATA
+from .lifecycle import (
+    CALLBACK_OR_DEFAULT,
+    NOOP_CONTEXT_CALLBACK,
+    NOOP_EVENT_CALLBACK,
+    NOOP_MESSAGE_CALLBACK,
+)
+from .run_backtest import RUN_BACKTEST
+
+BACKTEST_FUNCTIONS = (
+    GET_HISTORY_DATA,
+    GET_LAST_DATA,
+    BUILD_BACKTEST_MESSAGE,
+    RUN_BACKTEST,
+)
+
+__all__ = [
+    "BACKTEST_FUNCTIONS",
+    "BUILD_BACKTEST_MESSAGE",
+    "CALLBACK_OR_DEFAULT",
+    "GET_HISTORY_DATA",
+    "GET_LAST_DATA",
+    "NOOP_CONTEXT_CALLBACK",
+    "NOOP_EVENT_CALLBACK",
+    "NOOP_MESSAGE_CALLBACK",
+    "RUN_BACKTEST",
+]

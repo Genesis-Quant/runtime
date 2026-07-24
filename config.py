@@ -1,6 +1,8 @@
 """从环境变量加载 DolphinDB、Tushare 和数据更新配置。"""
 
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 # 兼容从项目目录或其父目录启动。
@@ -21,16 +23,27 @@ class DOLPHIN:
 
     DATABASE = os.getenv("DOLPHIN_CORE_DATABASE", "dfs://CoreData")
     TABLE = os.getenv("DOLPHIN_CORE_TABLE", "coreData")
+    MODULE_DIR = Path(
+        os.getenv(
+            "DOLPHIN_MODULE_DIR",
+            r"D:\Docker\dolphindb\data\modules",
+        )
+    )
 
 
 # 需要持久化并对外提供查询的指数代码。
-INDEX_CODES = tuple(filter(None, map(
-    str.strip,
-    os.getenv(
-        "INDEX_CODES",
-        "000016.SH,000300.SH,000905.SH,000852.SH"
-    ).split(",")
-)))
+INDEX_CODES = tuple(
+    filter(
+        None,
+        map(
+            str.strip,
+            os.getenv(
+                "INDEX_CODES",
+                "000016.SH,000300.SH,000905.SH,000852.SH",
+            ).split(","),
+        ),
+    )
+)
 
 # 数据回溯起点和 Tushare 数据接口访问令牌。
 DATA_START_DATE = os.getenv("DATA_START_DATE", "2010-01-01")

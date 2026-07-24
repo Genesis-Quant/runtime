@@ -24,6 +24,7 @@ from core.utils import (
 )
 from core.database import CoreTableWriter
 
+
 class BaseWorker(ABC):
     """统一管理运行配置、返回格式、失败重试和批量写入。"""
 

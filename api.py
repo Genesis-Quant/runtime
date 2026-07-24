@@ -2,9 +2,9 @@
 
 from fastapi import FastAPI
 
-from core.playground import router as playground_router
-from core.query import router as query_router
-
+from core.backtest import backtest_router
+from core.playground import playground_router
+from core.query import query_router
 
 app = FastAPI(
     title="Core Factor API",
@@ -12,7 +12,7 @@ app = FastAPI(
     version="0.1.0",
 )
 app.include_router(query_router)
+app.include_router(backtest_router)
 app.include_router(playground_router)
-
 
 __all__ = ["app"]

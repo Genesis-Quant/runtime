@@ -26,7 +26,6 @@ from core.database import (
 
 from .worker import BaseWorker
 
-
 MAX_FAILURE_SAMPLES = 10
 
 
@@ -270,7 +269,7 @@ class DateWorker(BaseWorker, ABC):
 
                     if chunk_failure_count:
                         omitted_count = (
-                            chunk_failure_count - len(failures)
+                                chunk_failure_count - len(failures)
                         )
                         omitted = (
                             f"；其余 {omitted_count:,} 条失败已省略"

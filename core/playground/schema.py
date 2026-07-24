@@ -2,9 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from core.query.schema import FactorQuery
+from pydantic import BaseModel, Field
 
 
 class OperatorSpec(BaseModel):
@@ -54,37 +52,7 @@ class IndexConstituentsResponse(BaseModel):
     codes: list[str] = Field(..., description="最近一期非零权重成分股代码。")
 
 
-class BacktestRunRequest(BaseModel):
-    """描述 Playground 发起的一次同步日频回测。"""
-
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    codes_query: FactorQuery | None = Field(
-        default=None,
-        description="可选选股 DSL；结果中的 code 去重后作为正式回测股票范围。",
-    )
-    query: FactorQuery = Field(..., description="完整 msg 表的因子 DSL。")
-    callbacks: dict[str, str] = Field(
-        ...,
-        description="DolphinDB 回调名称到函数定义的映射。",
-    )
-    utils: dict[str, str] = Field(
-        default_factory=dict,
-        description="工具函数名称到独立 DolphinDB 函数定义的映射。",
-    )
-    name: str | None = Field(
-        default=None,
-        min_length=1,
-        description="可选回测引擎名称。",
-    )
-    config: dict[str, Any] = Field(
-        default_factory=dict,
-        description="初始资金、费用和撮合等 Backtest 配置。",
-    )
-
-
 __all__ = [
-    "BacktestRunRequest",
     "IndexConstituentsResponse",
     "IndexPreset",
     "OperatorSpec",

@@ -516,7 +516,8 @@
     </div>
     <div class="header-actions">
       <nav class="nav" aria-label="Playground 页面">
-        <a href="/">Query</a>
+        <a href="/">Home</a>
+        <a href="/query">Query</a>
         <a class="active" href="/backtest">Backtest</a>
       </nav>
       <div id="runtimeStatus" class="status-pill busy">
@@ -586,7 +587,7 @@
         <span id="editorStatus">等待 Monaco</span>
       </div>
       <div class="run-row">
-        <div id="runNote" class="run-note">CODES DSL 从全市场计算；框架在下一交易日传入完整 msg，end_date 需包含额外真实日线</div>
+        <div id="runNote" class="run-note">CODES DSL 从全市场计算；onBar 的 msg 只包含 filters 后的原始行情，DSL 特征通过历史函数读取</div>
         <button id="runButton" class="button primary" disabled><i data-lucide="play"></i><span>运行回测</span></button>
       </div>
     </section>
@@ -880,24 +881,6 @@
     };
 
     const UTILS_TEMPLATES = {
-      getBacktestHistory: `def getBacktestHistory(context) {
-    // 返回截至当前 msg 信号日的完整 DSL 计算历史，拒绝时间未对齐的数据。
-    if (!("coreBacktestSignalTime" in context)) {
-        throw "context 缺少 coreBacktestSignalTime"
-    }
-    signalDate = date(context["coreBacktestSignalTime"])
-    source = objByName("coreDslComputed")
-    history = select *
-    from source
-    where date(time) <= signalDate
-    if (history.rows() == 0) {
-        throw "当前 msg 信号日以前没有 DSL 历史数据"
-    }
-    if (max(date(history.time)) != signalDate) {
-        throw "DSL 历史数据最后日期与 msg 日期不一致"
-    }
-    return history
-}`,
       riskParityCovariance: `def riskParityCovariance(source, codes, window) {
     // 使用信号日及之前的共同有效收益率估计完整样本协方差矩阵。
     signalDate = max(date(source.time))
@@ -1010,24 +993,25 @@
     totalEquity = portfolio.totalEquity[0]
     if (isNull(totalEquity) || totalEquity <= 0) return
 
-    selectedIndices = (0..(msg.rows() - 1))[bool(nullFill(msg.selected, false))]
-    selectedCount = size(selectedIndices)
+    lastData = getLastData(context, msg)
+    selectedCount = lastData.rows()
     if (selectedCount == 0) return
 
-    selectedCodes = symbol(
+    selectedCodes = lastData.code
+    selectedSymbols = symbol(
         strReplace(
             strReplace(
-                string(msg.symbol[selectedIndices]),
-                ".XSHE",
-                ".SZ"
+                string(selectedCodes),
+                ".SZ",
+                ".XSHE"
             ),
-            ".XSHG",
-            ".SH"
+            ".SH",
+            ".XSHG"
         )
     )
-    history = getBacktestHistory(context)
+    history = getHistoryData(context, msg, false)
     context["lastHistoryDate"] = max(date(history.time))
-    context["lastMessageDate"] = date(msg.tradeTime[0])
+    context["lastMessageDate"] = max(date(lastData.time))
     covarianceResult = riskParityCovariance(
         history,
         selectedCodes,
@@ -1039,18 +1023,16 @@
         1000,
         1e-12
     )
-    weights = take(0.0, msg.rows())
-    weights[selectedIndices] = selectedWeights
 
     targetPositions = long(
         floor(
-            totalEquity * context["targetExposure"] * weights /
-            msg.close / 100.0
+            totalEquity * context["targetExposure"] * selectedWeights /
+            lastData.close / 100.0
         ) * 100
     )
     context["rebalanceCount"] += 1
     context["lastSelectedCount"] = selectedCount
-    context["lastWeightSum"] = sum(weights)
+    context["lastWeightSum"] = sum(selectedWeights)
     context["lastCovarianceObservations"] = covarianceResult[1]
 
     marginalRisk = take(0.0, selectedCount)
@@ -1071,8 +1053,8 @@
     )
 
     // 先卖出被剔除或超配的持仓，释放资金。
-    for (index in 0..(msg.rows() - 1)) {
-        symbol = msg.symbol[index]
+    for (index in 0..(selectedCount - 1)) {
+        symbol = selectedSymbols[index]
         position = Backtest::getPosition(context.engine, symbol)
         longPosition = long(nullFill(position.longPosition.sum(), 0))
         targetPosition = targetPositions[index]
@@ -1083,7 +1065,7 @@
                     symbol,
                     context.tradeTime,
                     0,
-                    msg.close[index],
+                    lastData.close[index],
                     longPosition - targetPosition,
                     3
                 ),
@@ -1096,7 +1078,7 @@
     buyIndices = (0..(msg.rows() - 1))[targetPositions > 0]
     if (size(buyIndices) > 0) {
         for (index in buyIndices) {
-            symbol = msg.symbol[index]
+            symbol = selectedSymbols[index]
             position = Backtest::getPosition(context.engine, symbol)
             longPosition = long(nullFill(position.longPosition.sum(), 0))
             targetPosition = targetPositions[index]
@@ -1107,7 +1089,7 @@
                         symbol,
                         context.tradeTime,
                         0,
-                        msg.close[index],
+                        lastData.close[index],
                         targetPosition - longPosition,
                         1
                     ),
@@ -1139,7 +1121,7 @@
       utilityModels: new Map(),
       strategyModels: new Map(),
       editorKind: "query",
-      utility: "getBacktestHistory",
+      utility: "riskParityCovariance",
       callback: "onBar",
       result: null,
       table: "trade_details",
@@ -1327,7 +1309,7 @@
       } else if (kind === "query") {
         state.editor.setModel(state.queryModel);
         elements.editorPath.textContent = "backtest-query.json";
-        elements.editorStatus.textContent = "完整 msg 定义";
+        elements.editorStatus.textContent = "策略 DSL 定义";
       } else if (kind === "utils") {
         state.editor.setModel(state.utilityModels.get(state.utility));
         elements.editorPath.textContent = `utils/${state.utility}.dos`;
@@ -1608,7 +1590,7 @@
         initializeEditor(monaco);
         elements.runButton.disabled = false;
         setStatus("ready", "Studio ready");
-        elements.editorStatus.textContent = "完整 msg 定义";
+        elements.editorStatus.textContent = "策略 DSL 定义";
       } catch (error) {
         setStatus("error", "Studio failed");
         elements.runNote.textContent = error.message;
