@@ -37,6 +37,8 @@ def execute_backtest(request: BacktestRunRequest) -> dict[str, Any]:
             codes_query=request.codes_query,
             name=request.name,
             config=request.config,
+            annual_trading_days=request.annual_trading_days,
+            risk_free_rate=request.risk_free_rate,
         )
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

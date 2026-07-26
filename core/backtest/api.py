@@ -9,8 +9,10 @@ import numpy as np
 import pandas as pd
 
 from core.database import (
+    STOCK_DIVIDEND_TABLE,
     collect_functions,
     create_session,
+    ensure_stock_dividend_table,
     render_functions,
 )
 from core.query import FactorQuery, build_query_table
@@ -45,9 +47,14 @@ def run_backtest(
     codes_query: FactorQuery | dict[str, Any] | None = None,
     name: str | None = None,
     config: Mapping[str, Any] | None = None,
+    annual_trading_days: int = 250,
+    risk_free_rate: float = 0.04,
+    source_ref: str | None = None,
+    message_ref: str | None = None,
+    compact: bool = False,
     session: Any | None = None,
 ) -> BacktestResult:
-    """用未筛选行情构造消息，并以筛选结果提供策略数据和运行日频回测。"""
+    """运行日频回测，并可复用当前会话的基础因子表和行情消息。"""
     started = time.perf_counter()
     parameters = BacktestParameters.model_validate(
         {
@@ -57,6 +64,11 @@ def run_backtest(
             "codes_query": codes_query,
             "name": name,
             "config": config,
+            "annual_trading_days": annual_trading_days,
+            "risk_free_rate": risk_free_rate,
+            "source_ref": source_ref,
+            "message_ref": message_ref,
+            "compact": compact,
         }
     )
     engine_name = parameters.name or f"coreBacktest_{uuid4().hex}"
@@ -136,6 +148,7 @@ def run_backtest(
             session=current_session,
             computed_ref=unfiltered_data_ref,
             filtered_ref=filtered_data_ref,
+            source_ref=parameters.source_ref,
         )
 
         output_start, output_end = normalize_date_range(
@@ -157,7 +170,27 @@ def run_backtest(
             {
                 "coreBacktestName": engine_name,
                 "coreBacktestConfig": backtest_config,
+                "coreBacktestCodes": np.asarray(query.codes, dtype=str),
+                "coreBacktestStartDate": output_start,
+                "coreBacktestEndDate": output_end,
+                "coreBacktestAnnualTradingDays": parameters.annual_trading_days,
+                "coreBacktestRiskFreeRate": parameters.risk_free_rate,
             }
+        )
+        ensure_stock_dividend_table(current_session)
+        message_statement = (
+            f"coreBacktestMsg = select * from {parameters.message_ref}"
+            if parameters.message_ref is not None
+            else f"""
+            coreBacktestMsg = backtest::build_backtest_message(
+                project_factor_output(
+                    {unfiltered_data_ref},
+                    coreDslOutputColumns,
+                    coreOutputStart,
+                    coreOutputEndExclusive
+                )
+            )
+            """
         )
 
         current_session.run(
@@ -174,14 +207,44 @@ def run_backtest(
 
             {callback_script}
 
-            coreBacktestMsg = backtest::build_backtest_message(
-                project_factor_output(
-                    {unfiltered_data_ref},
-                    coreDslOutputColumns,
-                    coreOutputStart,
-                    coreOutputEndExclusive
-                )
-            )
+            coreBacktestStockDividend = select
+                symbol(
+                    strReplace(
+                        strReplace(string(symbol), ".SZ", ".XSHE"),
+                        ".SH",
+                        ".XSHG"
+                    )
+                ) as symbol,
+                endDate,
+                iif(isNull(annDate), recordDate, annDate) as annDate,
+                recordDate,
+                exDate,
+                iif(isNull(payDate), exDate, payDate) as payDate,
+                iif(
+                    isNull(divListDate),
+                    exDate,
+                    divListDate
+                ) as divListDate,
+                bonusRatio,
+                capitalConversion,
+                afterTaxCashDiv,
+                allotPrice,
+                allotRatio
+            from {STOCK_DIVIDEND_TABLE}
+            where
+                symbol in symbol(coreBacktestCodes),
+                recordDate >= date(coreBacktestStartDate),
+                exDate <= date(coreBacktestEndDate),
+                iif(isNull(payDate), exDate, payDate)
+                    <= date(coreBacktestEndDate),
+                iif(isNull(divListDate), exDate, divListDate)
+                    <= date(coreBacktestEndDate)
+            if (coreBacktestStockDividend.rows() > 0) {{
+                coreBacktestConfig["stockDividend"] =
+                    coreBacktestStockDividend
+            }}
+
+            {message_statement}
             coreBacktestEngine = backtest::run_backtest(
                 coreBacktestName,
                 coreBacktestConfig,
@@ -201,11 +264,12 @@ def run_backtest(
         )
         engine_created = True
 
-        outputs = current_session.run(
-            """
-            coreBacktestOutputs = dict(STRING, ANY)
-            coreBacktestEngineStat = Backtest::getBacktestEngineStat(coreBacktestEngine)
-            coreBacktestContext = Backtest::getContextDict(coreBacktestEngine)
+        optional_outputs = (
+            ""
+            if parameters.compact
+            else """
+            coreBacktestContext =
+                Backtest::getContextDict(coreBacktestEngine)
             erase!(
                 coreBacktestContext,
                 [
@@ -213,14 +277,31 @@ def run_backtest(
                     "coreBacktestFilteredFactorData"
                 ]
             )
-            coreBacktestOutputs["messageRows"] = coreBacktestMsg.rows()
             coreBacktestOutputs["context"] = coreBacktestContext
-            coreBacktestOutputs["tradeDetails"] = Backtest::getTradeDetails(coreBacktestEngine)
-            coreBacktestOutputs["dailyPositions"] = Backtest::getDailyPosition(coreBacktestEngine)
-            coreBacktestOutputs["dailyPortfolios"] = Backtest::getDailyTotalPortfolios(coreBacktestEngine)
-            coreBacktestOutputs["returnSummary"] = Backtest::getReturnSummary(coreBacktestEngine)
-            coreBacktestOutputs["dailyTradingStatistics"] = Backtest::getDailyTradingStatistics(coreBacktestEngine)
-            coreBacktestOutputs["engineStat"] = coreBacktestEngineStat
+            coreBacktestOutputs["tradeDetails"] =
+                Backtest::getTradeDetails(coreBacktestEngine)
+            coreBacktestOutputs["dailyPositions"] =
+                Backtest::getDailyPosition(coreBacktestEngine)
+            coreBacktestOutputs["dailyTradingStatistics"] =
+                Backtest::getDailyTradingStatistics(coreBacktestEngine)
+            coreBacktestOutputs["engineStat"] =
+                Backtest::getBacktestEngineStat(coreBacktestEngine)
+            """
+        )
+        outputs = current_session.run(
+            f"""
+            coreBacktestOutputs = dict(STRING, ANY)
+            coreBacktestOutputs["messageRows"] = coreBacktestMsg.rows()
+            coreBacktestDailyPortfolios =
+                Backtest::getDailyTotalPortfolios(coreBacktestEngine)
+            coreBacktestOutputs["dailyPortfolios"] = coreBacktestDailyPortfolios
+            coreBacktestOutputs["returnSummary"] = backtest::standardize_return_summary(
+                Backtest::getReturnSummary(coreBacktestEngine),
+                coreBacktestDailyPortfolios,
+                coreBacktestAnnualTradingDays,
+                coreBacktestRiskFreeRate
+            )
+            {optional_outputs}
 
             coreBacktestOutputs
             """
@@ -231,21 +312,23 @@ def run_backtest(
                 f"{type(outputs).__name__}"
             )
 
-        context = outputs["context"]
+        context = outputs.get("context", {})
         if isinstance(context, dict):
             context.pop("engine", None)
+            context.pop("coreBacktestUnfilteredFactorData", None)
+            context.pop("coreBacktestFilteredFactorData", None)
 
         backtest_result = BacktestResult(
             name=engine_name,
             message_rows=int(outputs["messageRows"]),
-            trade_details=as_frame(outputs["tradeDetails"]),
-            daily_positions=as_frame(outputs["dailyPositions"]),
+            trade_details=as_frame(outputs.get("tradeDetails")),
+            daily_positions=as_frame(outputs.get("dailyPositions")),
             daily_portfolios=as_frame(outputs["dailyPortfolios"]),
             return_summary=as_frame(outputs["returnSummary"]),
             daily_trading_statistics=as_frame(
-                outputs["dailyTradingStatistics"]
+                outputs.get("dailyTradingStatistics")
             ),
-            engine_stat=as_frame(outputs["engineStat"]),
+            engine_stat=as_frame(outputs.get("engineStat")),
             context=context,
         )
         logger.success(

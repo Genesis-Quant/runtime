@@ -80,7 +80,7 @@
     }
 
     .brand, .header-actions, .nav, .status-pill, .button, .editor-tabs,
-    .function-tabs, .result-tabs, .result-meta {
+    .result-tabs, .result-meta {
       display: flex;
       align-items: center;
     }
@@ -246,12 +246,11 @@
       min-height: 41px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
       border-bottom: 1px solid var(--line);
       padding: 0 10px 0 12px;
     }
 
-    .editor-tabs, .function-tabs, .result-tabs { gap: 4px; }
+    .editor-tabs, .result-tabs { gap: 4px; }
 
     .editor-tab, .function-tab, .result-tab {
       border: 0;
@@ -263,14 +262,89 @@
     }
 
     .editor-tab { height: 29px; padding: 0 10px; }
-    .function-tab { height: 26px; padding: 0 8px; font-size: 10px; }
     .result-tab { height: 29px; padding: 0 9px; }
     .editor-tab:hover, .function-tab:hover, .result-tab:hover { color: var(--text); background: var(--panel-3); }
     .editor-tab.active, .function-tab.active, .result-tab.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent); }
-    .function-tabs { overflow-x: auto; scrollbar-width: none; }
-    .function-tabs.hidden { display: none; }
 
-    .editor-shell { flex: 1; min-height: 260px; position: relative; }
+    .editor-workspace {
+      flex: 1;
+      min-height: 260px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .editor-workspace.with-function-list {
+      grid-template-columns: 225px minmax(0, 1fr);
+    }
+
+    .function-sidebar {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid var(--line);
+      background: var(--panel-2);
+    }
+
+    .function-sidebar.hidden { display: none; }
+
+    .function-sidebar-header {
+      min-height: 35px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font: 500 10px "IBM Plex Mono", monospace;
+      text-transform: uppercase;
+    }
+
+    .function-count {
+      min-width: 19px;
+      color: var(--faint);
+      text-align: right;
+    }
+
+    .function-tabs {
+      min-height: 0;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+      padding: 6px;
+      overflow-y: auto;
+    }
+
+    .function-tab {
+      width: 100%;
+      min-height: 33px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 8px;
+      font-size: 10px;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .function-tab svg {
+      width: 13px;
+      height: 13px;
+      flex: none;
+    }
+
+    .function-tab span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .editor-shell { min-width: 0; min-height: 0; position: relative; }
     #editor { position: absolute; inset: 0; }
 
     .editor-footer {
@@ -499,6 +573,24 @@
       .brand-subtitle, .nav { display: none; }
       .config-grid { grid-template-columns: 1fr 1fr; }
       .field.span-2 { grid-column: span 2; }
+      .editor-workspace.with-function-list {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+      .function-sidebar {
+        max-height: 76px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .function-sidebar-header { display: none; }
+      .function-tabs {
+        flex-direction: row;
+        flex: none;
+        padding: 5px 6px;
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
+      .function-tab { width: auto; flex: none; }
       .metric-grid { grid-template-columns: 1fr; }
       .result-heading { display: block; }
       .result-meta { margin-top: 10px; }
@@ -536,11 +628,11 @@
       <div class="config-grid">
         <div class="field">
           <label for="startDate">start_date</label>
-          <input id="startDate" type="date" value="2025-01-01">
+          <input id="startDate" type="date" value="2016-01-01">
         </div>
         <div class="field">
           <label for="endDate">end_date</label>
-          <input id="endDate" type="date" value="2025-03-31">
+          <input id="endDate" type="date" value="2026-12-31">
         </div>
         <div class="field">
           <label for="lookback">lookback</label>
@@ -579,9 +671,17 @@
           <button class="editor-tab" data-editor="utils"><i data-lucide="wrench"></i> Utils</button>
           <button class="editor-tab" data-editor="strategy"><i data-lucide="code-2"></i> Strategy</button>
         </div>
-        <div id="functionTabs" class="function-tabs hidden"></div>
       </div>
-      <div class="editor-shell"><div id="editor"></div></div>
+      <div id="editorWorkspace" class="editor-workspace">
+        <aside id="functionSidebar" class="function-sidebar hidden">
+          <div class="function-sidebar-header">
+            <span id="functionSidebarLabel">Functions</span>
+            <span id="functionCount" class="function-count">0</span>
+          </div>
+          <div id="functionTabs" class="function-tabs"></div>
+        </aside>
+        <div class="editor-shell"><div id="editor"></div></div>
+      </div>
       <div class="editor-footer">
         <span id="editorPath">query.json</span>
         <span id="editorStatus">等待 Monaco</span>
@@ -877,12 +977,11 @@
           on: "scoreReady",
         },
       },
-      filters: ["tradable"],
+      filters: ["selected"],
     };
 
-    const UTILS_TEMPLATES = {
-      riskParityCovariance: `def riskParityCovariance(source, codes, window) {
-    // 使用信号日及之前的共同有效收益率估计完整样本协方差矩阵。
+    const UTILS_TEMPLATE = `def riskParityCovariance(source, codes, window) {
+    // 使用信号日及之前最多 window 个共同有效收益率估计协方差矩阵。
     signalDate = max(date(source.time))
     history = select
         date(time) as time,
@@ -895,7 +994,7 @@
         code in codes,
         !isNull(dailyReturn)
     if (history.rows() == 0) {
-        throw "风险平价没有可用的历史收益率"
+        return (matrix(DOUBLE, size(codes), size(codes)), 0)
     }
 
     historyWide = select
@@ -903,6 +1002,11 @@
     from history
     pivot by time, code
     historyWide = select top 90 * from historyWide order by time desc
+    availableCodes = columnNames(historyWide)[1:]
+    missingCodes = string(codes)[!(string(codes) in availableCodes)]
+    if (size(missingCodes) > 0) {
+        return (matrix(DOUBLE, size(codes), size(codes)), 0)
+    }
     returnColumns = historyWide[codes]
 
     validRows = take(true, historyWide.rows())
@@ -910,10 +1014,14 @@
         validRows = validRows && !isNull(returnColumns[index])
     }
     validIndices = (0..(historyWide.rows() - 1))[validRows]
-    if (size(validIndices) < window) {
-        throw "风险平价共同有效收益率不足 60 期"
+    observationCount = min(size(validIndices), window)
+    if (observationCount < window) {
+        return (
+            matrix(DOUBLE, size(codes), size(codes)),
+            observationCount
+        )
     }
-    validIndices = validIndices[0:window]
+    validIndices = validIndices[0:observationCount]
 
     count = size(codes)
     covariance = matrix(DOUBLE, count, count)
@@ -929,14 +1037,15 @@
 
     largestVariance = max(diag(covariance))
     if (isNull(largestVariance) || largestVariance <= 0) {
-        throw "风险平价协方差矩阵没有正方差"
+        return (matrix(DOUBLE, count, count), 0)
     }
     for (index in 0..(count - 1)) {
         covariance[index, index] += largestVariance * 1e-10
     }
-    return (covariance, size(validIndices))
-}`,
-      equalRiskContributionWeights: `def equalRiskContributionWeights(covariance, maxIterations, tolerance) {
+    return (covariance, observationCount)
+}
+
+def equalRiskContributionWeights(covariance, maxIterations, tolerance) {
     // 求解每只股票对组合方差贡献相等的非负、满仓权重。
     count = rows(covariance)
     if (count == 0 || cols(covariance) != count) {
@@ -964,8 +1073,7 @@
         if (max(abs(weights - previous)) <= tolerance) break
     }
     return weights / sum(weights)
-}`,
-    };
+}`;
 
     const STRATEGY_TEMPLATES = {
       initialize: `def initialize(mutable context) {
@@ -976,6 +1084,8 @@
         context["lastSelectedCount"] = 0
         context["lastWeightSum"] = 0.0
         context["lastCovarianceObservations"] = 0
+        context["equalWeightFallbackCount"] = 0
+        context["lastWeightMethod"] = ""
         context["lastRiskContributionMin"] = 0.0
         context["lastRiskContributionMax"] = 0.0
         context["lastInverseVolatilityDistance"] = 0.0
@@ -1017,12 +1127,21 @@
         selectedCodes,
         60
     )
+    context["lastCovarianceObservations"] = covarianceResult[1]
     covariance = covarianceResult[0]
-    selectedWeights = equalRiskContributionWeights(
-        covariance,
-        1000,
-        1e-12
-    )
+    useRiskParity = covarianceResult[1] == 60
+    if (useRiskParity) {
+        selectedWeights = equalRiskContributionWeights(
+            covariance,
+            1000,
+            1e-12
+        )
+        context["lastWeightMethod"] = "riskParity"
+    } else {
+        selectedWeights = take(1.0 / selectedCount, selectedCount)
+        context["equalWeightFallbackCount"] += 1
+        context["lastWeightMethod"] = "equalWeight"
+    }
 
     targetPositions = long(
         floor(
@@ -1033,24 +1152,29 @@
     context["rebalanceCount"] += 1
     context["lastSelectedCount"] = selectedCount
     context["lastWeightSum"] = sum(selectedWeights)
-    context["lastCovarianceObservations"] = covarianceResult[1]
 
-    marginalRisk = take(0.0, selectedCount)
-    variances = take(0.0, selectedCount)
-    for (index in 0..(selectedCount - 1)) {
-        marginalRisk[index] = sum(
-            flatten(covariance[index,]) * selectedWeights
+    if (useRiskParity) {
+        marginalRisk = take(0.0, selectedCount)
+        variances = take(0.0, selectedCount)
+        for (index in 0..(selectedCount - 1)) {
+            marginalRisk[index] = sum(
+                flatten(covariance[index,]) * selectedWeights
+            )
+            variances[index] = covariance[index, index]
+        }
+        riskContributions = selectedWeights * marginalRisk
+        context["lastRiskContributionMin"] = min(riskContributions)
+        context["lastRiskContributionMax"] = max(riskContributions)
+        inverseVolatility = 1.0 / sqrt(variances)
+        inverseVolatility = inverseVolatility / sum(inverseVolatility)
+        context["lastInverseVolatilityDistance"] = max(
+            abs(selectedWeights - inverseVolatility)
         )
-        variances[index] = covariance[index, index]
+    } else {
+        context["lastRiskContributionMin"] = 0.0
+        context["lastRiskContributionMax"] = 0.0
+        context["lastInverseVolatilityDistance"] = 0.0
     }
-    riskContributions = selectedWeights * marginalRisk
-    context["lastRiskContributionMin"] = min(riskContributions)
-    context["lastRiskContributionMax"] = max(riskContributions)
-    inverseVolatility = 1.0 / sqrt(variances)
-    inverseVolatility = inverseVolatility / sum(inverseVolatility)
-    context["lastInverseVolatilityDistance"] = max(
-        abs(selectedWeights - inverseVolatility)
-    )
 
     // 先卖出被剔除或超配的持仓，释放资金。
     for (index in 0..(selectedCount - 1)) {
@@ -1075,7 +1199,7 @@
     }
 
     // 再买入低配股票；5% 现金缓冲用于费用和开盘跳空。
-    buyIndices = (0..(msg.rows() - 1))[targetPositions > 0]
+    buyIndices = (0..(selectedCount - 1))[targetPositions > 0]
     if (size(buyIndices) > 0) {
         for (index in buyIndices) {
             symbol = selectedSymbols[index]
@@ -1118,10 +1242,9 @@
       editor: null,
       codesQueryModel: null,
       queryModel: null,
-      utilityModels: new Map(),
+      utilityModel: null,
       strategyModels: new Map(),
       editorKind: "query",
-      utility: "riskParityCovariance",
       callback: "onBar",
       result: null,
       table: "trade_details",
@@ -1133,6 +1256,7 @@
     const ids = [
       "runtimeStatus", "themeButton", "operatorCount", "startDate", "endDate", "lookback",
       "matchingMode", "cash", "commission", "tax", "engineName",
+      "editorWorkspace", "functionSidebar", "functionSidebarLabel", "functionCount",
       "functionTabs", "editor", "editorPath", "editorStatus", "runNote", "runButton",
       "emptyDashboard", "resultContent", "resultName", "resultDescription", "messageRows",
       "elapsed", "totalReturn", "annualReturn", "sharpeRatio", "maxDrawdown", "equityChart",
@@ -1229,13 +1353,11 @@
         "json",
         monaco.Uri.parse("inmemory://core/backtest-query.json"),
       );
-      for (const [name, definition] of Object.entries(UTILS_TEMPLATES)) {
-        state.utilityModels.set(name, monaco.editor.createModel(
-          definition,
-          "dolphindb",
-          monaco.Uri.parse(`inmemory://core/utils/${name}.dos`),
-        ));
-      }
+      state.utilityModel = monaco.editor.createModel(
+        UTILS_TEMPLATE,
+        "dolphindb",
+        monaco.Uri.parse("inmemory://core/utils.dos"),
+      );
       for (const callback of CALLBACKS) {
         state.strategyModels.set(callback, monaco.editor.createModel(
           STRATEGY_TEMPLATES[callback],
@@ -1262,7 +1384,7 @@
         if (state.editorKind === "strategy") {
           elements.editorStatus.textContent = `${state.callback} 已修改`;
         } else if (state.editorKind === "utils") {
-          elements.editorStatus.textContent = `${state.utility} 已修改`;
+          elements.editorStatus.textContent = "utils.dos 已修改";
         } else {
           const label = state.editorKind === "codesQuery" ? "CODES" : "MSG";
           elements.editorStatus.textContent = `${label} DSL 已修改`;
@@ -1272,24 +1394,21 @@
 
     function buildFunctionTabs() {
       elements.functionTabs.replaceChildren();
-      const names = state.editorKind === "utils"
-        ? [...state.utilityModels.keys()]
-        : CALLBACKS;
-      const selectedName = state.editorKind === "utils"
-        ? state.utility
-        : state.callback;
-      for (const name of names) {
+      elements.functionSidebarLabel.textContent = "Callbacks";
+      elements.functionCount.textContent = String(CALLBACKS.length);
+      for (const name of CALLBACKS) {
         const button = document.createElement("button");
-        button.className = `function-tab${name === selectedName ? " active" : ""}`;
-        button.textContent = name;
-        button.addEventListener(
-          "click",
-          () => state.editorKind === "utils"
-            ? switchUtility(name)
-            : switchCallback(name),
-        );
+        button.className = `function-tab${name === state.callback ? " active" : ""}`;
+        button.title = name;
+        const icon = document.createElement("i");
+        icon.dataset.lucide = "file-code-2";
+        const label = document.createElement("span");
+        label.textContent = name;
+        button.append(icon, label);
+        button.addEventListener("click", () => switchCallback(name));
         elements.functionTabs.appendChild(button);
       }
+      refreshIcons();
     }
 
     function switchEditor(kind) {
@@ -1297,10 +1416,9 @@
       document.querySelectorAll(".editor-tab").forEach((button) => {
         button.classList.toggle("active", button.dataset.editor === kind);
       });
-      elements.functionTabs.classList.toggle(
-        "hidden",
-        kind !== "utils" && kind !== "strategy",
-      );
+      const hasFunctionList = kind === "strategy";
+      elements.functionSidebar.classList.toggle("hidden", !hasFunctionList);
+      elements.editorWorkspace.classList.toggle("with-function-list", hasFunctionList);
       buildFunctionTabs();
       if (kind === "codesQuery") {
         state.editor.setModel(state.codesQueryModel);
@@ -1311,14 +1429,15 @@
         elements.editorPath.textContent = "backtest-query.json";
         elements.editorStatus.textContent = "策略 DSL 定义";
       } else if (kind === "utils") {
-        state.editor.setModel(state.utilityModels.get(state.utility));
-        elements.editorPath.textContent = `utils/${state.utility}.dos`;
-        elements.editorStatus.textContent = "DolphinDB utility";
+        state.editor.setModel(state.utilityModel);
+        elements.editorPath.textContent = "utils.dos";
+        elements.editorStatus.textContent = "DolphinDB utilities";
       } else {
         state.editor.setModel(state.strategyModels.get(state.callback));
         elements.editorPath.textContent = `${state.callback}.dos`;
         elements.editorStatus.textContent = "DolphinDB callback";
       }
+      requestAnimationFrame(() => state.editor.layout());
       state.editor.focus();
     }
 
@@ -1331,19 +1450,111 @@
       state.editor.focus();
     }
 
-    function switchUtility(utility) {
-      state.utility = utility;
-      buildFunctionTabs();
-      state.editor.setModel(state.utilityModels.get(utility));
-      elements.editorPath.textContent = `utils/${utility}.dos`;
-      elements.editorStatus.textContent = "DolphinDB utility";
-      state.editor.focus();
-    }
-
     function utilsPayload() {
-      return Object.fromEntries(
-        [...state.utilityModels].map(([name, model]) => [name, model.getValue()]),
-      );
+      const source = state.utilityModel.getValue();
+      const definitions = {};
+      let index = 0;
+
+      function lineNumber(offset) {
+        return source.slice(0, offset).split("\n").length;
+      }
+
+      function skipTrivia(offset) {
+        while (offset < source.length) {
+          if (/\s/.test(source[offset])) {
+            offset += 1;
+          } else if (source.startsWith("//", offset)) {
+            const newline = source.indexOf("\n", offset + 2);
+            offset = newline < 0 ? source.length : newline + 1;
+          } else if (source.startsWith("/*", offset)) {
+            const close = source.indexOf("*/", offset + 2);
+            if (close < 0) throw new Error(`utils.dos 第 ${lineNumber(offset)} 行的块注释未闭合`);
+            offset = close + 2;
+          } else {
+            break;
+          }
+        }
+        return offset;
+      }
+
+      while ((index = skipTrivia(index)) < source.length) {
+        const header = source.slice(index).match(/^def\s+([A-Za-z][A-Za-z0-9_]*)\s*\(/);
+        if (!header) {
+          throw new Error(`utils.dos 第 ${lineNumber(index)} 行应为工具函数定义`);
+        }
+        const name = header[1];
+        if (name in definitions) throw new Error(`utils.dos 重复定义函数 ${name}`);
+
+        let cursor = index + header[0].length;
+        let inString = false;
+        let lineComment = false;
+        let blockComment = false;
+        let openingBrace = -1;
+        for (; cursor < source.length; cursor += 1) {
+          const char = source[cursor];
+          const next = source[cursor + 1];
+          if (lineComment) {
+            if (char === "\n") lineComment = false;
+          } else if (blockComment) {
+            if (char === "*" && next === "/") {
+              blockComment = false;
+              cursor += 1;
+            }
+          } else if (inString) {
+            if (char === "\\" && next !== undefined) cursor += 1;
+            else if (char === '"') inString = false;
+          } else if (char === '"') {
+            inString = true;
+          } else if (char === "/" && next === "/") {
+            lineComment = true;
+            cursor += 1;
+          } else if (char === "/" && next === "*") {
+            blockComment = true;
+            cursor += 1;
+          } else if (char === "{") {
+            openingBrace = cursor;
+            break;
+          }
+        }
+        if (openingBrace < 0) throw new Error(`工具函数 ${name} 缺少函数体`);
+
+        let depth = 1;
+        inString = false;
+        lineComment = false;
+        blockComment = false;
+        cursor = openingBrace + 1;
+        for (; cursor < source.length && depth > 0; cursor += 1) {
+          const char = source[cursor];
+          const next = source[cursor + 1];
+          if (lineComment) {
+            if (char === "\n") lineComment = false;
+          } else if (blockComment) {
+            if (char === "*" && next === "/") {
+              blockComment = false;
+              cursor += 1;
+            }
+          } else if (inString) {
+            if (char === "\\" && next !== undefined) cursor += 1;
+            else if (char === '"') inString = false;
+          } else if (char === '"') {
+            inString = true;
+          } else if (char === "/" && next === "/") {
+            lineComment = true;
+            cursor += 1;
+          } else if (char === "/" && next === "*") {
+            blockComment = true;
+            cursor += 1;
+          } else if (char === "{") {
+            depth += 1;
+          } else if (char === "}") {
+            depth -= 1;
+          }
+        }
+        if (depth > 0) throw new Error(`工具函数 ${name} 的函数体未闭合`);
+        definitions[name] = source.slice(index, cursor).trim();
+        index = cursor;
+      }
+      return definitions;
     }
 
     function callbacksPayload() {

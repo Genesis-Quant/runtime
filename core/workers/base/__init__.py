@@ -2,6 +2,7 @@
 
 from .date import DateWorker
 from .stock import StockWorker
+from .wide import WideWorker
 from .worker import BaseWorker
 
-__all__ = ["BaseWorker", "DateWorker", "StockWorker"]
+__all__ = ["BaseWorker", "DateWorker", "StockWorker", "WideWorker"]

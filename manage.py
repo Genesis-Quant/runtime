@@ -17,6 +17,7 @@ WORKER_ORDER = (
     "income",
     "cashflow",
     "fina-indicator",
+    "dividend",
     "index-weight",
 )
 
@@ -31,6 +32,7 @@ WORKER_DESCRIPTIONS = {
     "income": "逐股票利润表及 TTM 因子",
     "cashflow": "逐股票现金流量表及 TTM 因子",
     "fina-indicator": "逐股票财务指标",
+    "dividend": "逐股票分红送股宽表",
     "index-weight": "指数成分股权重；每个指数创建一个 Worker",
 }
 
@@ -56,6 +58,8 @@ WORKER_ALIASES = {
     "stockcashflowworker": "cashflow",
     "stock-fina-indicator": "fina-indicator",
     "stockfinaindicatorworker": "fina-indicator",
+    "stock-dividend": "dividend",
+    "stockdividendworker": "dividend",
     "indexweight": "index-weight",
     "indexweightworker": "index-weight",
 }
@@ -74,6 +78,7 @@ STOCK_WORKERS = frozenset({
     "income",
     "cashflow",
     "fina-indicator",
+    "dividend",
 })
 
 
@@ -262,6 +267,7 @@ def create_workers(
         StockCashflowWorker,
         StockDailyBasicWorker,
         StockDailyWorker,
+        StockDividendWorker,
         StockFinaIndicatorWorker,
         StockHfqWorker,
         StockIncomeWorker,
@@ -282,6 +288,7 @@ def create_workers(
         "income": StockIncomeWorker,
         "cashflow": StockCashflowWorker,
         "fina-indicator": StockFinaIndicatorWorker,
+        "dividend": StockDividendWorker,
     }
 
     common = worker_kwargs(arguments)
