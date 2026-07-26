@@ -23,6 +23,7 @@ class DOLPHIN:
 
     DATABASE = os.getenv("DOLPHIN_CORE_DATABASE", "dfs://CoreData")
     TABLE = os.getenv("DOLPHIN_CORE_TABLE", "coreData")
+    DIVIDEND_TABLE = os.getenv("DOLPHIN_DIVIDEND_TABLE", "stockDividend")
     MODULE_DIR = Path(
         os.getenv(
             "DOLPHIN_MODULE_DIR",

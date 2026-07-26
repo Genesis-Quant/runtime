@@ -3,7 +3,7 @@
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -56,9 +56,9 @@ class BaseWorker(ABC):
             overwrite: bool = False,
     ) -> None:
         """初始化所有 Worker 共享的日期、并发和写入配置。"""
-        factors = self.factors
-        if not factors or len(factors) != len(set(factors)):
-            raise TypeError(f"{self}.factors 定义无效")
+        fields = self.fields
+        if not fields or len(fields) != len(set(fields)):
+            raise TypeError(f"{self}.fields 定义无效")
         if threads <= 0:
             raise ValueError("threads 必须大于 0")
         if batch_size <= 0:
@@ -99,10 +99,14 @@ class BaseWorker(ABC):
         self.retry.limiter = limiter
 
     @property
-    @abstractmethod
     def factors(self) -> tuple[str, ...]:
         """返回当前 Worker 写入的全部固定因子。"""
-        raise NotImplementedError
+        raise NotImplementedError(f"{self} 不写入统一因子表")
+
+    @property
+    def fields(self) -> tuple[str, ...]:
+        """返回当前 Worker 持久化的数据字段。"""
+        return self.factors
 
     @abstractmethod
     def fetch_all(self) -> Iterable[pd.DataFrame]:
@@ -178,7 +182,14 @@ class BaseWorker(ABC):
             )
         return data
 
-    def write(self, writer: CoreTableWriter, data: pd.DataFrame) -> int:
+    def create_writer(self) -> Any:
+        """返回本次更新使用的统一因子表写入器。"""
+        return CoreTableWriter(
+            self.factors,
+            thread_count=self.threads,
+        )
+
+    def write(self, writer: Any, data: pd.DataFrame) -> int:
         """切分已规范长表并写入，返回 DolphinDB 实际写入行数。"""
         total = 0
         self.partial_write_rows = 0
@@ -213,16 +224,13 @@ class BaseWorker(ABC):
         logger.info(
             f"{name} 开始更新："
             f"{self.start_date:%Y-%m-%d} 至 {self.end_date:%Y-%m-%d}，"
-            f"因子={len(self.factors):,}，线程={self.threads:,}，"
+            f"字段={len(self.fields):,}，线程={self.threads:,}，"
             f"限速={throttle_text}，批量={self.batch_size:,}行"
         )
         batch: list[pd.DataFrame] = []
         rows, total = 0, 0
         try:
-            with CoreTableWriter(
-                    self.factors,
-                    thread_count=self.threads,
-            ) as writer:
+            with self.create_writer() as writer:
                 for frame in self.fetch_all():
                     if frame.empty:
                         continue

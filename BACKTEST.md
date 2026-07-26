@@ -197,9 +197,29 @@ Backtest::getConfig(engine)
 }
 ```
 
-插件还支持 `benchmark`、`latency`、`stockDividend`、
-`setLastDayPosition` 等配置。它们未参加本次运行，本文不为其伪造实测结果，具体
-约束见文末官方配置文档。
+插件还支持 `benchmark`、`latency`、`setLastDayPosition` 等配置。它们未参加
+本次运行，本文不为其伪造实测结果，具体约束见文末官方配置文档。
+
+### 3.4 股票分红
+
+Python `run_backtest` 会确保 `CoreData` 中存在股票分红维度表，并按回测股票和
+日期范围读取记录，自动写入插件配置 `stockDividend`。表名默认是
+`stockDividend`，可通过 `DOLPHIN_DIVIDEND_TABLE` 修改；该配置由框架维护，
+调用者不能在 `config` 中覆盖。
+
+写入前使用 `normalize_stock_dividends` 校验字段和类型，再通过
+`append_stock_dividends` 追加。`afterTaxCashDiv` 必须已经是每股税后现金分红，
+回测入口不会再次扣税。与聚宽回测对齐时，聚宽在分红日统一按 20% 扣税，因此
+`StockDividendWorker` 使用 Tushare 的税前字段 `cash_div_tax * 0.8`；税前字段
+缺失时才使用接口返回的税后字段 `cash_div`。没有派息日或红股上市日的合法记录
+以空日期保存，回测入口不会因此丢弃纯现金分红。宽表中的 `symbol` 原样使用
+Tushare 的 `.SH/.SZ` 代码。
+
+```python
+from core.workers import StockDividendWorker
+
+StockDividendWorker().run()
+```
 
 ## 4. 日频行情表
 
@@ -1075,6 +1095,12 @@ Backtest::dropBacktestEngine(engine)
 | `getReturnSummary` | 1 行收益汇总 |
 | `getDailyTradingStatistics` | 1 行 2025-01-02 买开统计 |
 | `getBacktestEngineStat` | 状态 `END`，错误为空 |
+
+Python `run_backtest` 和 `/backtest/run` 默认使用聚宽的日频指标口径：
+`annual_trading_days=250`、`risk_free_rate=0.04`。框架在 DolphinDB 中根据
+`getDailyTotalPortfolios` 的收盘净值重算 `annualReturn`、
+`annualVolatility`、`sharpeRatio` 和 `drawdownRatio`；调用方可以在请求
+顶层覆盖这两个参数。成交、持仓、分红和插件返回的其他汇总字段不受影响。
 
 成交明细实测：
 

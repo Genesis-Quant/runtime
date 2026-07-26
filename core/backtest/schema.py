@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import re
 from typing import Any, get_args, Literal, TypeAlias
 
 import pandas as pd
@@ -44,7 +45,14 @@ DAILY_REQUIRED_COLUMNS = frozenset(
 )
 SYSTEM_COLUMNS = frozenset(("symbol", "tradeTime"))
 RESERVED_CONFIG = frozenset(
-    ("startDate", "endDate", "strategyGroup", "dataType", "msgAsTable")
+    (
+        "startDate",
+        "endDate",
+        "strategyGroup",
+        "dataType",
+        "msgAsTable",
+        "stockDividend",
+    )
 )
 DEFAULT_CONFIG = {
     "cash": 1_000_000.0,
@@ -86,6 +94,16 @@ class BacktestArguments(BaseModel):
     config: dict[str, Any] = Field(
         default_factory=dict,
         description="初始资金、费用和撮合等 Backtest 配置。",
+    )
+    annual_trading_days: int = Field(
+        default=250,
+        ge=1,
+        description="计算年化收益率和年化波动率使用的每年交易日数。",
+    )
+    risk_free_rate: float = Field(
+        default=0.04,
+        allow_inf_nan=False,
+        description="计算 Sharpe 比率使用的年化无风险收益率。",
     )
 
     @field_validator("name")
@@ -172,6 +190,29 @@ class BacktestParameters(BacktestArguments):
 
     callbacks: dict[CallbackName, DolphinDBFunction]
     utils: dict[str, DolphinDBFunction] = Field(default_factory=dict)
+    source_ref: str | None = Field(
+        default=None,
+        description="当前 DolphinDB 会话中可复用的已填充基础因子表变量名。",
+    )
+    message_ref: str | None = Field(
+        default=None,
+        description="当前 DolphinDB 会话中可复用的日频行情消息表变量名。",
+    )
+    compact: bool = Field(
+        default=False,
+        description="仅返回优化所需的逐日组合和收益汇总。",
+    )
+
+    @field_validator("source_ref", "message_ref")
+    @classmethod
+    def validate_reference(cls, value: str | None) -> str | None:
+        """校验可复用 DolphinDB 会话变量名，防止脚本注入。"""
+        if value is not None and re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]*",
+            value,
+        ) is None:
+            raise ValueError(f"不是合法的 DolphinDB 变量名：{value!r}")
+        return value
 
     @field_validator("callbacks", mode="before")
     @classmethod

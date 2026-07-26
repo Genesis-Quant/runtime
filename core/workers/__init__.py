@@ -4,7 +4,7 @@ from functools import cache
 
 from config import INDEX_CODES
 
-from .base import BaseWorker, DateWorker, StockWorker
+from .base import BaseWorker, DateWorker, StockWorker, WideWorker
 from .index_weight import IndexWeightWorker
 from .stock_daily import (
     StockAdjFactorWorker,
@@ -20,6 +20,7 @@ from .stock_financial import (
     StockFinaIndicatorWorker,
     StockIncomeWorker,
 )
+from .stock_dividend import StockDividendWorker
 from .stock_st import StockSTWorker
 
 
@@ -52,11 +53,13 @@ __all__ = [
     "StockCashflowWorker",
     "StockDailyBasicWorker",
     "StockDailyWorker",
+    "StockDividendWorker",
     "StockFinaIndicatorWorker",
     "StockHfqWorker",
     "StockIncomeWorker",
     "StockLimitWorker",
     "StockSTWorker",
     "StockWorker",
+    "WideWorker",
     "available_factors",
 ]

@@ -16,19 +16,30 @@ from .schema import (
     index_weight_factor,
     normalize_factors,
 )
-from .ts_api import CODES, get_trading_dates, pro, ts
+from .ts_api import (
+    CODES,
+    CODE_TO_INDUSTRY,
+    INDUSTRY_TO_SECTOR,
+    STOCK_INDUSTRIES,
+    get_trading_dates,
+    pro,
+    ts,
+)
 
 __all__ = [
     "CODES",
+    "CODE_TO_INDUSTRY",
     "CODE_COLUMN",
     "CORE_COLUMNS",
     "DateLike",
     "FACTOR_COLUMN",
     "IS_ST_FACTOR",
+    "INDUSTRY_TO_SECTOR",
     "Paginator",
     "RateLimiter",
     "Retry",
     "TIME_COLUMN",
+    "STOCK_INDUSTRIES",
     "VALUE_COLUMN",
     "WEIGHT_PREFIX",
     "get_trading_dates",

@@ -32,16 +32,25 @@ def build_query_table(
     session: Any,
     computed_ref: str,
     filtered_ref: str,
+    source_ref: str | None = None,
 ) -> tuple[FactorQuery, list[str]]:
-    """在会话中构造命名结果表，只返回查询模型和输出列元数据。"""
+    """在会话中构造命名结果表，并可复用已完成填充的基础源表。"""
     for label, reference in (
         ("computed_ref", computed_ref),
         ("filtered_ref", filtered_ref),
+        ("source_ref", source_ref),
     ):
+        if reference is None:
+            continue
         if REFERENCE_PATTERN.fullmatch(reference) is None:
             raise ValueError(f"{label} 不是合法的 DolphinDB 变量名：{reference!r}")
-    if computed_ref == filtered_ref:
-        raise ValueError("computed_ref 和 filtered_ref 不能相同")
+    references = [
+        reference
+        for reference in (computed_ref, filtered_ref, source_ref)
+        if reference is not None
+    ]
+    if len(references) != len(set(references)):
+        raise ValueError("computed_ref、filtered_ref 和 source_ref 不能相同")
 
     query = (
         request
@@ -85,68 +94,84 @@ def build_query_table(
         }
     )
     session.run("use query")
-    session.run(
-        f"""
-        coreQuerySource = build_factor_source(
-            {CORE_TABLE},
-            coreQueryCodes,
-            coreQueryFactors,
-            coreQueryDates,
-            coreQueryStart,
-            coreQueryEndExclusive
+    query_source_ref = source_ref or "coreQuerySource"
+    if source_ref is None:
+        session.run(
+            f"""
+            coreQuerySource = build_factor_source(
+                {CORE_TABLE},
+                coreQueryCodes,
+                coreQueryFactors,
+                coreQueryDates,
+                coreQueryStart,
+                coreQueryEndExclusive
+            )
+            """
         )
-        """
-    )
-    for factor in source_factors:
-        name = json.dumps(factor, ensure_ascii=False)
-        if factor == IS_ST_FACTOR:
-            session.run(
-                f"""
-                coreQuerySource = fill_null_column(
-                    coreQuerySource,
-                    {name},
-                    0.0
+        for factor in source_factors:
+            name = json.dumps(factor, ensure_ascii=False)
+            if factor == IS_ST_FACTOR:
+                session.run(
+                    f"""
+                    coreQuerySource = fill_null_column(
+                        coreQuerySource,
+                        {name},
+                        0.0
+                    )
+                    """
                 )
-                """
+            elif factor.startswith(WEIGHT_PREFIX):
+                session.run(
+                    f"""
+                    coreQuerySource = fill_observed_group_null_column(
+                        coreQuerySource,
+                        {name},
+                        coreQuerySource.time,
+                        0.0
+                    )
+                    coreQuerySource = forward_fill_column(
+                        coreQuerySource,
+                        {name},
+                        coreQuerySource.code,
+                        coreQuerySource.time
+                    )
+                    """
+                )
+            elif factor in FINANCIAL_FACTORS:
+                session.run(
+                    f"""
+                    coreQuerySource = forward_fill_column(
+                        coreQuerySource,
+                        {name},
+                        coreQuerySource.code,
+                        coreQuerySource.time
+                    )
+                    """
+                )
+        session.run(
+            """
+            coreQuerySource = finalize_factor_source(
+                coreQuerySource,
+                coreQueryFactors
             )
-        elif factor.startswith(WEIGHT_PREFIX):
-            session.run(
-                f"""
-                coreQuerySource = fill_observed_group_null_column(
-                    coreQuerySource,
-                    {name},
-                    coreQuerySource.time,
-                    0.0
-                )
-                coreQuerySource = forward_fill_column(
-                    coreQuerySource,
-                    {name},
-                    coreQuerySource.code,
-                    coreQuerySource.time
-                )
-                """
-            )
-        elif factor in FINANCIAL_FACTORS:
-            session.run(
-                f"""
-                coreQuerySource = forward_fill_column(
-                    coreQuerySource,
-                    {name},
-                    coreQuerySource.code,
-                    coreQuerySource.time
-                )
-                """
+            """
+        )
+    else:
+        source_columns = set(
+            np.asarray(
+                session.run(f"columnNames({source_ref})")
+            ).astype(str)
+        )
+        required_columns = {TIME_COLUMN, CODE_COLUMN, *source_factors}
+        if missing := required_columns - source_columns:
+            raise ValueError(
+                f"复用源表 {source_ref} 缺少列：{sorted(missing)}"
             )
 
     session.run(
         f"""
-        coreQuerySource = finalize_factor_source(
-            coreQuerySource,
-            coreQueryFactors
-        )
-
         {computed_ref} = compute_factors(
-            coreQuerySource,
+            {query_source_ref},
             fromStdJson(coreDslDefinitionsJson)
         )
 
@@ -157,7 +182,7 @@ def build_query_table(
         """
     )
 
-    source_rows = session.run("coreQuerySource.rows()")
+    source_rows = session.run(f"{query_source_ref}.rows()")
     computed_rows = session.run(f"{computed_ref}.rows()")
     if computed_rows != source_rows:
         raise RuntimeError(

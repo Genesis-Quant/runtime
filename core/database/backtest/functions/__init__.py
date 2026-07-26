@@ -8,6 +8,7 @@ from .lifecycle import (
     NOOP_EVENT_CALLBACK,
     NOOP_MESSAGE_CALLBACK,
 )
+from .return_summary import STANDARDIZE_RETURN_SUMMARY
 from .run_backtest import RUN_BACKTEST
 
 BACKTEST_FUNCTIONS = (
@@ -15,6 +16,7 @@ BACKTEST_FUNCTIONS = (
     GET_LAST_DATA,
     BUILD_BACKTEST_MESSAGE,
     RUN_BACKTEST,
+    STANDARDIZE_RETURN_SUMMARY,
 )
 
 __all__ = [
@@ -27,4 +29,5 @@ __all__ = [
     "NOOP_EVENT_CALLBACK",
     "NOOP_MESSAGE_CALLBACK",
     "RUN_BACKTEST",
+    "STANDARDIZE_RETURN_SUMMARY",
 ]
