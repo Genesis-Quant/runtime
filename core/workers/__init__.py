@@ -5,6 +5,7 @@ from functools import cache
 from config import INDEX_CODES
 
 from .base import BaseWorker, DateWorker, StockWorker, WideWorker
+from .fund_daily import FUND_CODES, FundAdjFactorWorker, FundDailyWorker
 from .index_weight import IndexWeightWorker
 from .stock_daily import (
     StockAdjFactorWorker,
@@ -13,6 +14,7 @@ from .stock_daily import (
     StockHfqWorker,
     StockLimitWorker,
 )
+from .stock_dividend import StockDividendWorker
 from .stock_financial import (
     FINANCIAL_FACTORS,
     StockBalanceSheetWorker,
@@ -20,7 +22,6 @@ from .stock_financial import (
     StockFinaIndicatorWorker,
     StockIncomeWorker,
 )
-from .stock_dividend import StockDividendWorker
 from .stock_st import StockSTWorker
 
 
@@ -28,6 +29,8 @@ from .stock_st import StockSTWorker
 def available_factors() -> tuple[str, ...]:
     """返回全部固定 Worker 和配置指数 Worker 声明的 factor。"""
     workers = [
+        FundAdjFactorWorker(),
+        FundDailyWorker(),
         StockDailyWorker(),
         StockLimitWorker(),
         StockDailyBasicWorker(),
@@ -44,9 +47,12 @@ def available_factors() -> tuple[str, ...]:
 
 
 __all__ = [
+    "FINANCIAL_FACTORS",
+    "FUND_CODES",
     "BaseWorker",
     "DateWorker",
-    "FINANCIAL_FACTORS",
+    "FundAdjFactorWorker",
+    "FundDailyWorker",
     "IndexWeightWorker",
     "StockAdjFactorWorker",
     "StockBalanceSheetWorker",

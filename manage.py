@@ -5,9 +5,10 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-
 WORKER_ORDER = (
     "daily",
+    "fund-daily",
+    "fund-adj-factor",
     "limit",
     "daily-basic",
     "adj-factor",
@@ -23,6 +24,8 @@ WORKER_ORDER = (
 
 WORKER_DESCRIPTIONS = {
     "daily": "全市场未复权日行情",
+    "fund-daily": "指定场内基金池未复权日线",
+    "fund-adj-factor": "指定场内基金池复权因子",
     "limit": "全市场每日涨跌停价格",
     "daily-basic": "全市场每日估值和市值指标",
     "adj-factor": "全市场复权因子",
@@ -39,6 +42,10 @@ WORKER_DESCRIPTIONS = {
 WORKER_ALIASES = {
     "stock-daily": "daily",
     "stockdailyworker": "daily",
+    "fund": "fund-daily",
+    "funddailyworker": "fund-daily",
+    "fund-adj": "fund-adj-factor",
+    "fundadjfactorworker": "fund-adj-factor",
     "stock-limit": "limit",
     "stocklimitworker": "limit",
     "stock-daily-basic": "daily-basic",
@@ -73,6 +80,8 @@ DATE_WORKERS = frozenset({
     "index-weight",
 })
 STOCK_WORKERS = frozenset({
+    "fund-adj-factor",
+    "fund-daily",
     "hfq",
     "balance-sheet",
     "income",
@@ -136,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--codes",
         action="append",
         metavar="CODE[,CODE...]",
-        help="限制逐股票 Worker 的股票代码，可重复传入",
+        help="限制按代码 Worker 的股票或基金代码，可重复传入",
     )
     parser.add_argument(
         "--index-code",
@@ -261,6 +270,8 @@ def create_workers(
     """根据规范名称创建按执行顺序排列的 Worker 实例。"""
     from config import INDEX_CODES
     from core.workers import (
+        FundAdjFactorWorker,
+        FundDailyWorker,
         IndexWeightWorker,
         StockAdjFactorWorker,
         StockBalanceSheetWorker,
@@ -283,6 +294,8 @@ def create_workers(
         "st": StockSTWorker,
     }
     stock_types = {
+        "fund-adj-factor": FundAdjFactorWorker,
+        "fund-daily": FundDailyWorker,
         "hfq": StockHfqWorker,
         "balance-sheet": StockBalanceSheetWorker,
         "income": StockIncomeWorker,
@@ -352,7 +365,7 @@ def validate_arguments(
     """拒绝对所选 Worker 没有意义的专用参数。"""
     selected = set(names)
     if arguments.codes and not selected.intersection(STOCK_WORKERS):
-        parser.error("--codes 仅适用于逐股票 Worker")
+        parser.error("--codes 仅适用于按代码 Worker")
     if arguments.index_code and "index-weight" not in selected:
         parser.error("--index-code 仅适用于 index-weight")
     if (
