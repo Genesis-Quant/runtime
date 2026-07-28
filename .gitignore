@@ -15,4 +15,3 @@ wheels/
 .coverage
 output/python-coverage.xml
 output/python-coverage/
-research
