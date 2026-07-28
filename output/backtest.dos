@@ -1,5 +1,8 @@
 module backtest
 
+loadPlugin("MatchingEngineSimulator")
+loadPlugin("Backtest")
+
 def getHistoryData(context, msg, filter=true) {
     /*
     返回严格早于当前 onBar 消息日期的 DSL 数据。

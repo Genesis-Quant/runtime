@@ -3,10 +3,8 @@
 from pathlib import Path
 
 from config import DOLPHIN
-from core.database.compile import (
-    build_script as compile_script,
-    write_script as write_compiled_script,
-)
+from core.database.compile import build_script as compile_script
+from core.database.compile import write_script as write_compiled_script
 from core.database.query.scripts import write_script as write_query_script
 from core.utils import logger
 
@@ -19,7 +17,15 @@ SCRIPT_PATH = OUTPUT_DIR / "backtest.dos"
 
 def build_script() -> str:
     """生成 backtest.dos 模块。"""
-    return compile_script(MODULE, BACKTEST_FUNCTIONS)
+    script = compile_script(MODULE, BACKTEST_FUNCTIONS)
+    return script.replace(
+        f"module {MODULE}\n\n",
+        f"""module {MODULE}
+loadPlugin("MatchingEngineSimulator")
+loadPlugin("Backtest")
+""",
+        1,
+    )
 
 
 def write_script() -> tuple[Path, ...]:
