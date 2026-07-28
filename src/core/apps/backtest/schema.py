@@ -1,0 +1,273 @@
+"""定义回测请求与执行结果。"""
+
+from collections.abc import Mapping
+import re
+from typing import Any, get_args, Literal, TypeAlias
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+from core.database.compile import DolphinDBFunction
+
+from ..query import FactorQuery
+from .result import BacktestResult
+
+CallbackName: TypeAlias = Literal[
+    "initialize",
+    "beforeTrading",
+    "onBar",
+    "onSnapshot",
+    "onOrder",
+    "onTrade",
+    "afterTrading",
+    "finalize",
+]
+Callback: TypeAlias = str | DolphinDBFunction
+Utility: TypeAlias = str | DolphinDBFunction
+
+CALLBACK_NAMES = get_args(CallbackName)
+DAILY_REQUIRED_COLUMNS = frozenset(
+    (
+        "open",
+        "low",
+        "high",
+        "close",
+        "volume",
+        "upLimitPrice",
+        "downLimitPrice",
+        "prevClosePrice",
+    )
+)
+SYSTEM_COLUMNS = frozenset(("symbol", "tradeTime"))
+RESERVED_CONFIG = frozenset(
+    (
+        "startDate",
+        "endDate",
+        "strategyGroup",
+        "dataType",
+        "msgAsTable",
+        "stockDividend",
+    )
+)
+DEFAULT_CONFIG = {
+    "cash": 1_000_000.0,
+    "commission": 0.0,
+    "tax": 0.0,
+    "matchingMode": 2,
+}
+FLOAT_CONFIG = (
+    "cash",
+    "commission",
+    "tax",
+    "matchingRatio",
+    "orderBookMatchingRatio",
+)
+
+
+class BacktestArguments(BaseModel):
+    """集中校验查询、引擎名称和插件配置等公共回测参数。"""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        validate_default=True,
+    )
+
+    codes_query: FactorQuery | None = Field(
+        default=None,
+        description="可选选股 DSL；结果中的 code 去重后作为正式回测股票范围。",
+    )
+    query: FactorQuery = Field(
+        ...,
+        description="用于筛选回测行情并计算策略数据的因子 DSL。",
+    )
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        description="可选回测引擎名称。",
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="初始资金、费用和撮合等 Backtest 配置。",
+    )
+    annual_trading_days: int = Field(
+        default=250,
+        ge=1,
+        description="计算年化收益率和年化波动率使用的每年交易日数。",
+    )
+    risk_free_rate: float = Field(
+        default=0.04,
+        allow_inf_nan=False,
+        description="计算 Sharpe 比率使用的年化无风险收益率。",
+    )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        """拒绝仅包含空白字符的引擎名称。"""
+        if value is not None and not value.strip():
+            raise ValueError("回测引擎名称不能为空")
+        return value
+
+    @field_validator("config")
+    @classmethod
+    def validate_config(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """拒绝框架保留配置，并规范需要浮点数的插件配置。"""
+        if reserved := set(value) & RESERVED_CONFIG:
+            raise ValueError(
+                "以下配置由回测框架根据查询生成，不能传入："
+                f"{sorted(reserved)}"
+            )
+
+        result = {**DEFAULT_CONFIG, **value}
+        for name in FLOAT_CONFIG:
+            if name not in result:
+                continue
+            if isinstance(result[name], bool):
+                raise ValueError(f"config[{name!r}] 必须是数值")
+            try:
+                result[name] = float(result[name])
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"config[{name!r}] 必须是数值"
+                ) from error
+        return result
+
+    @field_validator("config", mode="before")
+    @classmethod
+    def parse_config(cls, value: Any) -> Any:
+        """在 Pydantic 内把可选 Mapping 规范为配置字典。"""
+        if value is None:
+            return {}
+        if isinstance(value, Mapping):
+            return dict(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_query_contract(self) -> "BacktestArguments":
+        """校验股票范围和日频行情列是否符合回测入口契约。"""
+        output_columns = set(self.query.factors) | set(
+            self.query.derivatives
+        )
+        if overlap := output_columns & SYSTEM_COLUMNS:
+            raise ValueError(
+                "以下列由回测框架生成，DSL 不能重复定义："
+                f"{sorted(overlap)}"
+            )
+        if missing := DAILY_REQUIRED_COLUMNS - output_columns:
+            raise ValueError(
+                "日频消息缺少必需的 factor 或派生因子："
+                f"{sorted(missing)}"
+            )
+        if self.codes_query is None:
+            unsupported_codes = [
+                code
+                for code in self.query.codes
+                if not code.endswith((".SH", ".SZ"))
+            ]
+            if unsupported_codes:
+                raise ValueError(
+                    "股票回测当前只支持 .SH 和 .SZ 代码："
+                    f"{unsupported_codes[:10]}"
+                )
+        return self
+
+
+class BacktestParameters(BacktestArguments):
+    """保存 Python 回测入口完成解析和规范化后的参数。"""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        validate_default=True,
+        arbitrary_types_allowed=True,
+    )
+
+    callbacks: dict[CallbackName, DolphinDBFunction]
+    utils: dict[str, DolphinDBFunction] = Field(default_factory=dict)
+    source_ref: str | None = Field(
+        default=None,
+        description="当前 DolphinDB 会话中可复用的已填充基础因子表变量名。",
+    )
+    message_ref: str | None = Field(
+        default=None,
+        description="当前 DolphinDB 会话中可复用的日频行情消息表变量名。",
+    )
+    compact: bool = Field(
+        default=False,
+        description="仅返回优化所需的逐日组合和收益汇总。",
+    )
+
+    @field_validator("source_ref", "message_ref")
+    @classmethod
+    def validate_reference(cls, value: str | None) -> str | None:
+        """校验可复用 DolphinDB 会话变量名，防止脚本注入。"""
+        if value is not None and re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]*",
+            value,
+        ) is None:
+            raise ValueError(f"不是合法的 DolphinDB 变量名：{value!r}")
+        return value
+
+    @field_validator("callbacks", mode="before")
+    @classmethod
+    def parse_callbacks(cls, value: Any) -> Any:
+        """把回调定义字符串转换为可编译的 DolphinDBFunction。"""
+        if not isinstance(value, Mapping):
+            return value
+        return {
+            name: (
+                DolphinDBFunction(function)
+                if isinstance(function, str)
+                else function
+            )
+            for name, function in value.items()
+        }
+
+    @field_validator("utils", mode="before")
+    @classmethod
+    def parse_utils(cls, value: Any) -> Any:
+        """把可选工具函数映射转换为 DolphinDBFunction 字典。"""
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            return value
+        return {
+            name: (
+                DolphinDBFunction(function)
+                if isinstance(function, str)
+                else function
+            )
+            for name, function in value.items()
+        }
+
+    @field_validator("utils")
+    @classmethod
+    def validate_utils(
+        cls,
+        value: dict[str, DolphinDBFunction],
+    ) -> dict[str, DolphinDBFunction]:
+        """要求工具函数映射键与实际函数名一致。"""
+        for name, function in value.items():
+            if not name.strip():
+                raise ValueError("utils 的键必须是非空函数名")
+            if name != function.name:
+                raise ValueError(
+                    f"utils[{name!r}] 定义的函数名是 {function.name!r}"
+                )
+        return value
+
+
+__all__ = [
+    "BacktestArguments",
+    "BacktestParameters",
+    "BacktestResult",
+    "Callback",
+    "CallbackName",
+    "Utility",
+]

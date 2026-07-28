@@ -1,23 +1,35 @@
 [project]
-name = "core"
+name = "arena-core"
 version = "0.1.0"
 description = "Unified factor data ingestion and DolphinDB-native factor DSL"
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
 dependencies = [
     "dolphindb>=3.0.4.2",
-    "fastapi>=0.116",
-    "ipykernel>=7.3.0",
     "loguru>=0.7.3",
-    "notebook>=7.6.0",
     "numpy>=2.0",
     "pandas>=2.2",
-    "pandas-stubs~=2.3.3",
-    "pyarrow>=19.0",
     "pydantic>=2.11",
     "python-dotenv>=1.1",
     "tushare>=1.4.29",
-    "uvicorn>=0.35",
 ]
+
+[project.scripts]
+core-manage = "core.manage:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "core"
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
@@ -25,34 +37,6 @@ default = true
 
 [dependency-groups]
 dev = [
-    "hypothesis>=6.156.6",
-    "pytest>=9.1.1",
-    "pytest-cov>=7.1.0",
-    "ta-lib>=0.7.0",
+    "ipykernel>=7.3.0",
+    "notebook>=7.6.1",
 ]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-markers = [
-    "dolphindb: requires a running DolphinDB server with Backtest plugins",
-    "backtest: exercises DolphinDB Backtest plugin behavior",
-]
-addopts = [
-    "--strict-config",
-    "--strict-markers",
-    "--cov=core",
-    "--cov-branch",
-    "--cov-report=term-missing",
-    "--cov-report=html:output/python-coverage",
-    "--cov-report=xml:output/python-coverage.xml",
-    "--cov-fail-under=100",
-]
-
-[tool.coverage.run]
-branch = true
-source = ["core"]
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = false
-fail_under = 100

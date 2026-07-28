@@ -11,7 +11,4 @@ wheels/
 .idea
 .env
 
-# Coverage reports
-.coverage
-output/python-coverage.xml
-output/python-coverage/
+output
