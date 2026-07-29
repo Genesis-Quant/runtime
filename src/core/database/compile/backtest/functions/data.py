@@ -44,5 +44,3 @@ GET_LAST_DATA = DolphinDBFunction(
     """,
     dependencies=(GET_HISTORY_DATA,),
 )
-
-__all__ = ["GET_HISTORY_DATA", "GET_LAST_DATA"]

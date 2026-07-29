@@ -153,6 +153,3 @@ class StockDividendWorker(WideWorker):
             ].ne(0).any(axis=1)
         ]
         return result.reset_index(drop=True)
-
-
-__all__ = ["StockDividendWorker"]

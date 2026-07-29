@@ -47,6 +47,3 @@ class SessionResult:
         """退出上下文时关闭 DolphinDB 会话。"""
         self.close()
         return False
-
-
-__all__ = ["SessionResult"]

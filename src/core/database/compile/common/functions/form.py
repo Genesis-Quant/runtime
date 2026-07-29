@@ -63,11 +63,3 @@ REQUIRE_TABLE_COLUMNS = DolphinDBFunction(
     """,
     dependencies=(IS_TABLE_FORM, IS_VECTOR_FORM),
 )
-
-__all__ = [
-    "IS_DICTIONARY_FORM",
-    "IS_SCALAR_FORM",
-    "IS_TABLE_FORM",
-    "IS_VECTOR_FORM",
-    "REQUIRE_TABLE_COLUMNS",
-]

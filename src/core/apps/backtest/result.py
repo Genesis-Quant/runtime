@@ -8,68 +8,78 @@ from core.utils import SessionResult
 
 
 class BacktestResult(SessionResult):
-    """按需下载一次已结束回测的标准输出。"""
+    """按需生成并下载已结束回测的标准输出。"""
 
-    def __init__(
-        self,
-        *,
-        name: str,
-        session: Any,
-        compact: bool,
-    ) -> None:
+    def __init__(self, *, name: str, session: Any) -> None:
         super().__init__(session=session)
         self.name = name
-        self.compact = compact
 
     @property
-    def message_rows(self) -> int:
-        """访问时下载回测消息行数。"""
-        return self.download("coreBacktestResultMessageRows")
+    def trade_details(self) -> pd.DataFrame:
+        """访问时生成并下载成交明细。"""
+        return self.download("Backtest::getTradeDetails(coreBacktestEngine)")
 
     @property
-    def trade_details(self) -> pd.DataFrame | None:
-        """访问时下载成交明细。"""
-        if self.compact:
-            return None
-        return self.download("coreBacktestResultTradeDetails")
-
-    @property
-    def daily_positions(self) -> pd.DataFrame | None:
-        """访问时下载每日持仓。"""
-        if self.compact:
-            return None
-        return self.download("coreBacktestResultDailyPositions")
+    def daily_positions(self) -> pd.DataFrame:
+        """访问时生成并下载每日持仓。"""
+        return self.download("Backtest::getDailyPosition(coreBacktestEngine)")
 
     @property
     def daily_portfolios(self) -> pd.DataFrame:
-        """访问时下载每日组合资产。"""
-        return self.download("coreBacktestResultDailyPortfolios")
+        """访问时生成并下载每日组合资产。"""
+        return self.download("Backtest::getDailyTotalPortfolios(coreBacktestEngine)")
 
     @property
     def return_summary(self) -> pd.DataFrame:
-        """访问时下载收益汇总。"""
-        return self.download("coreBacktestResultReturnSummary")
+        """访问时生成并下载收益汇总。"""
+        return self.download(
+            """
+            backtest::standardize_return_summary(
+                Backtest::getReturnSummary(coreBacktestEngine),
+                Backtest::getDailyTotalPortfolios(coreBacktestEngine),
+                coreBacktestAnnualTradingDays,
+                coreBacktestRiskFreeRate
+            )
+            """
+        )
 
     @property
-    def daily_trading_statistics(self) -> pd.DataFrame | None:
-        """访问时下载每日交易统计。"""
-        if self.compact:
-            return None
-        return self.download("coreBacktestResultDailyTradingStatistics")
+    def daily_trading_statistics(self) -> pd.DataFrame:
+        """访问时生成并下载每日交易统计。"""
+        return self.download("Backtest::getDailyTradingStatistics(coreBacktestEngine)")
 
     @property
-    def engine_stat(self) -> pd.DataFrame | None:
-        """访问时下载回测引擎统计。"""
-        if self.compact:
-            return None
-        return self.download("coreBacktestResultEngineStat")
+    def engine_stat(self) -> pd.DataFrame:
+        """访问时生成并下载回测引擎统计。"""
+        return self.download("Backtest::getBacktestEngineStat(coreBacktestEngine)")
 
     @property
     def context(self) -> Any:
-        """访问时下载已移除内部对象的策略上下文。"""
-        if self.compact:
-            return None
-        return self.download("coreBacktestResultContext")
+        """访问时生成并下载已移除内部对象的策略上下文。"""
+        return self.download(
+            """
+            coreBacktestContext =
+                Backtest::getContextDict(coreBacktestEngine)
+            erase!(
+                coreBacktestContext,
+                [
+                    "engine",
+                    "coreBacktestUnfilteredFactorData",
+                    "coreBacktestFilteredFactorData"
+                ]
+            )
+            coreBacktestContext
+            """
+        )
+
+    def close(self) -> None:
+        """销毁回测引擎并关闭 DolphinDB session。"""
+        if self.closed:
+            return
+        try:
+            self.session.run("Backtest::dropBacktestEngine(coreBacktestEngine)")
+        finally:
+            super().close()
 
 
 __all__ = ["BacktestResult"]

@@ -201,6 +201,3 @@ class Paginator:
                 logger.debug(message)
 
         return result
-
-
-__all__ = ["Paginator"]

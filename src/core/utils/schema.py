@@ -39,16 +39,3 @@ def normalize_factors(values: Iterable[str]) -> list[str]:
     if not factors:
         raise ValueError("factor 至少包含一个非空值")
     return factors
-
-
-__all__ = [
-    "CODE_COLUMN",
-    "CORE_COLUMNS",
-    "FACTOR_COLUMN",
-    "IS_ST_FACTOR",
-    "TIME_COLUMN",
-    "VALUE_COLUMN",
-    "WEIGHT_PREFIX",
-    "index_weight_factor",
-    "normalize_factors",
-]

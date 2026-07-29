@@ -30,6 +30,7 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "core"
+source-include = ["examples/**"]
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"

@@ -80,6 +80,3 @@ class DolphinDBFunction:
         object.__setattr__(self, "name", match.group(1))
         object.__setattr__(self, "parameters", parameters)
         object.__setattr__(self, "signature", match.group(2).strip())
-
-
-__all__ = ["DolphinDBFunction"]

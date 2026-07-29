@@ -194,6 +194,3 @@ class WideWorker(StockWorker, ABC):
             f"查询耗时={elapsed:.2f}秒"
         )
         return dates
-
-
-__all__ = ["WideWorker"]

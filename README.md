@@ -22,7 +22,11 @@ with execute_query(query_request) as query_result:
     factor_data = query_result.data
     session = query_result.session
 
-with run_backtest(query_request, callbacks) as backtest_result:
+with run_backtest(
+    dataset_query,
+    callbacks,
+    adj="qfq",
+) as backtest_result:
     summary = backtest_result.return_summary
     portfolios = backtest_result.daily_portfolios
 ```
@@ -41,12 +45,20 @@ from core.apps.backtest import BacktestResult, run_backtest
 `with` 时会自动关闭 session。API 成功返回后，即使 session 是调用方传入的，
 也由结果对象接管其关闭操作。
 
+`run_backtest` 的 `adj` 默认为 `None`；传入 `"qfq"` 或 `"hfq"` 时会查询
+`adj_factor`，并对回测消息中的价格字段执行前复权或后复权。
+`source_ref` 和 `message_ref` 是当前 DolphinDB session 中的查询结果变量名：
+变量已存在时直接复用，不存在时查询并把结果保存到该变量。回测默认使用
+`coreBacktestSource` 和 `coreBacktestMessage`。
+
 ## 命令行
 
 安装后使用 `core-manage`：
 
 ```powershell
 core-manage --help
+core-manage apps query --start-date 2025-01-01 --end-date 2025-01-31 --codes '[\"000001.SZ\"]' --factors '[\"close\"]'
+core-manage apps backtest --start-date 2025-01-01 --end-date 2025-01-31 --codes CODES_JSON --factors FACTORS_JSON --callbacks CALLBACKS_JSON
 core-manage workers --list-workers
 core-manage workers daily adj-factor --start-date 2025-01-01
 core-manage database compile --output-dir output
@@ -58,6 +70,11 @@ core-manage database compile --output-dir output
 uv run python manage.py workers --list-workers
 uv run python manage.py database compile
 ```
+
+`apps query` 和 `apps backtest` 的日期、回看周期、复权方式、名称和数值使用
+普通命令行参数；股票代码、因子、派生因子、过滤器、回调、工具函数、
+选股查询和回测配置等数组或对象使用 JSON 字符串。命令当前只负责执行，
+不会下载或打印结果；执行结束后自动关闭 DolphinDB session。
 
 `database compile` 命令会重新生成 `common.dos`、`query.dos` 和
 `backtest.dos`。

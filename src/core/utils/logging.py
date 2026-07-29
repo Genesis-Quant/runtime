@@ -12,5 +12,3 @@ log_format = (
     "{message}"
 )
 logger.add(sys.stdout, format=log_format, level="DEBUG", colorize=True)
-
-__all__ = ["logger"]

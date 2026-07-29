@@ -7,6 +7,10 @@ from typing import Final
 
 
 COMMANDS: Final[dict[str, tuple[str, str]]] = {
+    "apps": (
+        "运行查询或回测应用",
+        "core.manage.apps",
+    ),
     "workers": (
         "运行数据写入 Worker",
         "core.manage.workers",
@@ -60,4 +64,4 @@ def main(
     )
 
 
-__all__ = ["COMMANDS", "build_parser", "main"]
+__all__ = ["main"]

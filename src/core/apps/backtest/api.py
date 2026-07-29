@@ -7,133 +7,97 @@ from uuid import uuid4
 
 import numpy as np
 
-from core.database import (
-    STOCK_DIVIDEND_TABLE,
-    collect_functions,
-    create_session,
-    ensure_stock_dividend_table,
-    render_functions,
-)
+from core.database import create_session
+from core.database.session import has_session_variable, redirect_session_output
 from core.utils import CODE_COLUMN, logger, normalize_date_range
 
-from ..query import FactorQuery, build_query_table
-from .schema import (
-    CALLBACK_NAMES,
-    BacktestParameters,
-    Callback,
-    CallbackName,
-    Utility,
-)
-from .result import BacktestResult
+from ..query import api as query_api
+from . import result, schema
+
+
+def execute_codes_query(codes_query: schema.FactorQuery, session: Any) -> list[str]:
+    """执行股票池查询并返回股票代码。"""
+    unfiltered_data_ref = "coreBacktestCodesUnfilteredFactorData"
+    filtered_data_ref = "coreBacktestCodesFilteredFactorData"
+    query_api.build_query_table(
+        codes_query,
+        session=session,
+        computed_ref=unfiltered_data_ref,
+        filtered_ref=filtered_data_ref,
+    )
+    logger.info(f"session.run: 从 {filtered_data_ref} 读取选股结果")
+    selected_codes = session.run(
+        f"""
+        exec distinct {CODE_COLUMN}
+        from {filtered_data_ref}
+        where
+            time >= coreOutputStart,
+            time < coreOutputEndExclusive,
+            not isNull({CODE_COLUMN})
+        order by {CODE_COLUMN}
+        """
+    )
+    if not isinstance(selected_codes, np.ndarray):
+        raise TypeError(f"codes DSL 必须返回一维代码向量，实际为 {type(selected_codes).__name__}")
+    if selected_codes.ndim != 1:
+        raise ValueError(f"codes DSL 必须返回一维代码向量，实际维数为 {selected_codes.ndim}")
+    codes = selected_codes.astype(str).tolist()
+    if not codes:
+        raise ValueError("codes DSL 没有选出任何股票")
+    unsupported_codes = [code for code in codes if not code.endswith((".SH", ".SZ"))]
+    if unsupported_codes:
+        raise ValueError(f"codes DSL 只能返回 .SH 和 .SZ 股票代码：{unsupported_codes[:10]}")
+    logger.info(f"codes DSL 选出 {len(codes):,} 只股票")
+    return codes
 
 
 def run_backtest(
-    request: FactorQuery | dict[str, Any],
-    callbacks: Mapping[CallbackName, Callback],
-    *,
-    utils: Mapping[str, Utility] | None = None,
-    codes_query: FactorQuery | dict[str, Any] | None = None,
-    name: str | None = None,
-    config: Mapping[str, Any] | None = None,
-    annual_trading_days: int = 250,
-    risk_free_rate: float = 0.04,
-    source_ref: str | None = None,
-    message_ref: str | None = None,
-    compact: bool = False,
-    session: Any | None = None,
-) -> BacktestResult:
+        dataset_query: dict[str, Any],
+        callbacks: Mapping[schema.CallbackName, str],
+        *,
+        session: Any | None = None,
+        codes_query: dict[str, Any] | None = None,
+        utils: Mapping[str, str] | None = None,
+        name: str | None = None,
+        config: Mapping[str, Any] | None = None,
+        adj: schema.Adj = None,
+        risk_free_rate: float = 0.04,
+        annual_trading_days: int = 250,
+        source_ref: str = "coreBacktestSource",
+        message_ref: str = "coreBacktestMessage",
+) -> result.BacktestResult:
     """运行日频回测，并把保存服务端输出的会话移交给惰性结果。"""
     started = time.perf_counter()
-    parameters = BacktestParameters.model_validate(
-        {
-            "query": request,
-            "callbacks": callbacks,
-            "utils": utils,
-            "codes_query": codes_query,
-            "name": name,
-            "config": config,
-            "annual_trading_days": annual_trading_days,
-            "risk_free_rate": risk_free_rate,
-            "source_ref": source_ref,
-            "message_ref": message_ref,
-            "compact": compact,
-        }
-    )
+    parameters = schema.BacktestParameters.model_validate({
+        "dataset_query": dataset_query,
+        "callbacks": callbacks,
+        "utils": utils,
+        "codes_query": codes_query,
+        "adj": adj,
+        "name": name,
+        "config": config,
+        "annual_trading_days": annual_trading_days,
+        "risk_free_rate": risk_free_rate,
+        "source_ref": source_ref,
+        "message_ref": message_ref,
+    })
     engine_name = parameters.name or f"coreBacktest_{uuid4().hex}"
     backtest_config = dict(parameters.config)
-    callback_script = render_functions(
-        collect_functions(
-            (
-                *parameters.utils.values(),
-                *parameters.callbacks.values(),
-            )
-        )
-    )
-    callback_names = {
-        callback_name: (
-            parameters.callbacks[callback_name].name
-            if callback_name in parameters.callbacks
-            else "NULL"
-        )
-        for callback_name in CALLBACK_NAMES
-    }
     owns_session = session is None
     current_session = create_session() if owns_session else session
-    engine_created = False
-    backtest_result: BacktestResult | None = None
+    redirect_session_output(current_session)
+
     try:
-        query = parameters.query
+        validated_dataset_query = parameters.dataset_query
 
         if parameters.codes_query is not None:
-            codes_unfiltered_data_ref = "coreBacktestCodesUnfilteredFactorData"
-            codes_filtered_data_ref = "coreBacktestCodesFilteredFactorData"
-            build_query_table(
-                parameters.codes_query,
-                session=current_session,
-                computed_ref=codes_unfiltered_data_ref,
-                filtered_ref=codes_filtered_data_ref,
-            )
-            selected_codes = current_session.run(
-                f"""
-                exec distinct {CODE_COLUMN}
-                from {codes_filtered_data_ref}
-                where
-                    time >= coreOutputStart,
-                    time < coreOutputEndExclusive,
-                    not isNull({CODE_COLUMN})
-                order by {CODE_COLUMN}
-                """
-            )
-            if not isinstance(selected_codes, np.ndarray):
-                raise TypeError(
-                    "codes DSL 必须返回一维代码向量，实际为 "
-                    f"{type(selected_codes).__name__}"
-                )
-            if selected_codes.ndim != 1:
-                raise ValueError(
-                    "codes DSL 必须返回一维代码向量，实际维数为 "
-                    f"{selected_codes.ndim}"
-                )
-            codes = selected_codes.astype(str).tolist()
-            if not codes:
-                raise ValueError("codes DSL 没有选出任何股票")
-            unsupported_codes = [
-                code
-                for code in codes
-                if not code.endswith((".SH", ".SZ"))
-            ]
-            if unsupported_codes:
-                raise ValueError(
-                    "codes DSL 只能返回 .SH 和 .SZ 股票代码："
-                    f"{unsupported_codes[:10]}"
-                )
-            logger.info(f"codes DSL 选出 {len(codes):,} 只股票")
-            query = query.model_copy(update={"codes": codes})
+            codes = execute_codes_query(parameters.codes_query, current_session)
+            validated_dataset_query = validated_dataset_query.model_copy(update={"codes": codes})
 
         unfiltered_data_ref = "coreBacktestUnfilteredFactorData"
         filtered_data_ref = "coreBacktestFilteredFactorData"
-        query, _ = build_query_table(
-            query,
+        validated_dataset_query, _ = query_api.build_query_table(
+            validated_dataset_query,
             session=current_session,
             computed_ref=unfiltered_data_ref,
             filtered_ref=filtered_data_ref,
@@ -141,14 +105,12 @@ def run_backtest(
         )
 
         output_start, output_end = normalize_date_range(
-            query.start_date,
-            query.end_date,
+            validated_dataset_query.start_date,
+            validated_dataset_query.end_date
         )
         backtest_config.update(
             {
-                "startDate": output_start.to_datetime64().astype(
-                    "datetime64[D]"
-                ),
+                "startDate": output_start.to_datetime64().astype("datetime64[D]"),
                 "endDate": output_end.to_datetime64().astype("datetime64[D]"),
                 "strategyGroup": "stock",
                 "dataType": 4,
@@ -159,167 +121,70 @@ def run_backtest(
             {
                 "coreBacktestName": engine_name,
                 "coreBacktestConfig": backtest_config,
-                "coreBacktestCodes": np.asarray(query.codes, dtype=str),
+                "coreBacktestCodes": np.asarray(validated_dataset_query.codes, dtype=str, ),
                 "coreBacktestStartDate": output_start,
                 "coreBacktestEndDate": output_end,
                 "coreBacktestAnnualTradingDays": parameters.annual_trading_days,
                 "coreBacktestRiskFreeRate": parameters.risk_free_rate,
+                "coreBacktestAdj": parameters.adj or "",
             }
         )
-        ensure_stock_dividend_table(current_session)
-        message_statement = (
-            f"coreBacktestMsg = select * from {parameters.message_ref}"
-            if parameters.message_ref is not None
-            else f"""
-            coreBacktestMsg = backtest::build_backtest_message(
+
+        logger.info("session.run: 加载 backtest 模块")
+        current_session.run("use backtest")
+
+        logger.info(f"session.run: 定义工具函数 {list(parameters.utils)}")
+        current_session.run("\n".join(parameters.utils.values()))
+
+        logger.info(f"session.run: 定义回调函数 {list(parameters.callbacks)}")
+        current_session.run("\n".join(parameters.callbacks.values()))
+
+        if not has_session_variable(current_session, message_ref):
+            logger.info(f"session.run: 生成回测消息表 {parameters.message_ref}")
+            current_session.run(f"""
+            {parameters.message_ref} = backtest::build_backtest_message(
                 project_factor_output(
                     {unfiltered_data_ref},
                     coreDslOutputColumns,
                     coreOutputStart,
                     coreOutputEndExclusive
-                )
+                ),
+                coreBacktestAdj
             )
-            """
-        )
+            """)
+        else:
+            logger.info(f"复用回测消息表 {parameters.message_ref}")
 
+        logger.info(f"session.run: 创建并运行回测引擎 {engine_name}")
         current_session.run(
             f"""
-            coreLoadedPlugins = exec plugin from getLoadedPlugins()
-            if (!("MatchingEngineSimulator" in coreLoadedPlugins)) {{
-                loadPlugin("MatchingEngineSimulator")
-            }}
-            if (!("Backtest" in coreLoadedPlugins)) {{
-                loadPlugin("Backtest")
-            }}
-
-            use backtest
-
-            {callback_script}
-
-            coreBacktestStockDividend = select
-                symbol(
-                    strReplace(
-                        strReplace(string(symbol), ".SZ", ".XSHE"),
-                        ".SH",
-                        ".XSHG"
-                    )
-                ) as symbol,
-                endDate,
-                iif(isNull(annDate), recordDate, annDate) as annDate,
-                recordDate,
-                exDate,
-                iif(isNull(payDate), exDate, payDate) as payDate,
-                iif(
-                    isNull(divListDate),
-                    exDate,
-                    divListDate
-                ) as divListDate,
-                bonusRatio,
-                capitalConversion,
-                afterTaxCashDiv,
-                allotPrice,
-                allotRatio
-            from {STOCK_DIVIDEND_TABLE}
-            where
-                symbol in symbol(coreBacktestCodes),
-                recordDate >= date(coreBacktestStartDate),
-                exDate <= date(coreBacktestEndDate),
-                iif(isNull(payDate), exDate, payDate)
-                    <= date(coreBacktestEndDate),
-                iif(isNull(divListDate), exDate, divListDate)
-                    <= date(coreBacktestEndDate)
-            if (coreBacktestStockDividend.rows() > 0) {{
-                coreBacktestConfig["stockDividend"] =
-                    coreBacktestStockDividend
-            }}
-
-            {message_statement}
             coreBacktestEngine = backtest::run_backtest(
                 coreBacktestName,
                 coreBacktestConfig,
-                coreBacktestMsg,
+                {parameters.message_ref},
                 {unfiltered_data_ref},
                 {filtered_data_ref},
-                {callback_names["initialize"]},
-                {callback_names["beforeTrading"]},
-                {callback_names["onBar"]},
-                {callback_names["onSnapshot"]},
-                {callback_names["onOrder"]},
-                {callback_names["onTrade"]},
-                {callback_names["afterTrading"]},
-                {callback_names["finalize"]}
+                {"initialize" if "initialize" in parameters.callbacks else "NULL"},
+                {"beforeTrading" if "beforeTrading" in parameters.callbacks else "NULL"},
+                {"onBar" if "onBar" in parameters.callbacks else "NULL"},
+                {"onSnapshot" if "onSnapshot" in parameters.callbacks else "NULL"},
+                {"onOrder" if "onOrder" in parameters.callbacks else "NULL"},
+                {"onTrade" if "onTrade" in parameters.callbacks else "NULL"},
+                {"afterTrading" if "afterTrading" in parameters.callbacks else "NULL"},
+                {"finalize" if "finalize" in parameters.callbacks else "NULL"}
             )
             """
         )
-        engine_created = True
-
-        optional_outputs = ""
-        if not parameters.compact:
-            optional_outputs = """
-            coreBacktestResultContext =
-                Backtest::getContextDict(coreBacktestEngine)
-            erase!(
-                coreBacktestResultContext,
-                [
-                    "engine",
-                    "coreBacktestUnfilteredFactorData",
-                    "coreBacktestFilteredFactorData"
-                ]
-            )
-            coreBacktestResultTradeDetails =
-                Backtest::getTradeDetails(coreBacktestEngine)
-            coreBacktestResultDailyPositions =
-                Backtest::getDailyPosition(coreBacktestEngine)
-            coreBacktestResultDailyTradingStatistics =
-                Backtest::getDailyTradingStatistics(coreBacktestEngine)
-            coreBacktestResultEngineStat =
-                Backtest::getBacktestEngineStat(coreBacktestEngine)
-            """
-        current_session.run(
-            f"""
-            coreBacktestResultMessageRows =
-                long(coreBacktestMsg.rows())
-            coreBacktestResultDailyPortfolios =
-                Backtest::getDailyTotalPortfolios(coreBacktestEngine)
-            coreBacktestResultReturnSummary =
-                backtest::standardize_return_summary(
-                Backtest::getReturnSummary(coreBacktestEngine),
-                coreBacktestResultDailyPortfolios,
-                coreBacktestAnnualTradingDays,
-                coreBacktestRiskFreeRate
-            )
-            {optional_outputs}
-            """
-        )
-        backtest_result = BacktestResult(
-            name=engine_name,
-            session=current_session,
-            compact=parameters.compact,
-        )
+        backtest_result = result.BacktestResult(name=engine_name, session=current_session)
         logger.success(
-            f"回测完成：name={engine_name}，"
-            "结果已保存在 DolphinDB 会话中，"
-            f"耗时={time.perf_counter() - started:.2f} 秒"
+            f"回测完成：name={engine_name}，结果将在访问 BacktestResult 成员时生成，耗时={time.perf_counter() - started:.2f} 秒"
         )
         return backtest_result
     except Exception:
         logger.exception(f"回测失败：name={engine_name}")
-        raise
-    finally:
-        if engine_created:
-            try:
-                current_session.run(
-                    "Backtest::dropBacktestEngine(coreBacktestEngine)"
-                )
-            except Exception:
-                logger.exception(f"清理回测引擎失败：name={engine_name}")
-        if owns_session and backtest_result is None:
+        if owns_session:
             current_session.close()
+        raise
 
 
-__all__ = [
-    "BacktestResult",
-    "Callback",
-    "Utility",
-    "run_backtest",
-]
+__all__ = ["run_backtest"]

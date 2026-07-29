@@ -257,9 +257,3 @@ class CoreTableWriter:
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         """退出上下文时完成所有已提交写入。"""
         self.close()
-
-
-__all__ = [
-    "CORE_TABLE",
-    "CoreTableWriter",
-]

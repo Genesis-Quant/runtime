@@ -106,5 +106,3 @@ RUN_BACKTEST = DolphinDBFunction(
         NOOP_MESSAGE_CALLBACK,
     ),
 )
-
-__all__ = ["RUN_BACKTEST"]

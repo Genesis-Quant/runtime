@@ -100,5 +100,3 @@ STANDARDIZE_RETURN_SUMMARY = DolphinDBFunction(
     }
     """,
 )
-
-__all__ = ["STANDARDIZE_RETURN_SUMMARY"]

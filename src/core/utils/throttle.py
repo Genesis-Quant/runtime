@@ -35,6 +35,3 @@ class RateLimiter:
                     return
                 wait_time = (1 - self.tokens) / self.rate_per_second
             time.sleep(wait_time)
-
-
-__all__ = ["RateLimiter"]

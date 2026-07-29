@@ -41,6 +41,3 @@ def write_script(
     if not path.exists() or path.read_text(encoding="utf-8") != script:
         path.write_text(script, encoding="utf-8", newline="\n")
     return path
-
-
-__all__ = ["build_script", "write_script"]

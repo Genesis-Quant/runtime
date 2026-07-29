@@ -73,11 +73,3 @@ def main(
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-__all__ = [
-    "DOS_NAMES",
-    "build_parser",
-    "main",
-    "regenerate_dos",
-]

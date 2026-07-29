@@ -5,14 +5,29 @@ from core.database.compile import DolphinDBFunction
 BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
     module="backtest",
     definition="""
-    def build_backtest_message(market_data) {
+    def build_backtest_message(market_data, adj) {
         /*
         从完整股票范围的未筛选行情构造 Backtest 插件日频消息。
 
         msg 仅包含插件所需的原始行情字段，不包含 DSL 因子和派生列。
         缺少任一必需行情字段的行会被删除，code 和 time 会转换为插件要求的
-        symbol 和 tradeTime。
+        symbol 和 tradeTime。adj 为 hfq 或 qfq 时使用 adj_factor 复权价格。
         */
+        if (!isNull(adj) && !(adj in ["hfq", "qfq"])) {
+            throw "adj 只能是 hfq、qfq 或 NULL"
+        }
+        adjustment = take(1.0, market_data.rows())
+        if (!isNull(adj)) {
+            if (!("adj_factor" in columnNames(market_data))) {
+                throw "复权行情缺少 adj_factor"
+            }
+            adjustment = double(market_data.adj_factor)
+            if (adj == "qfq") {
+                adjustment = adjustment /
+                    contextby(last, adjustment, market_data.code)
+            }
+        }
+
         message = select
             code,
             time,
@@ -26,6 +41,11 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
             prevClosePrice
         from market_data
 
+        for (column in `open`low`high`close`upLimitPrice`downLimitPrice`prevClosePrice) {
+            values = double(message[column])
+            if (!isNull(adj)) values = values * adjustment
+            replaceColumn!(message, column, values)
+        }
         valid_rows = take(true, message.rows())
         for (column in `open`low`high`close`volume`upLimitPrice`downLimitPrice`prevClosePrice) {
             valid_rows = valid_rows && !isNull(message[column])
@@ -49,13 +69,8 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
             temporalAdd(timestamp(message.tradeTime), 15, "h")
         )
         replaceColumn!(message, `volume, long(message.volume))
-        for (column in `open`low`high`close`upLimitPrice`downLimitPrice`prevClosePrice) {
-            replaceColumn!(message, column, double(message[column]))
-        }
         message.sortBy!(`tradeTime`symbol)
         return message
     }
     """,
 )
-
-__all__ = ["BUILD_BACKTEST_MESSAGE"]

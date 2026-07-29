@@ -19,8 +19,13 @@ def build_script() -> str:
     return script.replace(
         f"module {MODULE}\n\n",
         f"""module {MODULE}
-loadPlugin("MatchingEngineSimulator")
-loadPlugin("Backtest")
+coreLoadedPlugins = exec plugin from getLoadedPlugins()
+if (!("MatchingEngineSimulator" in coreLoadedPlugins)) {{
+    loadPlugin("MatchingEngineSimulator")
+}}
+if (!("Backtest" in coreLoadedPlugins)) {{
+    loadPlugin("Backtest")
+}}
 """,
         1,
     )
@@ -40,11 +45,3 @@ def write_script(*, output_dir: Path = DEFAULT_OUTPUT_DIR) -> Path:
 
 if __name__ == "__main__":
     print(write_script())
-
-
-__all__ = [
-    "MODULE",
-    "DEFAULT_OUTPUT_DIR",
-    "build_script",
-    "write_script",
-]

@@ -3,15 +3,9 @@
 from .dsl import (
     Derivative,
     FactorQuery,
-    derivative_output_kind,
-    derivative_references,
-    normalize_names,
 )
 
 __all__ = [
     "Derivative",
     "FactorQuery",
-    "derivative_output_kind",
-    "derivative_references",
-    "normalize_names",
 ]
