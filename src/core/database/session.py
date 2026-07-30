@@ -5,7 +5,7 @@ from typing import Any
 
 import dolphindb
 
-from core.config import DOLPHIN
+from core.config import DolphinSettings
 from core.utils import logger
 
 
@@ -40,10 +40,20 @@ def has_session_variable(session: Any, name: str) -> bool:
 
 def create_session() -> Any:
     """连接 DolphinDB，不检查或初始化业务库表。"""
-    logger.info(f"DolphinDB: {DOLPHIN.HOST}:{DOLPHIN.PORT}")
+    logger.info(
+        f"DolphinDB: {DolphinSettings.HOST}:{DolphinSettings.PORT}"
+    )
     session = dolphindb.session(show_output=True)
     redirect_session_output(session)
-    if session.connect(DOLPHIN.HOST, DOLPHIN.PORT, DOLPHIN.USERNAME, DOLPHIN.PASSWORD):
+    if session.connect(
+        DolphinSettings.HOST,
+        DolphinSettings.PORT,
+        DolphinSettings.USERNAME,
+        DolphinSettings.PASSWORD,
+    ):
         return session
     session.close()
-    raise ConnectionError(f"无法连接 DolphinDB：{DOLPHIN.HOST}:{DOLPHIN.PORT}")
+    raise ConnectionError(
+        f"无法连接 DolphinDB："
+        f"{DolphinSettings.HOST}:{DolphinSettings.PORT}"
+    )

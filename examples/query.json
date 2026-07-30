@@ -1,0 +1,86 @@
+{
+  "dataset_query": {
+    "start_date": "2025-01-01",
+    "end_date": "2025-04-02",
+    "lookback": "60D",
+    "codes": [
+      "000001.SZ",
+      "600000.SH"
+    ],
+    "derivatives": {
+      "return_1d": {
+        "type": "TS",
+        "op": "unary.pct_change",
+        "fields": {
+          "col": "close"
+        },
+        "params": {
+          "periods": 1
+        }
+      },
+      "momentum_20d": {
+        "type": "TS",
+        "op": "unary.pct_change",
+        "fields": {
+          "col": "close"
+        },
+        "params": {
+          "periods": 20
+        }
+      },
+      "volume_mean_5d": {
+        "type": "TS",
+        "op": "unary.rolling_mean",
+        "fields": {
+          "col": "vol"
+        },
+        "params": {
+          "window": 5,
+          "min_periods": 5
+        }
+      },
+      "volume_mean_20d": {
+        "type": "TS",
+        "op": "unary.rolling_mean",
+        "fields": {
+          "col": "vol"
+        },
+        "params": {
+          "window": 20,
+          "min_periods": 20
+        }
+      },
+      "volume_ratio": {
+        "type": "DIRECT",
+        "op": "binary.div",
+        "fields": {
+          "left": "volume_mean_5d",
+          "right": "volume_mean_20d"
+        },
+        "params": {}
+      },
+      "price_volume_factor": {
+        "type": "DIRECT",
+        "op": "binary.mul",
+        "fields": {
+          "left": "momentum_20d",
+          "right": "volume_ratio"
+        },
+        "params": {}
+      },
+      "volatility_20d": {
+        "type": "TS",
+        "op": "unary.rolling_std",
+        "fields": {
+          "col": "return_1d"
+        },
+        "params": {
+          "window": 20,
+          "min_periods": 20
+        }
+      }
+    },
+    "filters": []
+  },
+  "output_dir": "strategies/volume-price-risk-parity/query"
+}

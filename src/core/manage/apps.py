@@ -2,9 +2,15 @@
 
 import argparse
 from collections.abc import Sequence
+from contextlib import ExitStack
 import json
 from pathlib import Path
 from typing import Any
+
+from core.utils.storage import (
+    ObjectStorage,
+    ObjectStorageConfigurationError,
+)
 
 
 QUERY_OUTPUT_FILENAME = "query.parquet"
@@ -14,100 +20,186 @@ BACKTEST_OUTPUT_NAMES = (
     "daily_portfolios",
     "daily_trading_statistics",
 )
+QUERY_INPUT_FIELDS = frozenset(("dataset_query", "output_dir"))
+BACKTEST_RUN_FIELDS = (
+    "dataset_query",
+    "callbacks",
+    "utils",
+    "codes_query",
+    "adj",
+    "name",
+    "config",
+    "annual_trading_days",
+    "risk_free_rate",
+    "source_ref",
+    "message_ref",
+)
+BACKTEST_INPUT_FIELDS = frozenset(
+    (*BACKTEST_RUN_FIELDS, "output_dir", "output")
+)
 
 
-def json_object(value: str) -> dict[str, Any]:
-    """解析 JSON 对象参数。"""
+def input_file_path(value: str) -> Path:
+    """解析并检查输入 JSON 文件路径。"""
+    path = Path(value).expanduser()
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(f"输入文件不存在或不是文件：{path}")
+    return path.resolve()
+
+
+def load_input_file(
+        parser: argparse.ArgumentParser,
+        path: Path,
+) -> dict[str, Any]:
+    """读取 UTF-8 JSON 对象，格式错误时按命令行参数错误退出。"""
     try:
-        result = json.loads(value)
+        content = path.read_text(encoding="utf-8-sig")
+    except OSError as error:
+        parser.error(f"无法读取输入文件 {path}：{error}")
+    try:
+        result = json.loads(content)
     except json.JSONDecodeError as error:
-        raise argparse.ArgumentTypeError(
-            f"不是有效的 JSON：{error.msg}"
-        ) from error
+        parser.error(
+            f"输入文件 {path} 不是有效 JSON："
+            f"第 {error.lineno} 行第 {error.colno} 列，{error.msg}"
+        )
     if not isinstance(result, dict):
-        raise argparse.ArgumentTypeError("必须是 JSON 对象")
+        parser.error(f"输入文件 {path} 的顶层必须是 JSON 对象")
     return result
 
 
-def json_array(value: str) -> list[Any]:
-    """解析 JSON 数组参数。"""
-    try:
-        result = json.loads(value)
-    except json.JSONDecodeError as error:
-        raise argparse.ArgumentTypeError(
-            f"不是有效的 JSON：{error.msg}"
-        ) from error
-    if not isinstance(result, list):
-        raise argparse.ArgumentTypeError("必须是 JSON 数组")
-    return result
+def validate_input_fields(
+        parser: argparse.ArgumentParser,
+        data: dict[str, Any],
+        *,
+        allowed: frozenset[str],
+        required: frozenset[str],
+) -> None:
+    """拒绝输入文件中的未知字段和缺失必填字段。"""
+    if unknown := sorted(set(data) - allowed):
+        parser.error(f"输入文件包含未知字段：{unknown}")
+    if missing := sorted(required - set(data)):
+        parser.error(f"输入文件缺少必填字段：{missing}")
 
 
-def positive_int(value: str) -> int:
-    """解析大于零的整数。"""
-    result = int(value)
-    if result <= 0:
-        raise argparse.ArgumentTypeError("必须大于 0")
-    return result
+def resolve_output_dir(
+        parser: argparse.ArgumentParser,
+        value: Any,
+        *,
+        input_file: Path,
+) -> Path:
+    """解析输出目录；相对路径以输入文件所在目录为基准。"""
+    if not isinstance(value, str) or not value.strip():
+        parser.error("input_file.output_dir 必须是非空字符串")
+    output_dir = Path(value).expanduser()
+    if not output_dir.is_absolute():
+        output_dir = input_file.parent / output_dir
+    return output_dir.resolve()
 
 
-def backtest_output_names(value: str) -> list[str]:
-    """解析并校验需要保存的回测结果表名称。"""
-    result = json_array(value)
-    if not all(isinstance(name, str) for name in result):
-        raise argparse.ArgumentTypeError("回测输出名称必须全部是字符串")
-    if not result:
-        raise argparse.ArgumentTypeError("回测输出至少需要指定一张表")
-    unsupported = sorted(set(result) - set(BACKTEST_OUTPUT_NAMES))
+def resolve_object_prefix(
+        parser: argparse.ArgumentParser,
+        value: Any,
+) -> str:
+    """校验云端 output_dir，并转换为 S3 对象键前缀。"""
+    if not isinstance(value, str) or not value.strip():
+        parser.error("input_file.output_dir 必须是非空字符串")
+    normalized = value.strip().replace("\\", "/").rstrip("/")
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or (len(normalized) >= 2 and normalized[1] == ":")
+        or "://" in normalized
+        or any(part in {"", ".", ".."} for part in normalized.split("/"))
+    ):
+        parser.error(
+            "云端 input_file.output_dir 必须是 bucket 内的相对对象路径"
+        )
+    return normalized
+
+
+def prepare_output_target(
+        parser: argparse.ArgumentParser,
+        output_dir: Any,
+        *,
+        input_file: Path,
+        output_cloud: bool,
+) -> tuple[Path | str, ObjectStorage | None]:
+    """创建本地或对象存储输出目标。"""
+    if output_cloud:
+        prefix = resolve_object_prefix(parser, output_dir)
+        try:
+            storage = ObjectStorage.from_env()
+        except ObjectStorageConfigurationError as error:
+            parser.error(str(error))
+        return prefix, storage
+
+    local_dir = resolve_output_dir(
+        parser,
+        output_dir,
+        input_file=input_file,
+    )
+    local_dir.mkdir(parents=True, exist_ok=True)
+    return local_dir, None
+
+
+def write_parquet(
+        data: Any,
+        filename: str,
+        *,
+        output_target: Path | str,
+        storage: ObjectStorage | None,
+) -> str:
+    """将结果写入本地目录或对象存储。"""
+    if storage is not None:
+        return storage.upload_parquet(
+            data,
+            f"{output_target}/{filename}",
+        )
+
+    if not isinstance(output_target, Path):
+        raise TypeError("本地输出目标必须是 Path")
+    output = output_target / filename
+    data.to_parquet(output, index=False)
+    return str(output.resolve())
+
+
+def validate_backtest_output_names(
+        parser: argparse.ArgumentParser,
+        value: Any,
+) -> list[str]:
+    """校验需要保存的回测结果表名称。"""
+    if not isinstance(value, list):
+        parser.error("input_file.output 必须是 JSON 数组")
+    if not all(isinstance(name, str) for name in value):
+        parser.error("input_file.output 中的名称必须全部是字符串")
+    if not value:
+        parser.error("input_file.output 至少需要指定一张表")
+    unsupported = sorted(set(value) - set(BACKTEST_OUTPUT_NAMES))
     if unsupported:
-        raise argparse.ArgumentTypeError(
+        parser.error(
             f"不支持的回测输出：{unsupported}；"
             f"可选值：{list(BACKTEST_OUTPUT_NAMES)}"
         )
-    if len(result) != len(set(result)):
-        raise argparse.ArgumentTypeError("回测输出名称不能重复")
-    return result
+    if len(value) != len(set(value)):
+        parser.error("input_file.output 中的名称不能重复")
+    return value
 
 
-def add_query_arguments(parser: argparse.ArgumentParser) -> None:
-    """添加 FactorQuery 字段对应的命令行参数。"""
+def add_input_file_argument(parser: argparse.ArgumentParser) -> None:
+    """添加统一的输入文件和输出位置参数。"""
     parser.add_argument(
-        "--start-date",
+        "--input-file",
+        type=input_file_path,
         required=True,
-        help="查询闭区间开始日期",
+        metavar="PATH",
+        help="包含全部应用参数的 UTF-8 JSON 文件",
     )
     parser.add_argument(
-        "--end-date",
-        required=True,
-        help="查询闭区间结束日期",
-    )
-    parser.add_argument(
-        "--lookback",
-        help="计算前额外加载的历史时长",
-    )
-    parser.add_argument(
-        "--codes",
-        type=json_array,
-        required=True,
-        metavar="JSON",
-        help="股票代码 JSON 数组；空数组表示全市场",
-    )
-    parser.add_argument(
-        "--factors",
-        type=json_array,
-        metavar="JSON",
-        help="数据库因子 JSON 数组",
-    )
-    parser.add_argument(
-        "--derivatives",
-        type=json_object,
-        metavar="JSON",
-        help="命名派生因子 JSON 对象",
-    )
-    parser.add_argument(
-        "--filters",
-        type=json_array,
-        metavar="JSON",
-        help="过滤因子名称 JSON 数组",
+        "--output-cloud",
+        action="store_true",
+        default=False,
+        help="将 Parquet 上传到对象存储；默认写入本地目录",
     )
 
 
@@ -119,18 +211,8 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "示例：\n"
-            "  core-manage apps query "
-            "--start-date 2025-01-01 --end-date 2025-01-31 "
-            "--codes '[\\\"000001.SZ\\\"]' "
-            "--factors '[\\\"close\\\"]' "
-            "--output-dir output\n"
-            "  core-manage apps backtest "
-            "--start-date 2025-01-01 --end-date 2025-01-31 "
-            "--codes '[\\\"000001.SZ\\\"]' "
-            "--callbacks CALLBACKS_JSON "
-            "--config '{\\\"cash\\\":1000000}' "
-            "--output-dir output "
-            "--output '[\\\"trade_details\\\",\\\"daily_portfolios\\\"]'"
+            "  core-manage apps query --input-file query.json\n"
+            "  core-manage apps backtest --input-file backtest.json"
         ),
     )
     commands = parser.add_subparsers(
@@ -145,14 +227,7 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         description="执行因子查询。",
         allow_abbrev=False,
     )
-    add_query_arguments(query_parser)
-    query_parser.add_argument(
-        "--output-dir",
-        type=Path,
-        required=True,
-        metavar="DIR",
-        help=f"查询结果目录；文件名固定为 {QUERY_OUTPUT_FILENAME}",
-    )
+    add_input_file_argument(query_parser)
 
     backtest_parser = commands.add_parser(
         "backtest",
@@ -160,78 +235,7 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         description="执行日频回测。",
         allow_abbrev=False,
     )
-    add_query_arguments(backtest_parser)
-    backtest_parser.add_argument(
-        "--callbacks",
-        type=json_object,
-        required=True,
-        metavar="CALLBACKS_JSON",
-        help="回调名称到 DolphinDB 函数定义的 JSON 对象",
-    )
-    backtest_parser.add_argument(
-        "--utils",
-        type=json_object,
-        metavar="JSON",
-        help="工具函数名称到 DolphinDB 函数定义的 JSON 对象",
-    )
-    backtest_parser.add_argument(
-        "--codes-query",
-        type=json_object,
-        metavar="JSON",
-        help="选股 FactorQuery JSON 对象",
-    )
-    backtest_parser.add_argument(
-        "--adj",
-        choices=("hfq", "qfq"),
-        help="价格复权方式：hfq 后复权，qfq 前复权；默认不复权",
-    )
-    backtest_parser.add_argument("--name", help="回测引擎名称")
-    backtest_parser.add_argument(
-        "--config",
-        type=json_object,
-        metavar="JSON",
-        help="Backtest 配置 JSON 对象",
-    )
-    backtest_parser.add_argument(
-        "--annual-trading-days",
-        type=positive_int,
-        default=250,
-        metavar="DAYS",
-        help="年化交易日数，默认 250",
-    )
-    backtest_parser.add_argument(
-        "--risk-free-rate",
-        type=float,
-        default=0.04,
-        metavar="RATE",
-        help="年化无风险利率，默认 0.04",
-    )
-    backtest_parser.add_argument(
-        "--source-ref",
-        default="coreBacktestSource",
-        help="基础因子查询结果变量名，默认 coreBacktestSource",
-    )
-    backtest_parser.add_argument(
-        "--message-ref",
-        default="coreBacktestMessage",
-        help="日频消息查询结果变量名，默认 coreBacktestMessage",
-    )
-    backtest_parser.add_argument(
-        "--output-dir",
-        type=Path,
-        required=True,
-        metavar="DIR",
-        help="回测结果的 Parquet 文件保存目录",
-    )
-    backtest_parser.add_argument(
-        "--output",
-        type=backtest_output_names,
-        metavar="JSON",
-        help=(
-            "需要保存的结果表 JSON 数组；"
-            f"可选值为 {list(BACKTEST_OUTPUT_NAMES)}；默认全部"
-        ),
-    )
+    add_input_file_argument(backtest_parser)
     return parser
 
 
@@ -243,61 +247,80 @@ def main(
     """解析参数并运行指定应用。"""
     parser = build_parser(prog=prog)
     arguments = parser.parse_args(argv)
-    request: dict[str, Any] = {
-        "start_date": arguments.start_date,
-        "end_date": arguments.end_date,
-        "codes": arguments.codes,
-    }
-    for name in ("lookback", "factors", "derivatives", "filters"):
-        value = getattr(arguments, name)
-        if value is not None:
-            request[name] = value
+    data = load_input_file(parser, arguments.input_file)
 
     if arguments.app == "query":
         from core.apps.query import execute_query
         from core.utils import logger
 
-        output_dir = arguments.output_dir.expanduser()
-        output = output_dir / QUERY_OUTPUT_FILENAME
-        with execute_query(request) as query_result:
-            data = query_result.data
-            output_dir.mkdir(parents=True, exist_ok=True)
-            data.to_parquet(output, index=False)
-        logger.success(f"查询结果已保存为 Parquet：{output.resolve()}")
+        validate_input_fields(
+            parser,
+            data,
+            allowed=QUERY_INPUT_FIELDS,
+            required=QUERY_INPUT_FIELDS,
+        )
+        output_target, storage = prepare_output_target(
+            parser,
+            data["output_dir"],
+            input_file=arguments.input_file,
+            output_cloud=arguments.output_cloud,
+        )
+        with ExitStack() as stack:
+            if storage is not None:
+                stack.enter_context(storage)
+            query_result = stack.enter_context(
+                execute_query(data["dataset_query"])
+            )
+            output = write_parquet(
+                query_result.data,
+                QUERY_OUTPUT_FILENAME,
+                output_target=output_target,
+                storage=storage,
+            )
+        logger.success(f"查询结果已保存为 Parquet：{output}")
         return 0
 
     from core.apps.backtest import run_backtest
     from core.utils import logger
 
-    output_dir = arguments.output_dir.expanduser()
+    validate_input_fields(
+        parser,
+        data,
+        allowed=BACKTEST_INPUT_FIELDS,
+        required=frozenset(("dataset_query", "callbacks", "output_dir")),
+    )
+    output_target, storage = prepare_output_target(
+        parser,
+        data["output_dir"],
+        input_file=arguments.input_file,
+        output_cloud=arguments.output_cloud,
+    )
     output_names = (
-        arguments.output
-        if arguments.output is not None
+        validate_backtest_output_names(parser, data["output"])
+        if "output" in data
         else list(BACKTEST_OUTPUT_NAMES)
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with run_backtest(
-        dataset_query=request,
-        callbacks=arguments.callbacks,
-        utils=arguments.utils,
-        codes_query=arguments.codes_query,
-        adj=arguments.adj,
-        name=arguments.name,
-        config=arguments.config,
-        annual_trading_days=arguments.annual_trading_days,
-        risk_free_rate=arguments.risk_free_rate,
-        source_ref=arguments.source_ref,
-        message_ref=arguments.message_ref,
-    ) as backtest_result:
+    run_arguments = {
+        name: data[name]
+        for name in BACKTEST_RUN_FIELDS
+        if name in data
+    }
+    outputs: list[str] = []
+    with ExitStack() as stack:
+        if storage is not None:
+            stack.enter_context(storage)
+        backtest_result = stack.enter_context(run_backtest(**run_arguments))
         for output_name in output_names:
-            data = getattr(backtest_result, output_name)
-            data.to_parquet(
-                output_dir / f"{output_name}.parquet",
-                index=False,
+            outputs.append(
+                write_parquet(
+                    getattr(backtest_result, output_name),
+                    f"{output_name}.parquet",
+                    output_target=output_target,
+                    storage=storage,
+                )
             )
     logger.success(
-        f"回测结果已保存为 Parquet：{output_dir.resolve()}，"
-        f"输出={output_names}"
+        f"回测结果已保存为 Parquet：{outputs}"
     )
     return 0
 

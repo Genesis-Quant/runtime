@@ -1,0 +1,95 @@
+{
+  "dataset_query": {
+    "start_date": "2025-01-01",
+    "end_date": "2025-04-02",
+    "lookback": "60D",
+    "codes": [
+      "000001.SZ",
+      "600000.SH"
+    ],
+    "derivatives": {
+      "return_1d": {
+        "type": "TS",
+        "op": "unary.pct_change",
+        "fields": {
+          "col": "close"
+        },
+        "params": {
+          "periods": 1
+        }
+      },
+      "momentum_20d": {
+        "type": "TS",
+        "op": "unary.pct_change",
+        "fields": {
+          "col": "close"
+        },
+        "params": {
+          "periods": 20
+        }
+      },
+      "volume_mean_5d": {
+        "type": "TS",
+        "op": "unary.rolling_mean",
+        "fields": {
+          "col": "vol"
+        },
+        "params": {
+          "window": 5,
+          "min_periods": 5
+        }
+      },
+      "volume_mean_20d": {
+        "type": "TS",
+        "op": "unary.rolling_mean",
+        "fields": {
+          "col": "vol"
+        },
+        "params": {
+          "window": 20,
+          "min_periods": 20
+        }
+      },
+      "volume_ratio": {
+        "type": "DIRECT",
+        "op": "binary.div",
+        "fields": {
+          "left": "volume_mean_5d",
+          "right": "volume_mean_20d"
+        },
+        "params": {}
+      },
+      "price_volume_factor": {
+        "type": "DIRECT",
+        "op": "binary.mul",
+        "fields": {
+          "left": "momentum_20d",
+          "right": "volume_ratio"
+        },
+        "params": {}
+      },
+      "volatility_20d": {
+        "type": "TS",
+        "op": "unary.rolling_std",
+        "fields": {
+          "col": "return_1d"
+        },
+        "params": {
+          "window": 20,
+          "min_periods": 20
+        }
+      }
+    },
+    "filters": []
+  },
+  "callbacks": {
+    "initialize": "def initialize(mutable context) {\n    print(\"[Strategy][INFO] initialize volume_price_risk_parity\")\n}",
+    "onBar": "def onBar(mutable context, message, indicator) {\n    executionDate = date(message.tradeTime[0])\n    if (executionDate > 2025.03.31) {\n        for (index in 0..(message.rows() - 1)) {\n            position = Backtest::getPosition(context.engine, message.symbol[index], \"stock\")[\"longPosition\"]\n            if (count(position) > 0 && position[0] > 0) {\n                Backtest::submitOrder(context.engine, (message.symbol[index], context.tradeTime, 5, message.open[index], long(position[0]), 3), \"liquidate\")\n            }\n        }\n        return\n    }\n    signal = backtest::getLastData(context, message, false)\n    if (signal.rows() == 0) return\n    rowCount = message.rows()\n    risks = take(0.0, rowCount)\n    factors = take(double(NULL), rowCount)\n    volatilities = take(double(NULL), rowCount)\n    signalCodes = string(signal.code)\n    for (index in 0..(rowCount - 1)) {\n        code = strReplace(strReplace(string(message.symbol[index]), \".XSHE\", \".SZ\"), \".XSHG\", \".SH\")\n        signalIndex = find(signalCodes, code)\n        if (signalIndex < signal.rows()) {\n            factors[index] = signal.price_volume_factor[signalIndex]\n            volatilities[index] = signal.volatility_20d[signalIndex]\n            if (!isNull(factors[index]) && factors[index] > 0 && !isNull(volatilities[index]) && volatilities[index] > 0) risks[index] = 1.0 / volatilities[index]\n        }\n    }\n    riskSum = sum(risks)\n    weights = iif(riskSum > 0, risks / riskSum, risks)\n    currentQuantities = take(0l, rowCount)\n    for (index in 0..(rowCount - 1)) {\n        position = Backtest::getPosition(context.engine, message.symbol[index], \"stock\")[\"longPosition\"]\n        if (count(position) > 0) currentQuantities[index] = long(position[0])\n    }\n    equity = Backtest::getAvailableCash(context.engine, \"stock\") + sum(double(currentQuantities) * message.open)\n    targetQuantities = take(0l, rowCount)\n    for (index in 0..(rowCount - 1)) {\n        if (weights[index] > 0) targetQuantities[index] = long(floor(equity * weights[index] / message.open[index] / 100.0)) * 100l\n    }\n    for (index in 0..(rowCount - 1)) {\n        difference = targetQuantities[index] - currentQuantities[index]\n        if (difference < 0) {\n            Backtest::submitOrder(context.engine, (message.symbol[index], context.tradeTime, 5, message.open[index], -difference, 3), \"riskParitySell\")\n        }\n    }\n    for (index in 0..(rowCount - 1)) {\n        difference = targetQuantities[index] - currentQuantities[index]\n        if (difference > 0) {\n            Backtest::submitOrder(context.engine, (message.symbol[index], context.tradeTime, 5, message.open[index], difference, 1), \"riskParityBuy\")\n        }\n    }\n}",
+    "finalize": "def finalize(mutable context) {\n    print(\"[Strategy][INFO] finalize volume_price_risk_parity\")\n}"
+  },
+  "name": "volume_price_risk_parity_cloud",
+  "config": {
+    "cash": 100000
+  },
+  "output_dir": "strategies/volume-price-risk-parity/backtest"
+}

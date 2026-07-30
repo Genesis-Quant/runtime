@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from core.config import DOLPHIN
+from core.config import DolphinSettings
 from core.utils import logger
 
 from ..session import create_session
@@ -61,8 +61,8 @@ STOCK_DIVIDEND_EMPTY = pd.DataFrame(
     }
 ).loc[:, list(STOCK_DIVIDEND_COLUMNS)]
 STOCK_DIVIDEND_TABLE = (
-    f"loadTable({json.dumps(DOLPHIN.DATABASE)}, "
-    f"{json.dumps(DOLPHIN.DIVIDEND_TABLE)})"
+    f"loadTable({json.dumps(DolphinSettings.DATABASE)}, "
+    f"{json.dumps(DolphinSettings.DIVIDEND_TABLE)})"
 )
 
 
@@ -70,8 +70,8 @@ def ensure_stock_dividend_table(session: Any) -> None:
     """在 CoreData 中创建股票分红维度表，已存在时不做处理。"""
     session.upload(
         {
-            "coreDividendDatabaseName": DOLPHIN.DATABASE,
-            "coreDividendTableName": DOLPHIN.DIVIDEND_TABLE,
+            "coreDividendDatabaseName": DolphinSettings.DATABASE,
+            "coreDividendTableName": DolphinSettings.DIVIDEND_TABLE,
         }
     )
     session.run(

@@ -12,7 +12,7 @@ load_dotenv("../.env")
 PROD = os.getenv("PROD") == "true"
 
 
-class DOLPHIN:
+class DolphinSettings:
     """DolphinDB 连接及统一因子长表配置。"""
 
     HOST = os.getenv("DOLPHIN_HOST", "127.0.0.1")
@@ -23,6 +23,21 @@ class DOLPHIN:
     DATABASE = os.getenv("DOLPHIN_CORE_DATABASE", "dfs://CoreData")
     TABLE = os.getenv("DOLPHIN_CORE_TABLE", "coreData")
     DIVIDEND_TABLE = os.getenv("DOLPHIN_DIVIDEND_TABLE", "stockDividend")
+
+
+class ObjectStorageSettings:
+    """S3 兼容对象存储连接配置。"""
+
+    ENDPOINT_URL = os.getenv("OBJECT_STORAGE_ENDPOINT_URL")
+    ACCESS_KEY_ID = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID")
+    SECRET_ACCESS_KEY = os.getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY")
+    BUCKET = os.getenv("OBJECT_STORAGE_BUCKET")
+    REGION = os.getenv("OBJECT_STORAGE_REGION", "us-east-1")
+    ADDRESSING_STYLE = os.getenv("OBJECT_STORAGE_ADDRESSING_STYLE", "auto")
+    ROOT_FOLDER = os.getenv(
+        "OBJECT_STORAGE_ROOT_FOLDER",
+        "arena-runtime",
+    )
 
 
 # 需要持久化并对外提供查询的指数代码。

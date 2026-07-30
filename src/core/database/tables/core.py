@@ -8,7 +8,7 @@ import dolphindb
 import numpy as np
 import pandas as pd
 
-from core.config import DOLPHIN
+from core.config import DolphinSettings
 from core.utils import (
     CODE_COLUMN,
     CORE_COLUMNS,
@@ -28,30 +28,30 @@ def _ddb_string(value: str) -> str:
 
 
 CORE_TABLE = (
-    f"loadTable({_ddb_string(DOLPHIN.DATABASE)}, "
-    f"{_ddb_string(DOLPHIN.TABLE)})"
+    f"loadTable({_ddb_string(DolphinSettings.DATABASE)}, "
+    f"{_ddb_string(DolphinSettings.TABLE)})"
 )
 
 
 def ensure_core_table(session: Any, factors: list[str]) -> None:
     """统一因子库表缺失时，使用已有会话完成初始化。"""
     if session.run(
-        f"existsDatabase({_ddb_string(DOLPHIN.DATABASE)})"
+        f"existsDatabase({_ddb_string(DolphinSettings.DATABASE)})"
     ) and session.run(
         "existsTable("
-        f"{_ddb_string(DOLPHIN.DATABASE)}, "
-        f"{_ddb_string(DOLPHIN.TABLE)})"
+        f"{_ddb_string(DolphinSettings.DATABASE)}, "
+        f"{_ddb_string(DolphinSettings.TABLE)})"
     ):
         return
 
     logger.info(
-        f"初始化 DolphinDB 统一因子表：{DOLPHIN.DATABASE}/"
-        f"{DOLPHIN.TABLE}，初始 factor={len(factors):,} 个"
+        f"初始化 DolphinDB 统一因子表：{DolphinSettings.DATABASE}/"
+        f"{DolphinSettings.TABLE}，初始 factor={len(factors):,} 个"
     )
     session.upload(
         {
-            "coreDatabaseName": DOLPHIN.DATABASE,
-            "coreTableName": DOLPHIN.TABLE,
+            "coreDatabaseName": DolphinSettings.DATABASE,
+            "coreTableName": DolphinSettings.TABLE,
             "coreInitialFactors": np.asarray(factors, dtype=str),
         }
     )
@@ -117,7 +117,7 @@ def ensure_factor_partitions(
         ensure_core_table(current, factors)
 
         schema = current.run(
-            f"schema(database({_ddb_string(DOLPHIN.DATABASE)}))"
+            f"schema(database({_ddb_string(DolphinSettings.DATABASE)}))"
         )
         existing = {str(value) for value in schema["partitionSchema"][1]}
         missing = [factor for factor in factors if factor not in existing]
@@ -133,7 +133,7 @@ def ensure_factor_partitions(
                 {"coreNewFactorPartitions": np.asarray(missing, dtype=str)}
             )
             current.run(
-                f"addValuePartitions(database({_ddb_string(DOLPHIN.DATABASE)}), "
+                f"addValuePartitions(database({_ddb_string(DolphinSettings.DATABASE)}), "
                 "symbol(coreNewFactorPartitions), 1)"
             )
         return missing
@@ -186,18 +186,18 @@ class CoreTableWriter:
         self.prepare()
 
         pool = dolphindb.DBConnectionPool(
-            DOLPHIN.HOST,
-            DOLPHIN.PORT,
+            DolphinSettings.HOST,
+            DolphinSettings.PORT,
             threadNum=self.thread_count,
-            userid=DOLPHIN.USERNAME,
-            password=DOLPHIN.PASSWORD,
+            userid=DolphinSettings.USERNAME,
+            password=DolphinSettings.PASSWORD,
             reConnect=True,
             show_output=False,
         )
         try:
             appender = dolphindb.PartitionedTableAppender(
-                db_path=DOLPHIN.DATABASE,
-                table_name=DOLPHIN.TABLE,
+                db_path=DolphinSettings.DATABASE,
+                table_name=DolphinSettings.TABLE,
                 partition_col=FACTOR_COLUMN,
                 pool=pool,
             )

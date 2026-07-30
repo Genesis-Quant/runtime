@@ -57,8 +57,9 @@ from core.apps.backtest import BacktestResult, run_backtest
 
 ```powershell
 core-manage --help
-core-manage apps query --start-date 2025-01-01 --end-date 2025-01-31 --codes '["000001.SZ"]' --factors '["close"]' --output-dir output
-core-manage apps backtest --start-date 2025-01-01 --end-date 2025-01-31 --codes CODES_JSON --factors FACTORS_JSON --callbacks CALLBACKS_JSON --output-dir output
+core-manage apps query --input-file query.json
+core-manage apps backtest --input-file backtest.json
+core-manage apps backtest --input-file backtest.json --output-cloud
 core-manage workers --list-workers
 core-manage workers daily adj-factor --start-date 2025-01-01
 core-manage database compile --output-dir output
@@ -71,22 +72,88 @@ uv run python manage.py workers --list-workers
 uv run python manage.py database compile
 ```
 
-`apps query` 必须通过 `--output-dir` 指定保存目录，查询结果会下载并写入该目录
-下固定名称的 `query.parquet` 文件；目标目录不存在时会自动创建。
+`apps query` 和 `apps backtest` 都使用必填的 `--input-file`，并支持可选的
+`--output-cloud` 开关（默认 `False`）。输入文件必须是 UTF-8 JSON 对象，
+包含应用的全部非敏感参数。
 
-`apps backtest` 同样必须指定 `--output-dir`。默认输出以下全部 Parquet 文件：
-`trade_details.parquet`、`daily_positions.parquet`、`daily_portfolios.parquet`
-和 `daily_trading_statistics.parquet`。通过 `--output` 传入 JSON 数组可只输出
-指定结果，例如：
+查询输入文件示例：
 
-```powershell
-core-manage apps backtest ... --output-dir output --output '["trade_details","daily_portfolios"]'
+```json
+{
+  "dataset_query": {
+    "start_date": "2025-01-01",
+    "end_date": "2025-01-31",
+    "codes": ["000001.SZ"],
+    "factors": ["close"]
+  },
+  "output_dir": "output/query"
+}
 ```
 
-`apps query` 和 `apps backtest` 的日期、回看周期、复权方式、名称和数值使用
-普通命令行参数；股票代码、因子、派生因子、过滤器、回调、工具函数、
-选股查询、回测配置和输出表名等数组或对象使用 JSON 字符串。命令执行结束后
-自动关闭 DolphinDB session。
+本地模式下，相对 `output_dir` 以输入文件所在目录为基准，查询结果固定写入
+`<output_dir>/query.parquet`，目标目录不存在时会自动创建。
+
+回测输入文件示例：
+
+```json
+{
+  "dataset_query": {
+    "start_date": "2025-01-01",
+    "end_date": "2025-01-31",
+    "lookback": "60D",
+    "codes": ["000001.SZ"],
+    "factors": ["close"]
+  },
+  "callbacks": {
+    "initialize": "def initialize(mutable context) {}"
+  },
+  "config": {
+    "cash": 100000
+  },
+  "output_dir": "output/backtest",
+  "output": [
+    "trade_details",
+    "daily_portfolios"
+  ]
+}
+```
+
+`output` 可省略，默认输出 `trade_details.parquet`、
+`daily_positions.parquet`、`daily_portfolios.parquet` 和
+`daily_trading_statistics.parquet`。回测输入还支持 `utils`、
+`codes_query`、`adj`、`name`、`annual_trading_days`、`risk_free_rate`、
+`source_ref` 和 `message_ref`。命令执行结束后自动关闭 DolphinDB session。
+
+指定 `--output-cloud` 后不会在 `output_dir` 落本地文件。此时
+`output_dir` 表示 bucket 内的相对对象路径，例如 `jobs/backtest-1`，
+结果将上传为
+`s3://<OBJECT_STORAGE_BUCKET>/jobs/backtest-1/<文件名>.parquet`。
+对象路径不能是绝对路径，不能包含 `.` 或 `..` 路径段。
+
+对象存储使用 S3 兼容协议，连接参数通过环境变量或 `.env` 提供：
+
+```dotenv
+OBJECT_STORAGE_ENDPOINT_URL=http://127.0.0.1:9000
+OBJECT_STORAGE_ACCESS_KEY_ID=your-access-key
+OBJECT_STORAGE_SECRET_ACCESS_KEY=your-secret-key
+OBJECT_STORAGE_BUCKET=arena
+OBJECT_STORAGE_REGION=us-east-1
+OBJECT_STORAGE_ADDRESSING_STYLE=auto
+OBJECT_STORAGE_ROOT_FOLDER=arena-runtime
+```
+
+前四项为必填项；`OBJECT_STORAGE_ADDRESSING_STYLE` 可设置为 `auto`、`path`
+或 `virtual`。`OBJECT_STORAGE_ROOT_FOLDER` 设置 bucket 内的统一根文件夹，
+可使用 `team/arena-runtime` 形式的多级相对路径；设置为空表示直接使用
+bucket 根目录。配置为 `arena-runtime` 时，云端结果路径为
+`s3://<bucket>/arena-runtime/<output_dir>/<文件名>.parquet`。
+对象存储参数统一在 `D:\Arena\.env` 中配置。
+当前腾讯云南京区域配置使用 `https://cos.ap-nanjing.myqcloud.com` 和
+`virtual` addressing style。
+DolphinDB 凭据和 Tushare Token 等敏感信息同样不写入输入 JSON。
+
+仓库中的 [query.json](examples/query.json) 和
+[backtest.json](examples/backtest.json) 可以直接作为输入文件示例。
 
 `database compile` 命令会重新生成 `common.dos`、`query.dos` 和
 `backtest.dos`。
