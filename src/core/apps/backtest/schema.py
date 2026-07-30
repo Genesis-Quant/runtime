@@ -21,17 +21,15 @@ CallbackName: TypeAlias = Literal[
 ]
 Adj: TypeAlias = Literal["hfq", "qfq"]
 FUNCTION_PATTERN = re.compile(r"^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
-DAILY_REQUIRED_COLUMNS = frozenset(
-    (
-        "open",
-        "low",
-        "high",
-        "close",
-        "volume",
-        "upLimitPrice",
-        "downLimitPrice",
-        "prevClosePrice",
-    )
+DAILY_MESSAGE_FACTORS = (
+    "open",
+    "low",
+    "high",
+    "close",
+    "vol",
+    "up_limit",
+    "down_limit",
+    "pre_close",
 )
 SYSTEM_COLUMNS = frozenset(("symbol", "tradeTime"))
 RESERVED_CONFIG = frozenset(("startDate", "endDate", "strategyGroup", "dataType", "msgAsTable"))
@@ -112,10 +110,30 @@ class BacktestParameters(BaseModel):
     @field_validator("dataset_query", mode="before")
     @classmethod
     def validate_dataset_query(cls, value: Any) -> Any:
-        """只接受字典，并在参数模型校验时转换为 FactorQuery。"""
+        """只接受字典，并自动加入构造日频消息所需的原始行情因子。"""
         if not isinstance(value, dict):
             raise ValueError("dataset_query 必须是 dict[str, Any]")
-        return value
+        factors = value.get("factors")
+        if factors is None:
+            factors = []
+        if not isinstance(factors, list):
+            raise ValueError("dataset_query.factors 必须是 list[str]")
+        normalized_factors = {
+            factor.strip()
+            for factor in factors
+            if isinstance(factor, str)
+        }
+        return {
+            **value,
+            "factors": [
+                *factors,
+                *(
+                    factor
+                    for factor in DAILY_MESSAGE_FACTORS
+                    if factor not in normalized_factors
+                ),
+            ],
+        }
 
     @field_validator("codes_query", mode="before")
     @classmethod
@@ -127,7 +145,7 @@ class BacktestParameters(BaseModel):
 
     @model_validator(mode="after")
     def validate_dataset_query_contract(self) -> "BacktestParameters":
-        """校验股票范围和日频行情列是否符合回测入口契约。"""
+        """补充复权因子，并校验股票范围和框架保留列。"""
         if self.adj is not None:
             if "adj_factor" in self.dataset_query.derivatives:
                 raise ValueError("adj 不允许使用名为 adj_factor 的派生因子")
@@ -143,8 +161,6 @@ class BacktestParameters(BaseModel):
         output_columns = set(self.dataset_query.factors) | set(self.dataset_query.derivatives)
         if overlap := output_columns & SYSTEM_COLUMNS:
             raise ValueError(f"以下列由回测框架生成，DSL 不能重复定义：{sorted(overlap)}")
-        if missing := DAILY_REQUIRED_COLUMNS - output_columns:
-            raise ValueError(f"日频消息缺少必需的 factor 或派生因子：{sorted(missing)}")
         if self.codes_query is None:
             unsupported_codes = [code for code in self.dataset_query.codes if not code.endswith((".SH", ".SZ"))]
             if unsupported_codes:

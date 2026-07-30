@@ -9,8 +9,9 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
         /*
         从完整股票范围的未筛选行情构造 Backtest 插件日频消息。
 
-        msg 仅包含插件所需的原始行情字段，不包含 DSL 因子和派生列。
-        缺少任一必需行情字段的行会被删除，code 和 time 会转换为插件要求的
+        msg 仅包含插件所需的行情字段，不包含策略 DSL 因子和派生列。
+        原始因子 vol、up_limit、down_limit 和 pre_close 会在 select 时转换为
+        插件列名；缺少任一必需行情字段的行会被删除。code 和 time 会转换为
         symbol 和 tradeTime。adj 为 hfq 或 qfq 时使用 adj_factor 复权价格。
         */
         if (!isNull(adj) && !(adj in ["hfq", "qfq"])) {
@@ -35,10 +36,10 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
             low,
             high,
             close,
-            volume,
-            upLimitPrice,
-            downLimitPrice,
-            prevClosePrice
+            vol as volume,
+            up_limit as upLimitPrice,
+            down_limit as downLimitPrice,
+            pre_close as prevClosePrice
         from market_data
 
         for (column in `open`low`high`close`upLimitPrice`downLimitPrice`prevClosePrice) {

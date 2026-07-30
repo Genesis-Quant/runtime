@@ -98,9 +98,6 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
             "  core-manage apps backtest "
             "--start-date 2025-01-01 --end-date 2025-01-31 "
             "--codes '[\\\"000001.SZ\\\"]' "
-            "--factors '[\\\"open\\\",\\\"low\\\",\\\"high\\\","
-            "\\\"close\\\",\\\"volume\\\",\\\"upLimitPrice\\\","
-            "\\\"downLimitPrice\\\",\\\"prevClosePrice\\\"]' "
             "--callbacks CALLBACKS_JSON "
             "--config '{\\\"cash\\\":1000000}'"
         ),
