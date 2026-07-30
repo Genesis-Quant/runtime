@@ -61,7 +61,7 @@ def build_query_table(
     )
     logger.info("session.run: 加载 query 模块")
     session.run("use query")
-    if has_session_variable(session, source_ref):
+    if not has_session_variable(session, source_ref):
         logger.info(f"session.run: 查询基础因子表 {source_ref}")
         session.run(
             f"""
@@ -164,7 +164,7 @@ def execute_query(request: schema.FactorQuery | dict[str, Any], *, session: Any 
         current_session.run(
             """
             coreQueryResultData = project_factor_output(
-                coreQueryResultFilteredData,
+                coreQueryFilteredResult,
                 coreDslOutputColumns,
                 coreOutputStart,
                 coreOutputEndExclusive
