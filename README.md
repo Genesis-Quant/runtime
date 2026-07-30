@@ -57,8 +57,8 @@ from core.apps.backtest import BacktestResult, run_backtest
 
 ```powershell
 core-manage --help
-core-manage apps query --start-date 2025-01-01 --end-date 2025-01-31 --codes '[\"000001.SZ\"]' --factors '[\"close\"]'
-core-manage apps backtest --start-date 2025-01-01 --end-date 2025-01-31 --codes CODES_JSON --factors FACTORS_JSON --callbacks CALLBACKS_JSON
+core-manage apps query --start-date 2025-01-01 --end-date 2025-01-31 --codes '["000001.SZ"]' --factors '["close"]' --output-dir output
+core-manage apps backtest --start-date 2025-01-01 --end-date 2025-01-31 --codes CODES_JSON --factors FACTORS_JSON --callbacks CALLBACKS_JSON --output-dir output
 core-manage workers --list-workers
 core-manage workers daily adj-factor --start-date 2025-01-01
 core-manage database compile --output-dir output
@@ -71,10 +71,22 @@ uv run python manage.py workers --list-workers
 uv run python manage.py database compile
 ```
 
+`apps query` 必须通过 `--output-dir` 指定保存目录，查询结果会下载并写入该目录
+下固定名称的 `query.parquet` 文件；目标目录不存在时会自动创建。
+
+`apps backtest` 同样必须指定 `--output-dir`。默认输出以下全部 Parquet 文件：
+`trade_details.parquet`、`daily_positions.parquet`、`daily_portfolios.parquet`
+和 `daily_trading_statistics.parquet`。通过 `--output` 传入 JSON 数组可只输出
+指定结果，例如：
+
+```powershell
+core-manage apps backtest ... --output-dir output --output '["trade_details","daily_portfolios"]'
+```
+
 `apps query` 和 `apps backtest` 的日期、回看周期、复权方式、名称和数值使用
 普通命令行参数；股票代码、因子、派生因子、过滤器、回调、工具函数、
-选股查询和回测配置等数组或对象使用 JSON 字符串。命令当前只负责执行，
-不会下载或打印结果；执行结束后自动关闭 DolphinDB session。
+选股查询、回测配置和输出表名等数组或对象使用 JSON 字符串。命令执行结束后
+自动关闭 DolphinDB session。
 
 `database compile` 命令会重新生成 `common.dos`、`query.dos` 和
 `backtest.dos`。

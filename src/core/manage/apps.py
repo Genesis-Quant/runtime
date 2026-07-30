@@ -3,7 +3,17 @@
 import argparse
 from collections.abc import Sequence
 import json
+from pathlib import Path
 from typing import Any
+
+
+QUERY_OUTPUT_FILENAME = "query.parquet"
+BACKTEST_OUTPUT_NAMES = (
+    "trade_details",
+    "daily_positions",
+    "daily_portfolios",
+    "daily_trading_statistics",
+)
 
 
 def json_object(value: str) -> dict[str, Any]:
@@ -37,6 +47,24 @@ def positive_int(value: str) -> int:
     result = int(value)
     if result <= 0:
         raise argparse.ArgumentTypeError("必须大于 0")
+    return result
+
+
+def backtest_output_names(value: str) -> list[str]:
+    """解析并校验需要保存的回测结果表名称。"""
+    result = json_array(value)
+    if not all(isinstance(name, str) for name in result):
+        raise argparse.ArgumentTypeError("回测输出名称必须全部是字符串")
+    if not result:
+        raise argparse.ArgumentTypeError("回测输出至少需要指定一张表")
+    unsupported = sorted(set(result) - set(BACKTEST_OUTPUT_NAMES))
+    if unsupported:
+        raise argparse.ArgumentTypeError(
+            f"不支持的回测输出：{unsupported}；"
+            f"可选值：{list(BACKTEST_OUTPUT_NAMES)}"
+        )
+    if len(result) != len(set(result)):
+        raise argparse.ArgumentTypeError("回测输出名称不能重复")
     return result
 
 
@@ -94,12 +122,15 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
             "  core-manage apps query "
             "--start-date 2025-01-01 --end-date 2025-01-31 "
             "--codes '[\\\"000001.SZ\\\"]' "
-            "--factors '[\\\"close\\\"]'\n"
+            "--factors '[\\\"close\\\"]' "
+            "--output-dir output\n"
             "  core-manage apps backtest "
             "--start-date 2025-01-01 --end-date 2025-01-31 "
             "--codes '[\\\"000001.SZ\\\"]' "
             "--callbacks CALLBACKS_JSON "
-            "--config '{\\\"cash\\\":1000000}'"
+            "--config '{\\\"cash\\\":1000000}' "
+            "--output-dir output "
+            "--output '[\\\"trade_details\\\",\\\"daily_portfolios\\\"]'"
         ),
     )
     commands = parser.add_subparsers(
@@ -115,6 +146,13 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     add_query_arguments(query_parser)
+    query_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        metavar="DIR",
+        help=f"查询结果目录；文件名固定为 {QUERY_OUTPUT_FILENAME}",
+    )
 
     backtest_parser = commands.add_parser(
         "backtest",
@@ -178,6 +216,22 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         default="coreBacktestMessage",
         help="日频消息查询结果变量名，默认 coreBacktestMessage",
     )
+    backtest_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        metavar="DIR",
+        help="回测结果的 Parquet 文件保存目录",
+    )
+    backtest_parser.add_argument(
+        "--output",
+        type=backtest_output_names,
+        metavar="JSON",
+        help=(
+            "需要保存的结果表 JSON 数组；"
+            f"可选值为 {list(BACKTEST_OUTPUT_NAMES)}；默认全部"
+        ),
+    )
     return parser
 
 
@@ -201,13 +255,27 @@ def main(
 
     if arguments.app == "query":
         from core.apps.query import execute_query
+        from core.utils import logger
 
-        with execute_query(request):
-            pass
+        output_dir = arguments.output_dir.expanduser()
+        output = output_dir / QUERY_OUTPUT_FILENAME
+        with execute_query(request) as query_result:
+            data = query_result.data
+            output_dir.mkdir(parents=True, exist_ok=True)
+            data.to_parquet(output, index=False)
+        logger.success(f"查询结果已保存为 Parquet：{output.resolve()}")
         return 0
 
     from core.apps.backtest import run_backtest
+    from core.utils import logger
 
+    output_dir = arguments.output_dir.expanduser()
+    output_names = (
+        arguments.output
+        if arguments.output is not None
+        else list(BACKTEST_OUTPUT_NAMES)
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
     with run_backtest(
         dataset_query=request,
         callbacks=arguments.callbacks,
@@ -220,8 +288,17 @@ def main(
         risk_free_rate=arguments.risk_free_rate,
         source_ref=arguments.source_ref,
         message_ref=arguments.message_ref,
-    ):
-        pass
+    ) as backtest_result:
+        for output_name in output_names:
+            data = getattr(backtest_result, output_name)
+            data.to_parquet(
+                output_dir / f"{output_name}.parquet",
+                index=False,
+            )
+    logger.success(
+        f"回测结果已保存为 Parquet：{output_dir.resolve()}，"
+        f"输出={output_names}"
+    )
     return 0
 
 
