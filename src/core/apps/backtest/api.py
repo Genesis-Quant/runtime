@@ -130,6 +130,22 @@ def run_backtest(
             }
         )
 
+        # DolphinDB resolves plugin functions while compiling a module, before
+        # executing that module's top-level statements. The plugins therefore
+        # have to be loaded before `use backtest` compiles backtest.dos.
+        logger.info("session.run: 加载 Backtest 和 MatchingEngineSimulator 插件")
+        current_session.run(
+            """
+            coreLoadedPlugins = exec plugin from getLoadedPlugins()
+            if (!("MatchingEngineSimulator" in coreLoadedPlugins)) {
+                loadPlugin("MatchingEngineSimulator")
+            }
+            if (!("Backtest" in coreLoadedPlugins)) {
+                loadPlugin("Backtest")
+            }
+            """
+        )
+
         logger.info("session.run: 加载 backtest 模块")
         current_session.run("use backtest")
 

@@ -15,21 +15,7 @@ DEFAULT_OUTPUT_DIR = Path("output")
 
 def build_script() -> str:
     """生成 backtest.dos 模块。"""
-    script = compile_script(MODULE, BACKTEST_FUNCTIONS)
-    return script.replace(
-        f"module {MODULE}\n\n",
-        f"""module {MODULE}
-coreLoadedPlugins = exec plugin from getLoadedPlugins()
-if (!("MatchingEngineSimulator" in coreLoadedPlugins)) {{
-    loadPlugin("MatchingEngineSimulator")
-}}
-if (!("Backtest" in coreLoadedPlugins)) {{
-    loadPlugin("Backtest")
-}}
-""",
-        1,
-    )
-
+    return compile_script(MODULE, BACKTEST_FUNCTIONS)
 
 def write_script(*, output_dir: Path = DEFAULT_OUTPUT_DIR) -> Path:
     """按依赖顺序生成 common、query 和 backtest 模块。"""

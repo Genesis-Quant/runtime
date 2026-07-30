@@ -1,5 +1,5 @@
 [project]
-name = "arena-core"
+name = "arena-runtime"
 version = "0.1.0"
 description = "Unified factor data ingestion and DolphinDB-native factor DSL"
 readme = "README.md"
@@ -32,9 +32,9 @@ build-backend = "uv_build"
 module-name = "core"
 source-include = ["examples/**"]
 
-[[tool.uv.index]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-default = true
+#[[tool.uv.index]]
+#url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+#default = true
 
 [dependency-groups]
 dev = [
