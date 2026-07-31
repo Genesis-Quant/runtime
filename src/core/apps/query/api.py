@@ -22,9 +22,9 @@ def build_query_table(
         request: schema.FactorQuery | dict[str, Any],
         *,
         session: Any,
-        source_ref: str = "coreQuerySource",
-        computed_ref: str = "coreQueryUnfilteredResult",
-        filtered_ref: str = "coreQueryFilteredResult",
+        source_ref: str = "coreQuerySourceData",
+        computed_ref: str = "coreQueryComputedData",
+        filtered_ref: str = "coreQueryFilteredData",
 ) -> tuple[schema.FactorQuery, list[str]]:
     """在会话中构造命名结果表，按变量名生成或复用基础源表。"""
     for label, reference in (

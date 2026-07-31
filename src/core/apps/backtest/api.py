@@ -1,35 +1,37 @@
 """使用因子 DSL 构造日频消息并运行 DolphinDB Backtest 策略。"""
 
-from collections.abc import Mapping
-import time
-from typing import Any
 from uuid import uuid4
+from typing import Any
 
 import numpy as np
 
+from core.utils import CODE_COLUMN, logger, normalize_date_range
 from core.database import create_session
 from core.database.session import has_session_variable, redirect_session_output
-from core.utils import CODE_COLUMN, logger, normalize_date_range
 
-from ..query import api as query_api
-from . import result, schema
+from .result import BacktestResult
+from .schema import CallbackName, Adj, BacktestParameters
+from ..query import FactorQuery, api as query_api
+
+CODES_SOURCE_REF = "coreBacktestCodesSourceData"
+CODES_COMPUTED_REF = "coreBacktestCodesComputedData"
+CODES_FILTERED_REF = "coreBacktestCodesFilteredData"
 
 
-def execute_codes_query(codes_query: schema.FactorQuery, session: Any) -> list[str]:
+def execute_codes_query(codes_query: FactorQuery, session: Any) -> list[str]:
     """执行股票池查询并返回股票代码。"""
-    unfiltered_data_ref = "coreBacktestCodesUnfilteredFactorData"
-    filtered_data_ref = "coreBacktestCodesFilteredFactorData"
     query_api.build_query_table(
         codes_query,
         session=session,
-        computed_ref=unfiltered_data_ref,
-        filtered_ref=filtered_data_ref,
+        source_ref=CODES_SOURCE_REF,
+        computed_ref=CODES_COMPUTED_REF,
+        filtered_ref=CODES_FILTERED_REF,
     )
-    logger.info(f"session.run: 从 {filtered_data_ref} 读取选股结果")
+    logger.info(f"session.run: 从 {CODES_FILTERED_REF} 读取选股结果")
     selected_codes = session.run(
         f"""
         exec distinct {CODE_COLUMN}
-        from {filtered_data_ref}
+        from {CODES_FILTERED_REF}
         where
             time >= coreOutputStart,
             time < coreOutputEndExclusive,
@@ -51,24 +53,29 @@ def execute_codes_query(codes_query: schema.FactorQuery, session: Any) -> list[s
     return codes
 
 
+SOURCE_REF = "coreBacktestSourceData"
+COMPUTED_REF = "coreBacktestComputedData"
+FILTERED_REF = "coreBacktestFilteredData"
+MESSAGE_REF = "coreBacktestMessage"
+
+
 def run_backtest(
         dataset_query: dict[str, Any],
-        callbacks: Mapping[schema.CallbackName, str],
+        callbacks: dict[CallbackName, str],
         *,
-        session: Any | None = None,
-        codes_query: dict[str, Any] | None = None,
-        utils: Mapping[str, str] | None = None,
-        name: str | None = None,
-        config: Mapping[str, Any] | None = None,
-        adj: schema.Adj = None,
+        session: Any = None,
+        codes_query: dict[str, Any] = None,
+        utils: dict[str, str] = None,
+        name: str = None,
+        config: dict[str, Any] = None,
+        adj: Adj = None,
         risk_free_rate: float = 0.04,
         annual_trading_days: int = 250,
-        source_ref: str = "coreBacktestSource",
-        message_ref: str = "coreBacktestMessage",
-) -> result.BacktestResult:
+        source_ref: str = SOURCE_REF,
+        message_ref: str = MESSAGE_REF,
+) -> BacktestResult:
     """运行日频回测，并把保存服务端输出的会话移交给惰性结果。"""
-    started = time.perf_counter()
-    parameters = schema.BacktestParameters.model_validate({
+    parameters = BacktestParameters.model_validate({
         "dataset_query": dataset_query,
         "callbacks": callbacks,
         "utils": utils,
@@ -94,13 +101,11 @@ def run_backtest(
             codes = execute_codes_query(parameters.codes_query, current_session)
             validated_dataset_query = validated_dataset_query.model_copy(update={"codes": codes})
 
-        unfiltered_data_ref = "coreBacktestUnfilteredFactorData"
-        filtered_data_ref = "coreBacktestFilteredFactorData"
         validated_dataset_query, _ = query_api.build_query_table(
             validated_dataset_query,
             session=current_session,
-            computed_ref=unfiltered_data_ref,
-            filtered_ref=filtered_data_ref,
+            computed_ref=COMPUTED_REF,
+            filtered_ref=FILTERED_REF,
             source_ref=parameters.source_ref,
         )
 
@@ -121,7 +126,7 @@ def run_backtest(
             {
                 "coreBacktestName": engine_name,
                 "coreBacktestConfig": backtest_config,
-                "coreBacktestCodes": np.asarray(validated_dataset_query.codes, dtype=str, ),
+                "coreBacktestCodes": np.asarray(validated_dataset_query.codes, dtype=str),
                 "coreBacktestStartDate": output_start,
                 "coreBacktestEndDate": output_end,
                 "coreBacktestAnnualTradingDays": parameters.annual_trading_days,
@@ -155,31 +160,30 @@ def run_backtest(
         logger.info(f"session.run: 定义回调函数 {list(parameters.callbacks)}")
         current_session.run("\n".join(parameters.callbacks.values()))
 
-        if not has_session_variable(current_session, message_ref):
+        if not has_session_variable(current_session, parameters.message_ref):
             logger.info(f"session.run: 生成回测消息表 {parameters.message_ref}")
             current_session.run(f"""
-            {parameters.message_ref} = backtest::build_backtest_message(
-                project_factor_output(
-                    {unfiltered_data_ref},
-                    coreDslOutputColumns,
-                    coreOutputStart,
-                    coreOutputEndExclusive
-                ),
-                coreBacktestAdj
-            )
+                {parameters.message_ref} = backtest::build_backtest_message(
+                    project_factor_output(
+                        {COMPUTED_REF},
+                        coreDslOutputColumns,
+                        coreOutputStart,
+                        coreOutputEndExclusive
+                    ),
+                    coreBacktestAdj
+                )
             """)
         else:
             logger.info(f"复用回测消息表 {parameters.message_ref}")
 
         logger.info(f"session.run: 创建并运行回测引擎 {engine_name}")
-        current_session.run(
-            f"""
+        current_session.run(f"""
             coreBacktestEngine = backtest::run_backtest(
                 coreBacktestName,
                 coreBacktestConfig,
                 {parameters.message_ref},
-                {unfiltered_data_ref},
-                {filtered_data_ref},
+                {COMPUTED_REF},
+                {FILTERED_REF},
                 {"initialize" if "initialize" in parameters.callbacks else "NULL"},
                 {"beforeTrading" if "beforeTrading" in parameters.callbacks else "NULL"},
                 {"onBar" if "onBar" in parameters.callbacks else "NULL"},
@@ -191,10 +195,8 @@ def run_backtest(
             )
             """
         )
-        backtest_result = result.BacktestResult(name=engine_name, session=current_session)
-        logger.success(
-            f"回测完成：name={engine_name}，结果将在访问 BacktestResult 成员时生成，耗时={time.perf_counter() - started:.2f} 秒"
-        )
+        backtest_result = BacktestResult(session=current_session)
+        logger.success(f"回测完成：name={engine_name}")
         return backtest_result
     except Exception:
         logger.exception(f"回测失败：name={engine_name}")

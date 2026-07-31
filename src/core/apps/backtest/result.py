@@ -10,10 +10,6 @@ from core.utils import SessionResult
 class BacktestResult(SessionResult):
     """按需生成并下载已结束回测的标准输出。"""
 
-    def __init__(self, *, name: str, session: Any) -> None:
-        super().__init__(session=session)
-        self.name = name
-
     @property
     def trade_details(self) -> pd.DataFrame:
         """访问时生成并下载成交明细。"""
