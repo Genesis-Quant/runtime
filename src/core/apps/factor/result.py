@@ -1,6 +1,5 @@
 """定义持有 DolphinDB 服务端因子分析表的惰性结果对象。"""
 
-from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
@@ -14,35 +13,21 @@ class FactorAnalysisResult(SessionResult):
     """按需下载预处理因子、IC 和分组收益表。"""
 
     def __init__(
-        self,
-        *,
-        session: Any,
-        parameters: FactorAnalysisParameters,
-        information_coefficient_refs: Mapping[str, str],
-        group_return_refs: Mapping[str, str],
+            self,
+            *,
+            session: Any,
+            factor_columns: list[str],
+            return_columns: list[str],
+            processed_ref:str,
+            group_return_refs: dict[str, str],
+            information_coefficient_refs: dict[str, str],
     ) -> None:
         super().__init__(session=session)
-        self.parameters = parameters
-        self.factor_columns = tuple(parameters.factor_columns)
-        self.return_columns = tuple(parameters.return_columns)
-        self.information_coefficient_refs = dict(
-            information_coefficient_refs
-        )
+        self.factor_columns = factor_columns
+        self.return_columns = return_columns
+        self.processed_ref = processed_ref
+        self.information_coefficient_refs = dict(information_coefficient_refs)
         self.group_return_refs = dict(group_return_refs)
-
-    def _reference(
-        self,
-        factor: str,
-        references: Mapping[str, str],
-    ) -> str:
-        """校验因子名并返回对应服务端变量名。"""
-        try:
-            return references[factor]
-        except KeyError as error:
-            raise KeyError(
-                f"未知因子 {factor!r}；可选值："
-                f"{list(self.factor_columns)}"
-            ) from error
 
     @property
     def processed_data(self) -> pd.DataFrame:
@@ -51,22 +36,17 @@ class FactorAnalysisResult(SessionResult):
 
     def information_coefficient(self, factor: str) -> pd.DataFrame:
         """下载指定因子的 IC 与 Rank IC 时间序列表。"""
-        return self.download(
-            self._reference(
-                factor,
-                self.information_coefficient_refs,
-            )
-        )
+        assert factor in self.information_coefficient_refs, f"因子 {factor} 不存在"
+        return self.download(self.information_coefficient_refs[factor])
 
     def group_returns(self, factor: str) -> pd.DataFrame:
+        assert factor in self.group_return_refs, f"因子 {factor} 不存在"
         """下载指定因子的市值加权分组收益时间序列表。"""
-        return self.download(
-            self._reference(factor, self.group_return_refs)
-        )
+        return self.download(self.group_return_refs[factor])
 
     @property
     def information_coefficients(
-        self,
+            self,
     ) -> dict[str, pd.DataFrame]:
         """下载全部因子的 IC 与 Rank IC 表。"""
         return {

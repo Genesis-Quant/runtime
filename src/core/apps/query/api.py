@@ -38,6 +38,7 @@ def build_query_table(
         source_ref: str = SOURCE_REF,
         computed_ref: str = COMPUTED_REF,
         filtered_ref: str = FILTERED_REF,
+        data_ref: str = DATA_REF,
 ) -> list[str]:
     output_start, output_end = normalize_date_range(query.start_date, query.end_date)
     calculation_start = (output_start - query.lookback).normalize()
@@ -136,6 +137,16 @@ def build_query_table(
         )
     """)
 
+    logger.info(f"session.run: 投影 {filtered_ref} 生成 {data_ref}")
+    session.run(f"""
+        {data_ref} = project_factor_output(
+            {filtered_ref},
+            coreDslOutputColumns,
+            coreOutputStart,
+            coreOutputEnd
+        )
+    """)
+
     return output_columns
 
 
@@ -151,16 +162,6 @@ def execute_query(
 
     try:
         build_query_table(request, session=current_session)
-        logger.info(f"session.run: 生成查询最终结果 {DATA_REF}")
-        current_session.run(f"""
-            {DATA_REF} = project_factor_output(
-                {FILTERED_REF},
-                coreDslOutputColumns,
-                coreOutputStart,
-                coreOutputEnd
-            )
-        """)
-
         logger.success(f"因子查询已在 DolphinDB 会话中生成")
         return QueryResult(
             session=current_session,

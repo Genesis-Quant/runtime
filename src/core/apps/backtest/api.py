@@ -16,20 +16,25 @@ from ..query import FactorQuery, api as query_api
 CODES_SOURCE_REF = "coreBacktestCodesSourceData"
 CODES_COMPUTED_REF = "coreBacktestCodesComputedData"
 CODES_FILTERED_REF = "coreBacktestCodesFilteredData"
+CODES_DATA_REF = "coreBacktestCodesData"
 
 
 def execute_codes_query(codes_query: FactorQuery, session: Any) -> list[str]:
     """执行股票池查询并返回股票代码。"""
-    query_api.build_query_table(codes_query, session=session, source_ref=CODES_SOURCE_REF,
-                                computed_ref=CODES_COMPUTED_REF, filtered_ref=CODES_FILTERED_REF)
+    query_api.build_query_table(
+        codes_query,
+        session=session,
+        source_ref=CODES_SOURCE_REF,
+        computed_ref=CODES_COMPUTED_REF,
+        filtered_ref=CODES_FILTERED_REF,
+        data_ref=CODES_DATA_REF
+    )
     logger.info(f"session.run: 从 {CODES_FILTERED_REF} 读取选股结果")
     selected_codes = session.run(
         f"""
         exec distinct {CODE_COLUMN}
-        from {CODES_FILTERED_REF}
+        from {CODES_DATA_REF}
         where
-            time >= coreOutputStart,
-            time < coreOutputEndExclusive,
             not isNull({CODE_COLUMN})
         order by {CODE_COLUMN}
         """
@@ -51,6 +56,7 @@ def execute_codes_query(codes_query: FactorQuery, session: Any) -> list[str]:
 SOURCE_REF = "coreBacktestSourceData"
 COMPUTED_REF = "coreBacktestComputedData"
 FILTERED_REF = "coreBacktestFilteredData"
+DATA_REF = "coreBacktestData"
 MESSAGE_REF = "coreBacktestMessage"
 
 
@@ -101,7 +107,8 @@ def run_backtest(
             session=current_session,
             source_ref=parameters.source_ref,
             computed_ref=COMPUTED_REF,
-            filtered_ref=FILTERED_REF
+            filtered_ref=FILTERED_REF,
+            data_ref=DATA_REF
         )
 
         output_start, output_end = normalize_date_range(
@@ -159,12 +166,7 @@ def run_backtest(
             logger.info(f"session.run: 生成回测消息表 {parameters.message_ref}")
             current_session.run(f"""
                 {parameters.message_ref} = backtest::build_backtest_message(
-                    project_factor_output(
-                        {COMPUTED_REF},
-                        coreDslOutputColumns,
-                        coreOutputStart,
-                        coreOutputEndExclusive
-                    ),
+                    {DATA_REF},
                     coreBacktestAdj
                 )
             """)
