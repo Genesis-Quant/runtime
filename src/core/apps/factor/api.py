@@ -21,8 +21,8 @@ PROCESSED_REF = "coreFactorProcessedData"
 
 
 def _column_list(
-    value: Sequence[str],
-    name: str,
+        value: Sequence[str],
+        name: str,
 ) -> list[str]:
     """把公开 API 接收的列名序列转换为严格列表。"""
     if isinstance(value, (str, bytes)):
@@ -31,16 +31,16 @@ def _column_list(
 
 
 def _industry_metadata(
-    level: Literal["industry", "sector"],
+        level: Literal["industry", "sector"],
 ) -> tuple[np.ndarray, np.ndarray]:
     """读取并校验用于服务端连接的股票行业向量。"""
     _, stock_industries, _ = get_stock_metadata()
     values = stock_industries.loc[:, ["code", level]].copy()
     valid = (
-        values["code"].notna()
-        & values[level].notna()
-        & values["code"].astype("string").str.strip().ne("")
-        & values[level].astype("string").str.strip().ne("")
+            values["code"].notna()
+            & values[level].notna()
+            & values["code"].astype("string").str.strip().ne("")
+            & values[level].astype("string").str.strip().ne("")
     )
     values = values.loc[valid].drop_duplicates("code", keep="first")
     if values.empty:
@@ -86,13 +86,15 @@ def analyze_factors(
     redirect_session_output(current_session)
 
     try:
-        query, _ = query_api.build_query_table(
-            parameters.dataset_query,
+        query = parameters.dataset_query
+        query_api.build_query_table(
+            query,
             session=current_session,
             source_ref=SOURCE_REF,
             computed_ref=UNFILTERED_REF,
-            filtered_ref=FILTERED_REF,
+            filtered_ref=FILTERED_REF
         )
+
         upload_values = {
             "coreFactorColumns": np.asarray(
                 parameters.factor_columns,

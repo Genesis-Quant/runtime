@@ -4,9 +4,9 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field
 
-from .derivative import Derivative
-from .fields import BoolOperand
 from .types import StrictModel
+from .fields import BoolOperand
+from .derivative import Derivative
 
 
 class OperatorBase(Derivative):

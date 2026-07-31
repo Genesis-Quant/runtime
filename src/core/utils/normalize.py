@@ -30,3 +30,19 @@ def normalize_date_range(
     if start > end:
         raise ValueError("start_date 不能晚于 end_date")
     return start, end
+
+
+def normalize_str_list(values: list[str], location: str) -> list[str]:
+    """清理字符串列表，在保持顺序的同时去重并拒绝空值。"""
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            raise ValueError(f"{location} 必须全部是字符串")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{location} 不能包含空值")
+        if normalized not in seen:
+            result.append(normalized)
+            seen.add(normalized)
+    return result

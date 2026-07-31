@@ -4,8 +4,8 @@ from typing import Union
 
 from pydantic import Field, SerializeAsAny
 
-from .derivative import Derivative
 from .types import StrictModel
+from .derivative import Derivative
 
 Operand = Union[str, int, float, bool, SerializeAsAny[Derivative]]
 BoolOperand = Union[str, SerializeAsAny[Derivative]]

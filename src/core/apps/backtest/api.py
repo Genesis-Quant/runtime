@@ -20,13 +20,8 @@ CODES_FILTERED_REF = "coreBacktestCodesFilteredData"
 
 def execute_codes_query(codes_query: FactorQuery, session: Any) -> list[str]:
     """执行股票池查询并返回股票代码。"""
-    query_api.build_query_table(
-        codes_query,
-        session=session,
-        source_ref=CODES_SOURCE_REF,
-        computed_ref=CODES_COMPUTED_REF,
-        filtered_ref=CODES_FILTERED_REF,
-    )
+    query_api.build_query_table(codes_query, session=session, source_ref=CODES_SOURCE_REF,
+                                computed_ref=CODES_COMPUTED_REF, filtered_ref=CODES_FILTERED_REF)
     logger.info(f"session.run: 从 {CODES_FILTERED_REF} 读取选股结果")
     selected_codes = session.run(
         f"""
@@ -101,12 +96,12 @@ def run_backtest(
             codes = execute_codes_query(parameters.codes_query, current_session)
             validated_dataset_query = validated_dataset_query.model_copy(update={"codes": codes})
 
-        validated_dataset_query, _ = query_api.build_query_table(
+        query_api.build_query_table(
             validated_dataset_query,
             session=current_session,
-            computed_ref=COMPUTED_REF,
-            filtered_ref=FILTERED_REF,
             source_ref=parameters.source_ref,
+            computed_ref=COMPUTED_REF,
+            filtered_ref=FILTERED_REF
         )
 
         output_start, output_end = normalize_date_range(
@@ -194,7 +189,7 @@ def run_backtest(
                 {"finalize" if "finalize" in parameters.callbacks else "NULL"}
             )
             """
-        )
+                            )
         backtest_result = BacktestResult(session=current_session)
         logger.success(f"回测完成：name={engine_name}")
         return backtest_result

@@ -1,6 +1,6 @@
 """统一导出数据层使用的日期、限流、重试、分页和 Tushare 对象。"""
 
-from .dates import DateLike, normalize_date, normalize_date_range
+from .normalize import DateLike, normalize_date, normalize_date_range, normalize_str_list
 from .logging import logger
 from .paginate import Paginator
 from .result import SessionResult
@@ -38,6 +38,7 @@ def __getattr__(name: str):
         return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
+
 __all__ = [
     "CODES",
     "CODE_TO_INDUSTRY",
@@ -64,6 +65,7 @@ __all__ = [
     "normalize_date",
     "normalize_date_range",
     "normalize_factors",
+    "normalize_str_list",
     "pro",
     "ts",
 ]

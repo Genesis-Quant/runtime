@@ -8,7 +8,7 @@ import pandas as pd
 import tushare as ts
 
 from core.config import TUSHARE_TOKEN
-from .dates import DateLike, normalize_date_range
+from .normalize import DateLike, normalize_date_range
 from .logging import logger
 from .retry import Retry
 from .throttle import RateLimiter
