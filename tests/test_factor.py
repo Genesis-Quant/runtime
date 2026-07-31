@@ -12,8 +12,9 @@ from core.apps.factor import (
     analyze_factors,
 )
 from core.apps.factor import api as factor_api
-from core.apps.factor.compile import build_script, write_script
+from core.database.compile.factor.scripts import build_script, write_script
 from core.manage import apps as manage_apps
+from core.manage.apps import factor as manage_factor
 
 
 def factor_request() -> dict[str, Any]:
@@ -118,6 +119,14 @@ def test_factor_compiler_writes_query_dependencies(tmp_path: Path) -> None:
     assert path.is_file()
     assert (tmp_path / "common.dos").is_file()
     assert (tmp_path / "query.dos").is_file()
+
+
+def test_factor_manage_command_is_registered_as_own_module() -> None:
+    parser = manage_apps.build_parser()
+
+    assert manage_factor in manage_apps.APPLICATIONS
+    assert manage_factor.NAME == "factor"
+    assert "factor" in parser.format_help()
 
 
 class FakeLogger:

@@ -10,9 +10,11 @@ DOS_NAMES = ("common.dos", "query.dos", "factor.dos", "backtest.dos")
 
 def regenerate_dos(output_dir: Path | str = "output") -> tuple[Path, ...]:
     """按依赖顺序重新生成全部 DolphinDB DOS 模块。"""
-    from core.apps.factor.compile import write_script as write_factor_script
     from core.database.compile.backtest.scripts import (
         write_script as write_backtest_script,
+    )
+    from core.database.compile.factor.scripts import (
+        write_script as write_factor_script,
     )
 
     target = Path(output_dir).expanduser().resolve()
