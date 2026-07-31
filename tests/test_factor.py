@@ -1,0 +1,358 @@
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import pytest
+from pydantic import ValidationError
+
+import core.apps.factor as factor_package
+from core.apps.factor import (
+    FactorAnalysisParameters,
+    FactorAnalysisResult,
+    analyze_factors,
+)
+from core.apps.factor import api as factor_api
+from core.apps.factor.compile import build_script, write_script
+from core.manage import apps as manage_apps
+
+
+def factor_request() -> dict[str, Any]:
+    return {
+        "start_date": "2025-01-01",
+        "end_date": "2025-01-31",
+        "codes": ["000001.SZ", "600000.SH"],
+        "factors": [],
+    }
+
+
+def manually_preprocessed_factor_request() -> dict[str, Any]:
+    request = factor_request()
+    request["derivatives"] = {
+        "close_processed": {
+            "type": "CS",
+            "op": "unary.robust_zscore",
+            "fields": {"col": "close"},
+            "params": {},
+        },
+        "close_processed_group": {
+            "type": "CS",
+            "op": "unary.qcut",
+            "fields": {"col": "close_processed"},
+            "params": {"q": 5},
+        },
+    }
+    return request
+
+
+def test_factor_schema_adds_direct_columns_to_query() -> None:
+    parameters = FactorAnalysisParameters.model_validate(
+        {
+            "dataset_query": factor_request(),
+            "factor_columns": ["close"],
+            "return_columns": ["pct_chg"],
+        }
+    )
+
+    assert parameters.dataset_query.factors == [
+        "close",
+        "pct_chg",
+        "circ_mv",
+    ]
+
+
+def test_factor_schema_rejects_column_role_conflicts() -> None:
+    with pytest.raises(ValidationError, match="不能重叠"):
+        FactorAnalysisParameters.model_validate(
+            {
+                "dataset_query": factor_request(),
+                "factor_columns": ["close"],
+                "return_columns": ["close"],
+            }
+        )
+
+
+def test_factor_schema_requires_dsl_groups_when_preprocess_disabled() -> None:
+    with pytest.raises(ValidationError, match="必须输出对应分组列"):
+        FactorAnalysisParameters.model_validate(
+            {
+                "dataset_query": factor_request(),
+                "factor_columns": ["close"],
+                "return_columns": ["pct_chg"],
+                "preprocess": False,
+            }
+        )
+
+
+def test_factor_schema_accepts_manually_preprocessed_dsl() -> None:
+    parameters = FactorAnalysisParameters.model_validate(
+        {
+            "dataset_query": manually_preprocessed_factor_request(),
+            "factor_columns": ["close_processed"],
+            "return_columns": ["pct_chg"],
+            "preprocess": False,
+        }
+    )
+
+    assert parameters.preprocess is False
+    assert "close_processed_group" in (
+        parameters.dataset_query.derivatives
+    )
+
+
+def test_factor_compiler_contains_public_functions() -> None:
+    script = build_script()
+
+    assert script.startswith("module factor\n")
+    assert "def factorPreprocess(" in script
+    assert "def factorInformationCoefficient(" in script
+    assert "def factorGroupReturns(" in script
+    assert script.index("def factorZScore(") < script.index(
+        "def factorPreprocess("
+    )
+
+
+def test_factor_compiler_writes_query_dependencies(tmp_path: Path) -> None:
+    path = write_script(output_dir=tmp_path)
+
+    assert path == tmp_path / "factor.dos"
+    assert path.is_file()
+    assert (tmp_path / "common.dos").is_file()
+    assert (tmp_path / "query.dos").is_file()
+
+
+class FakeLogger:
+    def disable_stdout_sink(self) -> None:
+        pass
+
+    def list_sinks(self) -> list[Any]:
+        return []
+
+    def add_sink(self, sink: Any) -> None:
+        pass
+
+
+class FakeSession:
+    def __init__(self) -> None:
+        self.msg_logger = FakeLogger()
+        self.uploads: list[dict[str, Any]] = []
+        self.scripts: list[str] = []
+        self.closed = False
+
+    def upload(self, values: dict[str, Any]) -> None:
+        self.uploads.append(values)
+
+    def run(self, script: str) -> pd.DataFrame:
+        self.scripts.append(script)
+        return pd.DataFrame()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_factor_api_builds_server_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeSession()
+
+    def build_query_table(
+        request: Any,
+        *,
+        session: Any,
+        **references: str,
+    ) -> tuple[Any, list[str]]:
+        return request, ["time", "code", *request.factors]
+
+    metadata = pd.DataFrame(
+        {
+            "code": ["000001.SZ", "600000.SH"],
+            "industry": ["银行", "银行"],
+            "sector": ["金融", "金融"],
+        }
+    )
+    monkeypatch.setattr(
+        factor_api.query_api,
+        "build_query_table",
+        build_query_table,
+    )
+    monkeypatch.setattr(
+        factor_api,
+        "get_stock_metadata",
+        lambda: (
+            ("000001.SZ", "600000.SH"),
+            metadata,
+            {
+                "000001.SZ": "金融",
+                "600000.SH": "金融",
+            },
+        ),
+    )
+
+    result = analyze_factors(
+        factor_request(),
+        ["close"],
+        ["pct_chg"],
+        session=session,
+    )
+
+    assert isinstance(result, FactorAnalysisResult)
+    assert result.factor_columns == ("close",)
+    assert "coreFactorProcessedData" in "\n".join(session.scripts)
+    assert "factor::factorInformationCoefficient" in "\n".join(
+        session.scripts
+    )
+    assert "factor::factorGroupReturns" in "\n".join(session.scripts)
+    assert result.information_coefficient("close").empty
+    assert result.group_returns("close").empty
+    with pytest.raises(KeyError, match="未知因子"):
+        result.group_returns("missing")
+
+
+def test_factor_api_can_use_dsl_preprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeSession()
+
+    def build_query_table(
+        request: Any,
+        *,
+        session: Any,
+        **references: str,
+    ) -> tuple[Any, list[str]]:
+        return request, [
+            "time",
+            "code",
+            *request.factors,
+            *request.derivatives,
+        ]
+
+    monkeypatch.setattr(
+        factor_api.query_api,
+        "build_query_table",
+        build_query_table,
+    )
+    monkeypatch.setattr(
+        factor_api,
+        "_industry_metadata",
+        lambda level: pytest.fail(
+            "关闭预处理时不应加载行业元数据"
+        ),
+    )
+
+    result = analyze_factors(
+        manually_preprocessed_factor_request(),
+        ["close_processed"],
+        ["pct_chg"],
+        session=session,
+        preprocess=False,
+    )
+
+    scripts = "\n".join(session.scripts)
+    assert result.parameters.preprocess is False
+    assert "factor::factorPreprocess" not in scripts
+    assert (
+        "coreFactorProcessedData = coreFactorInputData"
+        in scripts
+    )
+    assert "factor::factorInformationCoefficient" in scripts
+    assert "factor::factorGroupReturns" in scripts
+
+
+class FakeFactorResult:
+    def __init__(self) -> None:
+        self.processed_data = pd.DataFrame(
+            {
+                "time": pd.to_datetime(["2025-01-02"]),
+                "code": ["000001.SZ"],
+                "alpha": [0.5],
+                "alpha_group": [1],
+            }
+        )
+        self.information_coefficients = {
+            "alpha": pd.DataFrame(
+                {
+                    "time": pd.to_datetime(["2025-01-02"]),
+                    "return_ic": [0.2],
+                    "return_rank_ic": [0.1],
+                }
+            ),
+            "beta": pd.DataFrame(
+                {
+                    "time": pd.to_datetime(["2025-01-02"]),
+                    "return_ic": [0.3],
+                    "return_rank_ic": [0.4],
+                }
+            ),
+        }
+        self.all_group_returns = {
+            "alpha": pd.DataFrame(
+                {
+                    "time": pd.to_datetime(["2025-01-02"]),
+                    "return_group0": [0.01],
+                }
+            ),
+            "beta": pd.DataFrame(
+                {
+                    "time": pd.to_datetime(["2025-01-02"]),
+                    "return_group0": [0.02],
+                }
+            ),
+        }
+
+    def __enter__(self) -> "FakeFactorResult":
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        return None
+
+
+def test_factor_cli_writes_fixed_parquet_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_file = tmp_path / "factor.json"
+    input_file.write_text(
+        """
+        {
+          "dataset_query": {"start_date": "2025-01-01"},
+          "factor_columns": ["alpha", "beta"],
+          "return_columns": ["return"],
+          "preprocess": false,
+          "output_dir": "output"
+        }
+        """,
+        encoding="utf-8",
+    )
+    received: dict[str, Any] = {}
+
+    def fake_analyze_factors(**arguments: Any) -> FakeFactorResult:
+        received.update(arguments)
+        return FakeFactorResult()
+
+    monkeypatch.setattr(
+        factor_package,
+        "analyze_factors",
+        fake_analyze_factors,
+    )
+
+    assert manage_apps.main(
+        ["factor", "--input-file", str(input_file)]
+    ) == 0
+
+    output_dir = tmp_path / "output"
+    assert sorted(path.name for path in output_dir.glob("*.parquet")) == [
+        "factor_group_returns.parquet",
+        "factor_information_coefficients.parquet",
+        "factor_processed.parquet",
+    ]
+    information_coefficients = pd.read_parquet(
+        output_dir / "factor_information_coefficients.parquet"
+    )
+    group_returns = pd.read_parquet(
+        output_dir / "factor_group_returns.parquet"
+    )
+    assert information_coefficients["factor"].tolist() == [
+        "alpha",
+        "beta",
+    ]
+    assert group_returns["factor"].tolist() == ["alpha", "beta"]
+    assert received["preprocess"] is False

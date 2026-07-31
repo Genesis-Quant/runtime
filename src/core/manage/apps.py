@@ -1,4 +1,4 @@
-"""实现查询与回测应用命令。"""
+"""实现查询、因子分析与回测应用命令。"""
 
 import argparse
 from collections.abc import Sequence
@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from core.utils.storage import (
     ObjectStorage,
     ObjectStorageConfigurationError,
@@ -14,6 +16,11 @@ from core.utils.storage import (
 
 
 QUERY_OUTPUT_FILENAME = "query.parquet"
+FACTOR_OUTPUT_FILENAMES = {
+    "processed_data": "factor_processed.parquet",
+    "information_coefficients": "factor_information_coefficients.parquet",
+    "group_returns": "factor_group_returns.parquet",
+}
 BACKTEST_OUTPUT_NAMES = (
     "trade_details",
     "daily_positions",
@@ -21,6 +28,16 @@ BACKTEST_OUTPUT_NAMES = (
     "daily_trading_statistics",
 )
 QUERY_INPUT_FIELDS = frozenset(("dataset_query", "output_dir"))
+FACTOR_RUN_FIELDS = (
+    "dataset_query",
+    "factor_columns",
+    "return_columns",
+    "n_groups",
+    "preprocess",
+    "market_value_column",
+    "industry_level",
+)
+FACTOR_INPUT_FIELDS = frozenset((*FACTOR_RUN_FIELDS, "output_dir"))
 BACKTEST_RUN_FIELDS = (
     "dataset_query",
     "callbacks",
@@ -186,6 +203,24 @@ def validate_backtest_output_names(
     return value
 
 
+def combine_factor_outputs(
+        tables: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """把按因子返回的同结构表合并，并添加明确的 factor 列。"""
+    frames: list[pd.DataFrame] = []
+    for factor, data in tables.items():
+        frame = data.copy()
+        frame.insert(
+            1 if "time" in frame.columns else 0,
+            "factor",
+            factor,
+        )
+        frames.append(frame)
+    if not frames:
+        raise ValueError("因子分析没有返回任何因子表")
+    return pd.concat(frames, ignore_index=True)
+
+
 def add_input_file_argument(parser: argparse.ArgumentParser) -> None:
     """添加统一的输入文件和输出位置参数。"""
     parser.add_argument(
@@ -207,11 +242,12 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     """创建应用命令解析器。"""
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="运行查询或回测应用。",
+        description="运行查询、因子分析或回测应用。",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "示例：\n"
             "  core-manage apps query --input-file query.json\n"
+            "  core-manage apps factor --input-file factor.json\n"
             "  core-manage apps backtest --input-file backtest.json"
         ),
     )
@@ -228,6 +264,14 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     add_input_file_argument(query_parser)
+
+    factor_parser = commands.add_parser(
+        "factor",
+        help="执行因子分析",
+        description="执行因子预处理、IC 和分组收益分析。",
+        allow_abbrev=False,
+    )
+    add_input_file_argument(factor_parser)
 
     backtest_parser = commands.add_parser(
         "backtest",
@@ -278,6 +322,74 @@ def main(
                 storage=storage,
             )
         logger.success(f"查询结果已保存为 Parquet：{output}")
+        return 0
+
+    if arguments.app == "factor":
+        from core.apps.factor import analyze_factors
+        from core.utils import logger
+
+        validate_input_fields(
+            parser,
+            data,
+            allowed=FACTOR_INPUT_FIELDS,
+            required=frozenset(
+                (
+                    "dataset_query",
+                    "factor_columns",
+                    "return_columns",
+                    "output_dir",
+                )
+            ),
+        )
+        output_target, storage = prepare_output_target(
+            parser,
+            data["output_dir"],
+            input_file=arguments.input_file,
+            output_cloud=arguments.output_cloud,
+        )
+        run_arguments = {
+            name: data[name]
+            for name in FACTOR_RUN_FIELDS
+            if name in data
+        }
+        outputs: list[str] = []
+        with ExitStack() as stack:
+            if storage is not None:
+                stack.enter_context(storage)
+            factor_result = stack.enter_context(
+                analyze_factors(**run_arguments)
+            )
+            outputs.append(
+                write_parquet(
+                    factor_result.processed_data,
+                    FACTOR_OUTPUT_FILENAMES["processed_data"],
+                    output_target=output_target,
+                    storage=storage,
+                )
+            )
+            outputs.append(
+                write_parquet(
+                    combine_factor_outputs(
+                        factor_result.information_coefficients
+                    ),
+                    FACTOR_OUTPUT_FILENAMES[
+                        "information_coefficients"
+                    ],
+                    output_target=output_target,
+                    storage=storage,
+                )
+            )
+            outputs.append(
+                write_parquet(
+                    combine_factor_outputs(
+                        factor_result.all_group_returns
+                    ),
+                    FACTOR_OUTPUT_FILENAMES["group_returns"],
+                    output_target=output_target,
+                    storage=storage,
+                )
+            )
+        logger.success(f"因子分析结果已保存为 Parquet：{outputs}")
         return 0
 
     from core.apps.backtest import run_backtest

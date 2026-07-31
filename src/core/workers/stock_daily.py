@@ -187,13 +187,24 @@ class StockHfqWorker(StockWorker):
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的后复权日行情。"""
+
+        def fetch_bar() -> pd.DataFrame | None:
+            try:
+                return ts.pro_bar(
+                    ts_code=code,
+                    adj="hfq",
+                    start_date=start_date.strftime("%Y%m%d"),
+                    end_date=end_date.strftime("%Y%m%d"),
+                )
+            except OSError as error:
+                # Tushare pro_bar 会吞掉内部异常，并在重试耗尽后统一抛出
+                # IOError("ERROR.")；按约定将这个哨兵异常视为本次无数据。
+                if error.args == ("ERROR.",):
+                    return None
+                raise
+
         response = self.retry(
-            lambda: ts.pro_bar(
-                ts_code=code,
-                adj="hfq",
-                start_date=start_date.strftime("%Y%m%d"),
-                end_date=end_date.strftime("%Y%m%d"),
-            ),
+            fetch_bar,
             context=f"{self}[{code}]",
         )
 

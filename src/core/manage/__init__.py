@@ -8,7 +8,7 @@ from typing import Final
 
 COMMANDS: Final[dict[str, tuple[str, str]]] = {
     "apps": (
-        "运行查询或回测应用",
+        "运行查询、因子分析或回测应用",
         "core.manage.apps",
     ),
     "workers": (

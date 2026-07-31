@@ -1,0 +1,39 @@
+{
+  "dataset_query": {
+    "start_date": "2025-03-03",
+    "end_date": "2025-03-07",
+    "codes": [
+      "600000.SH",
+      "600036.SH",
+      "601318.SH",
+      "601398.SH",
+      "600519.SH",
+      "000858.SZ",
+      "600276.SH",
+      "000333.SZ",
+      "000651.SZ",
+      "600030.SH",
+      "601857.SH",
+      "600028.SH",
+      "601088.SH",
+      "601668.SH",
+      "601186.SH",
+      "600900.SH",
+      "000002.SZ",
+      "600050.SH",
+      "000063.SZ",
+      "002415.SZ"
+    ],
+    "factors": []
+  },
+  "factor_columns": [
+    "close"
+  ],
+  "return_columns": [
+    "pct_chg"
+  ],
+  "n_groups": 5,
+  "preprocess": true,
+  "industry_level": "sector",
+  "output_dir": "strategies/factor"
+}

@@ -13,14 +13,24 @@ uv add arena-core
 
 ## Python API
 
-查询和回测函数从顶层包直接导出：
+查询、因子分析和回测函数从顶层包直接导出：
 
 ```python
-from core import execute_query, run_backtest
+from core import analyze_factors, execute_query, run_backtest
 
 with execute_query(query_request) as query_result:
     factor_data = query_result.data
     session = query_result.session
+
+with analyze_factors(
+    query_request,
+    factor_columns=["close"],
+    return_columns=["pct_chg"],
+    n_groups=5,
+) as factor_result:
+    processed = factor_result.processed_data
+    close_ic = factor_result.information_coefficient("close")
+    close_group_returns = factor_result.group_returns("close")
 
 with run_backtest(
     dataset_query,
@@ -35,12 +45,14 @@ with run_backtest(
 
 ```python
 from core.apps.query import FactorQuery, QueryResult, execute_query
+from core.apps.factor import FactorAnalysisResult, analyze_factors
 from core.apps.backtest import BacktestResult, run_backtest
 ```
 
-`execute_query` 返回 `core.QueryResult`，`run_backtest` 返回
-`core.BacktestResult`。结果保存在各自的 DolphinDB session 中；访问数据成员时
-才会执行对应 DOS 代码并下载结果。两种结果都提供 `session` 属性、`download()`
+`execute_query` 返回 `core.QueryResult`，`analyze_factors` 返回
+`core.FactorAnalysisResult`，`run_backtest` 返回 `core.BacktestResult`。
+结果保存在各自的 DolphinDB session 中；访问数据成员时才会执行对应 DOS
+代码并下载结果。三种结果都提供 `session` 属性、`download()`
 和 `close()`，退出
 `with` 时会自动关闭 session。API 成功返回后，即使 session 是调用方传入的，
 也由结果对象接管其关闭操作。
@@ -58,6 +70,7 @@ from core.apps.backtest import BacktestResult, run_backtest
 ```powershell
 core-manage --help
 core-manage apps query --input-file query.json
+core-manage apps factor --input-file factor.json
 core-manage apps backtest --input-file backtest.json
 core-manage apps backtest --input-file backtest.json --output-cloud
 core-manage workers --list-workers
@@ -72,9 +85,25 @@ uv run python manage.py workers --list-workers
 uv run python manage.py database compile
 ```
 
-`apps query` 和 `apps backtest` 都使用必填的 `--input-file`，并支持可选的
-`--output-cloud` 开关（默认 `False`）。输入文件必须是 UTF-8 JSON 对象，
-包含应用的全部非敏感参数。
+默认由 `analyze_factors` 完成 MAD 去极值、标准化、市值与行业中性化及
+等数量分组。设置 `preprocess=False` 时直接分析 DSL 输出，不加载行业元数据；
+此时 DSL 必须为每个分析因子同时输出 `<factor>_group` 列，例如可以使用
+`unary.robust_zscore` 和 `unary.qcut` 手动完成标准化及分组。
+
+```python
+with analyze_factors(
+    manually_preprocessed_query,
+    factor_columns=["close_processed"],
+    return_columns=["pct_chg"],
+    n_groups=5,
+    preprocess=False,
+) as factor_result:
+    close_ic = factor_result.information_coefficient("close_processed")
+```
+
+`apps query`、`apps factor` 和 `apps backtest` 都使用必填的
+`--input-file`，并支持可选的 `--output-cloud` 开关（默认 `False`）。
+输入文件必须是 UTF-8 JSON 对象，包含应用的全部非敏感参数。
 
 查询输入文件示例：
 
@@ -92,6 +121,14 @@ uv run python manage.py database compile
 
 本地模式下，相对 `output_dir` 以输入文件所在目录为基准，查询结果固定写入
 `<output_dir>/query.parquet`，目标目录不存在时会自动创建。
+
+因子分析输入参考 [factor.json](examples/factor.json)，固定输出：
+
+- `factor_processed.parquet`
+- `factor_information_coefficients.parquet`
+- `factor_group_returns.parquet`
+
+后两张表使用 `factor` 列区分不同分析因子。
 
 回测输入文件示例：
 
@@ -152,11 +189,11 @@ bucket 根目录。配置为 `arena-runtime` 时，云端结果路径为
 `virtual` addressing style。
 DolphinDB 凭据和 Tushare Token 等敏感信息同样不写入输入 JSON。
 
-仓库中的 [query.json](examples/query.json) 和
-[backtest.json](examples/backtest.json) 可以直接作为输入文件示例。
+仓库中的 [query.json](examples/query.json)、[factor.json](examples/factor.json)
+和 [backtest.json](examples/backtest.json) 可以直接作为输入文件示例。
 
-`database compile` 命令会重新生成 `common.dos`、`query.dos` 和
-`backtest.dos`。
+`database compile` 命令会重新生成 `common.dos`、`query.dos`、
+`factor.dos` 和 `backtest.dos`。
 
 ## 构建与发布
 

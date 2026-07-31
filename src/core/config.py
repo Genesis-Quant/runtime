@@ -1,6 +1,7 @@
 """从环境变量加载 DolphinDB、Tushare 和数据更新配置。"""
 
 import os
+import warnings
 
 from dotenv import load_dotenv
 
@@ -10,6 +11,9 @@ load_dotenv("../.env")
 
 # 判断当前是否为生产环境
 PROD = os.getenv("PROD") == "true"
+
+if PROD:
+    warnings.filterwarnings("ignore")
 
 
 class DolphinSettings:

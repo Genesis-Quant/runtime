@@ -4,6 +4,8 @@ import sys
 
 from loguru import logger
 
+from core.config import PROD
+
 logger.remove()
 log_format = (
     "<g>{time:YYYY-MM-DD HH:mm:ss}</g> "
@@ -11,4 +13,9 @@ log_format = (
     "<blue>{file}</blue> | <r><u>{function}</u></r>: <c>{line}</c>行| "
     "{message}"
 )
-logger.add(sys.stdout, format=log_format, level="DEBUG", colorize=True)
+logger.add(
+    sys.stdout,
+    format=log_format,
+    level="DEBUG",
+    colorize=not PROD,
+)
