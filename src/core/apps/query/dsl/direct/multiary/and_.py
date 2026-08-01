@@ -6,7 +6,7 @@ from pydantic import Field
 
 
 from core.apps.query.dsl.base import DirectOperator
-from core.apps.query.dsl.fields import MultiaryFields
+from core.apps.query.dsl.fields import BoolMultiaryFields
 from core.apps.query.dsl.types import (
     OutputKind,
     StrictModel,
@@ -21,7 +21,7 @@ class DirectMultiaryAndOperator(DirectOperator):
     """多条件逻辑 and。"""
 
     op: Literal['multiary.and'] = Field(..., description='多条件逻辑 and。')
-    fields: MultiaryFields = Field(..., description="该算符严格定义的输入字段。")
+    fields: BoolMultiaryFields = Field(..., description="该算符严格定义的输入字段。")
     params: DirectMultiaryAndParams = Field(
         default_factory=DirectMultiaryAndParams,
         description="该算符严格定义的参数。",

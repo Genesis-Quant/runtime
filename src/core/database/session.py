@@ -1,12 +1,11 @@
 """创建 DolphinDB 会话。"""
 
-import re
 from typing import Any
 
 import dolphindb
 
 from core.config import DolphinSettings
-from core.utils import logger
+from core.utils import logger, validate_dolphindb_identifier
 
 
 class LoguruSink(dolphindb.logger.Sink):
@@ -32,8 +31,7 @@ def redirect_session_output(session: Any) -> None:
 
 def has_session_variable(session: Any, name: str) -> bool:
     """返回当前 DolphinDB session 中是否存在指定变量。"""
-    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) is None:
-        raise ValueError(f"不是合法的 DolphinDB 变量名：{name!r}")
+    validate_dolphindb_identifier(name)
     logger.info(f"session.run: 检查变量 {name} 是否存在")
     return bool(session.run(f"`{name} in objs(true).name"))
 

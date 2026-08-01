@@ -6,7 +6,7 @@ from pydantic import Field
 
 
 from core.apps.query.dsl.base import DirectOperator
-from core.apps.query.dsl.fields import BinaryFields
+from core.apps.query.dsl.fields import BoolBinaryFields
 from core.apps.query.dsl.types import (
     OutputKind,
     StrictModel,
@@ -21,7 +21,7 @@ class DirectBinaryOrOperator(DirectOperator):
     """逐行逻辑 or。"""
 
     op: Literal['binary.or'] = Field(..., description='逐行逻辑 or。')
-    fields: BinaryFields = Field(..., description="该算符严格定义的输入字段。")
+    fields: BoolBinaryFields = Field(..., description="该算符严格定义的输入字段。")
     params: DirectBinaryOrParams = Field(
         default_factory=DirectBinaryOrParams,
         description="该算符严格定义的参数。",

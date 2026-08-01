@@ -71,6 +71,36 @@ def validate_input_fields(
         parser.error(f"输入文件缺少必填字段：{missing}")
 
 
+def validate_model_input_fields(
+    parser: argparse.ArgumentParser,
+    data: dict[str, Any],
+    model: type[Any],
+    *,
+    extra_fields: frozenset[str] = frozenset(),
+) -> tuple[str, ...]:
+    """使用 Pydantic 模型字段生成命令输入的允许和必填字段。"""
+    model_fields = tuple(model.model_fields)
+    required = frozenset(
+        name for name, field in model.model_fields.items() if field.is_required()
+    )
+    validate_input_fields(
+        parser,
+        data,
+        allowed=frozenset(model_fields) | extra_fields,
+        required=required | extra_fields,
+    )
+    return model_fields
+
+
+def validate_output_names(
+    parser: argparse.ArgumentParser,
+    values: list[str],
+) -> None:
+    """拒绝命令行中重复请求同一个结果。"""
+    if len(values) != len(set(values)):
+        parser.error("--output 中的名称不能重复")
+
+
 def resolve_output_dir(
     parser: argparse.ArgumentParser,
     value: Any,

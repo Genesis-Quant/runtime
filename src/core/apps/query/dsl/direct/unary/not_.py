@@ -6,7 +6,7 @@ from pydantic import Field
 
 
 from core.apps.query.dsl.base import DirectOperator
-from core.apps.query.dsl.fields import UnaryFields
+from core.apps.query.dsl.fields import BoolUnaryFields
 from core.apps.query.dsl.types import (
     OutputKind,
     StrictModel,
@@ -21,7 +21,7 @@ class DirectUnaryNotOperator(DirectOperator):
     """逐行逻辑非。"""
 
     op: Literal['unary.not'] = Field(..., description='逐行逻辑非。')
-    fields: UnaryFields = Field(..., description="该算符严格定义的输入字段。")
+    fields: BoolUnaryFields = Field(..., description="该算符严格定义的输入字段。")
     params: DirectUnaryNotParams = Field(
         default_factory=DirectUnaryNotParams,
         description="该算符严格定义的参数。",

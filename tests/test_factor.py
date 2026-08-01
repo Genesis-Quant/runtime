@@ -152,6 +152,29 @@ class FakeSession:
 
     def run(self, script: str) -> pd.DataFrame:
         self.scripts.append(script)
+        factor = next(
+            (
+                values["coreFactorCurrentColumn"]
+                for values in reversed(self.uploads)
+                if "coreFactorCurrentColumn" in values
+            ),
+            None,
+        )
+        factor_value = {"close": 0.2, "open": 0.3, "close_processed": 0.4}.get(
+            factor,
+            0.1,
+        )
+        if "factor::factorInformationCoefficient" in script:
+            return pd.DataFrame({
+                "time": pd.to_datetime(["2025-01-02"]),
+                "pct_chg_ic": [factor_value],
+                "pct_chg_rank_ic": [factor_value / 2],
+            })
+        if "factor::factorGroupReturns" in script:
+            return pd.DataFrame({
+                "time": pd.to_datetime(["2025-01-02"]),
+                "pct_chg_group0": [factor_value],
+            })
         return pd.DataFrame()
 
     def close(self) -> None:
@@ -198,22 +221,35 @@ def test_factor_api_builds_server_results(
 
     result = analyze_factors(
         factor_request(),
-        ["close"],
+        ["close", "open"],
         ["pct_chg"],
         session=session,
     )
 
     assert isinstance(result, FactorAnalysisResult)
-    assert result.factor_columns == ("close",)
+    assert result.factor_columns == ("close", "open")
     assert "coreFactorProcessedData" in "\n".join(session.scripts)
-    assert "factor::factorInformationCoefficient" in "\n".join(
-        session.scripts
-    )
+    assert "factor::factorInformationCoefficient" not in "\n".join(session.scripts)
+    assert "factor::factorGroupReturns" not in "\n".join(session.scripts)
+
+    information_coefficient = result.information_coefficient
+    assert information_coefficient.columns.tolist() == [
+        "time",
+        "close_pct_chg_ic",
+        "close_pct_chg_rank_ic",
+        "open_pct_chg_ic",
+        "open_pct_chg_rank_ic",
+    ]
+    group_returns = result.group_returns
+    assert group_returns.columns.tolist() == [
+        "time",
+        "close_pct_chg_group0",
+        "open_pct_chg_group0",
+    ]
+    assert "factor::factorInformationCoefficient" in "\n".join(session.scripts)
     assert "factor::factorGroupReturns" in "\n".join(session.scripts)
-    assert result.information_coefficient("close").empty
-    assert result.group_returns("close").empty
-    with pytest.raises(KeyError, match="未知因子"):
-        result.group_returns("missing")
+    assert not hasattr(result, "information_coefficients")
+    assert not hasattr(result, "all_group_returns")
 
 
 def test_factor_api_can_use_dsl_preprocessing(
@@ -241,7 +277,7 @@ def test_factor_api_can_use_dsl_preprocessing(
     )
     monkeypatch.setattr(
         factor_api,
-        "_industry_metadata",
+        "industry_metadata",
         lambda level: pytest.fail(
             "关闭预处理时不应加载行业元数据"
         ),
@@ -262,13 +298,20 @@ def test_factor_api_can_use_dsl_preprocessing(
         "coreFactorProcessedData = coreFactorInputData"
         in scripts
     )
+    assert "factor::factorInformationCoefficient" not in scripts
+    assert "factor::factorGroupReturns" not in scripts
+
+    result.information_coefficient
+    result.group_returns
+    scripts = "\n".join(session.scripts)
     assert "factor::factorInformationCoefficient" in scripts
     assert "factor::factorGroupReturns" in scripts
 
 
 class FakeFactorResult:
     def __init__(self) -> None:
-        self.processed_data = pd.DataFrame(
+        self.accessed: list[str] = []
+        self.processed_table = pd.DataFrame(
             {
                 "time": pd.to_datetime(["2025-01-02"]),
                 "code": ["000001.SZ"],
@@ -276,36 +319,33 @@ class FakeFactorResult:
                 "alpha_group": [1],
             }
         )
-        self.information_coefficients = {
-            "alpha": pd.DataFrame(
-                {
-                    "time": pd.to_datetime(["2025-01-02"]),
-                    "return_ic": [0.2],
-                    "return_rank_ic": [0.1],
-                }
-            ),
-            "beta": pd.DataFrame(
-                {
-                    "time": pd.to_datetime(["2025-01-02"]),
-                    "return_ic": [0.3],
-                    "return_rank_ic": [0.4],
-                }
-            ),
-        }
-        self.all_group_returns = {
-            "alpha": pd.DataFrame(
-                {
-                    "time": pd.to_datetime(["2025-01-02"]),
-                    "return_group0": [0.01],
-                }
-            ),
-            "beta": pd.DataFrame(
-                {
-                    "time": pd.to_datetime(["2025-01-02"]),
-                    "return_group0": [0.02],
-                }
-            ),
-        }
+        self.information_coefficient_table = pd.DataFrame({
+            "time": pd.to_datetime(["2025-01-02"]),
+            "alpha_return_ic": [0.2],
+            "alpha_return_rank_ic": [0.1],
+            "beta_return_ic": [0.3],
+            "beta_return_rank_ic": [0.4],
+        })
+        self.group_returns_table = pd.DataFrame({
+            "time": pd.to_datetime(["2025-01-02"]),
+            "alpha_return_group0": [0.01],
+            "beta_return_group0": [0.02],
+        })
+
+    @property
+    def processed_data(self) -> pd.DataFrame:
+        self.accessed.append("processed_data")
+        return self.processed_table
+
+    @property
+    def information_coefficient(self) -> pd.DataFrame:
+        self.accessed.append("information_coefficient")
+        return self.information_coefficient_table
+
+    @property
+    def group_returns(self) -> pd.DataFrame:
+        self.accessed.append("group_returns")
+        return self.group_returns_table
 
     def __enter__(self) -> "FakeFactorResult":
         return self
@@ -314,7 +354,7 @@ class FakeFactorResult:
         return None
 
 
-def test_factor_cli_writes_fixed_parquet_outputs(
+def test_factor_cli_writes_only_requested_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -332,10 +372,11 @@ def test_factor_cli_writes_fixed_parquet_outputs(
         encoding="utf-8",
     )
     received: dict[str, Any] = {}
+    factor_result = FakeFactorResult()
 
     def fake_analyze_factors(**arguments: Any) -> FakeFactorResult:
         received.update(arguments)
-        return FakeFactorResult()
+        return factor_result
 
     monkeypatch.setattr(
         factor_package,
@@ -344,24 +385,28 @@ def test_factor_cli_writes_fixed_parquet_outputs(
     )
 
     assert manage_apps.main(
-        ["factor", "--input-file", str(input_file)]
+        [
+            "factor",
+            "--input-file",
+            str(input_file),
+            "--output",
+            "information_coefficient",
+        ]
     ) == 0
 
     output_dir = tmp_path / "output"
     assert sorted(path.name for path in output_dir.glob("*.parquet")) == [
-        "factor_group_returns.parquet",
         "factor_information_coefficients.parquet",
-        "factor_processed.parquet",
     ]
     information_coefficients = pd.read_parquet(
         output_dir / "factor_information_coefficients.parquet"
     )
-    group_returns = pd.read_parquet(
-        output_dir / "factor_group_returns.parquet"
-    )
-    assert information_coefficients["factor"].tolist() == [
-        "alpha",
-        "beta",
+    assert information_coefficients.columns.tolist() == [
+        "time",
+        "alpha_return_ic",
+        "alpha_return_rank_ic",
+        "beta_return_ic",
+        "beta_return_rank_ic",
     ]
-    assert group_returns["factor"].tolist() == ["alpha", "beta"]
+    assert factor_result.accessed == ["information_coefficient"]
     assert received["preprocess"] is False

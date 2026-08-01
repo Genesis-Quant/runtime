@@ -1,66 +1,83 @@
-"""定义持有 DolphinDB 服务端因子分析表的惰性结果对象。"""
+"""定义持有 DolphinDB 服务端因子预处理表的惰性结果对象。"""
 
 from typing import Any
 
 import pandas as pd
 
-from core.utils import SessionResult
+from core.utils import SessionResult, logger
 
 from .schema import FactorAnalysisParameters
 
 
 class FactorAnalysisResult(SessionResult):
-    """按需下载预处理因子、IC 和分组收益表。"""
+    """按需下载预处理因子并计算全部因子的分析表。"""
 
     def __init__(
             self,
             *,
             session: Any,
-            factor_columns: list[str],
-            return_columns: list[str],
-            processed_ref:str,
-            group_return_refs: dict[str, str],
-            information_coefficient_refs: dict[str, str],
+            parameters: FactorAnalysisParameters,
+            processed_ref: str,
     ) -> None:
         super().__init__(session=session)
-        self.factor_columns = factor_columns
-        self.return_columns = return_columns
+        self.parameters = parameters
+        self.factor_columns = tuple(parameters.factor_columns)
+        self.return_columns = tuple(parameters.return_columns)
         self.processed_ref = processed_ref
-        self.information_coefficient_refs = dict(information_coefficient_refs)
-        self.group_return_refs = dict(group_return_refs)
 
     @property
     def processed_data(self) -> pd.DataFrame:
         """下载内置预处理或 DSL 手动预处理后的完整因子表。"""
-        return self.download("coreFactorProcessedData")
-
-    def information_coefficient(self, factor: str) -> pd.DataFrame:
-        """下载指定因子的 IC 与 Rank IC 时间序列表。"""
-        assert factor in self.information_coefficient_refs, f"因子 {factor} 不存在"
-        return self.download(self.information_coefficient_refs[factor])
-
-    def group_returns(self, factor: str) -> pd.DataFrame:
-        assert factor in self.group_return_refs, f"因子 {factor} 不存在"
-        """下载指定因子的市值加权分组收益时间序列表。"""
-        return self.download(self.group_return_refs[factor])
+        return self.download(self.processed_ref)
 
     @property
-    def information_coefficients(
-            self,
-    ) -> dict[str, pd.DataFrame]:
-        """下载全部因子的 IC 与 Rank IC 表。"""
-        return {
-            factor: self.information_coefficient(factor)
-            for factor in self.factor_columns
-        }
+    def information_coefficient(self) -> pd.DataFrame:
+        """计算全部因子的 IC，并按 time 横向拼接。"""
+        tables: list[pd.DataFrame] = []
+        for factor in self.factor_columns:
+            self.session.upload({"coreFactorCurrentColumn": factor})
+            logger.info(f"session.run: 计算因子 {factor} 的 IC")
+            table = self.download(f"""
+                factor::factorInformationCoefficient(
+                    {self.processed_ref},
+                    coreFactorReturnColumns,
+                    coreFactorCurrentColumn,
+                    "time"
+                )
+            """)
+            table = table.rename(columns={
+                column: f"{factor}_{column}"
+                for column in table.columns
+                if column != "time"
+            })
+            tables.append(table.set_index("time"))
+        return pd.concat(tables, axis=1).sort_index().reset_index()
 
     @property
-    def all_group_returns(self) -> dict[str, pd.DataFrame]:
-        """下载全部因子的分组收益表。"""
-        return {
-            factor: self.group_returns(factor)
-            for factor in self.factor_columns
-        }
+    def group_returns(self) -> pd.DataFrame:
+        """计算全部因子的分组收益，并按 time 横向拼接。"""
+        tables: list[pd.DataFrame] = []
+        for factor in self.factor_columns:
+            self.session.upload({"coreFactorCurrentColumn": factor})
+            logger.info(f"session.run: 计算因子 {factor} 的分组收益")
+            table = self.download(f"""
+                factor::factorGroupReturns(
+                    {self.processed_ref},
+                    coreFactorReturnColumns,
+                    coreFactorCurrentColumn,
+                    coreFactorGroupCount,
+                    "time",
+                    "code",
+                    coreFactorMarketValueColumn
+                )
+            """)
+            table = table.rename(columns={
+                column: f"{factor}_{column}"
+                for column in table.columns
+                if column != "time"
+            })
+            tables.append(table.set_index("time"))
+        return pd.concat(tables, axis=1).sort_index().reset_index()
 
 
 __all__ = ["FactorAnalysisResult"]

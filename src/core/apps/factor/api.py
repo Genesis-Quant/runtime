@@ -20,11 +20,11 @@ PROCESSED_REF = "coreFactorProcessedData"
 
 
 # TODO remove
-def _industry_metadata(
+def industry_metadata(
         level: Literal["industry", "sector"],
 ) -> tuple[np.ndarray, np.ndarray]:
     """读取并校验用于服务端连接的股票行业向量。"""
-    _, stock_industries, _ = get_stock_metadata()
+    stock_industries = get_stock_metadata()[1]
     values = stock_industries.loc[:, ["code", level]].copy()
     valid = (
             values["code"].notna()
@@ -52,7 +52,7 @@ def analyze_factors(
         market_value_column: str = "circ_mv",
         industry_level: Literal["industry", "sector"] = "industry",
 ) -> result.FactorAnalysisResult:
-    """按需预处理一个或多个因子，并生成 IC 和市值加权分组收益。"""
+    """生成预处理因子表，并把后续分析交给惰性结果对象。"""
     parameters = schema.FactorAnalysisParameters.model_validate({
         "dataset_query": dataset_query,
         "factor_columns": factor_columns,
@@ -85,7 +85,7 @@ def analyze_factors(
         }
 
         if parameters.preprocess:
-            industry_codes, industry_values = _industry_metadata(parameters.industry_level)
+            industry_codes, industry_values = industry_metadata(parameters.industry_level)
             upload_values.update({
                 "coreFactorIndustryCodes": industry_codes,
                 "coreFactorIndustryValues": industry_values,
@@ -125,43 +125,12 @@ def analyze_factors(
             logger.info("session.run: 跳过内置预处理，直接使用 DSL 输出")
             current_session.run(f"{PROCESSED_REF} = {INPUT_REF}")
 
-        information_coefficient_refs: dict[str, str] = {}
-        group_return_refs: dict[str, str] = {}
-        for index, factor in enumerate(parameters.factor_columns):
-            ic_ref = f"coreFactorInformationCoefficient{index}"
-            group_ref = f"coreFactorGroupReturns{index}"
-            current_session.upload({"coreFactorCurrentColumn": factor})
-
-            logger.info(f"session.run: 计算因子 {factor} 的 IC 和分组收益")
-            current_session.run(f"""
-                {ic_ref} = factor::factorInformationCoefficient(
-                        {PROCESSED_REF},
-                        coreFactorReturnColumns,
-                        coreFactorCurrentColumn,
-                        "time"
-                )
-                {group_ref} = factor::factorGroupReturns(
-                        {PROCESSED_REF},
-                        coreFactorReturnColumns,
-                        coreFactorCurrentColumn,
-                        coreFactorGroupCount,
-                        "time",
-                        "code",
-                        coreFactorMarketValueColumn
-                )
-            """)
-            information_coefficient_refs[factor] = ic_ref
-            group_return_refs[factor] = group_ref
-
-        logger.success("因子分析已在 DolphinDB 会话中生成")
+        logger.success("因子预处理已在 DolphinDB 会话中生成")
 
         return result.FactorAnalysisResult(
             session=current_session,
-            factor_columns=parameters.factor_columns,
-            return_columns=parameters.return_columns,
+            parameters=parameters,
             processed_ref=PROCESSED_REF,
-            information_coefficient_refs=information_coefficient_refs,
-            group_return_refs=group_return_refs,
         )
     except Exception:
         logger.exception(f"因子分析失败")

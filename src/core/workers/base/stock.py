@@ -218,8 +218,8 @@ class StockWorker(BaseWorker, ABC):
                 current_count += 1
 
         start_range = (
-            f"{min(start for _, start in tasks):%Y-%m-%d} 至 "
-            f"{max(start for _, start in tasks):%Y-%m-%d}"
+            f"{min(task[1] for task in tasks):%Y-%m-%d} 至 "
+            f"{max(task[1] for task in tasks):%Y-%m-%d}"
             if tasks
             else "无"
         )
@@ -261,10 +261,10 @@ class StockWorker(BaseWorker, ABC):
                         yield ready.pop()
                         continue
 
-                    completed, _ = wait(
+                    completed = wait(
                         futures,
                         return_when=FIRST_COMPLETED,
-                    )
+                    )[0]
                     for future in completed:
                         code, start_date = futures.pop(future)
                         try:

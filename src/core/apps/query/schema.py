@@ -5,6 +5,19 @@ from .dsl import (
     FactorQuery,
 )
 
+QUERY_RESERVED_REFERENCES = frozenset({
+    "coreQueryStart",
+    "coreQueryEnd",
+    "coreQueryCodes",
+    "coreQueryFactors",
+    "coreQueryDates",
+    "coreDslDefinitionsJson",
+    "coreDslFilters",
+    "coreDslOutputColumns",
+    "coreOutputStart",
+    "coreOutputEnd",
+})
+
 __all__ = [
     "Derivative",
     "FactorQuery",

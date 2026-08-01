@@ -24,13 +24,18 @@
       "000063.SZ",
       "002415.SZ"
     ],
-    "factors": []
+    "factors": [
+      "close",
+      "close_hfq"
+    ]
   },
   "factor_columns": [
-    "close"
+    "close",
+    "close_hfq"
   ],
   "return_columns": [
-    "pct_chg"
+    "pct_chg",
+    "pct_chg_hfq"
   ],
   "n_groups": 5,
   "preprocess": true,

@@ -1,13 +1,14 @@
 """定义回测数据集与执行参数。"""
 
-from collections.abc import Mapping
-import re
-from textwrap import dedent
+import math
+from numbers import Integral, Real
 from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ..query.schema import FactorQuery
+from core.utils import normalize_dolphindb_functions, normalize_str, validate_dolphindb_references
+
+from ..query.schema import FactorQuery, QUERY_RESERVED_REFERENCES
 
 CallbackName: TypeAlias = Literal[
     "initialize",
@@ -20,6 +21,51 @@ CallbackName: TypeAlias = Literal[
     "finalize",
 ]
 Adj: TypeAlias = Literal["hfq", "qfq"]
+DAILY_MESSAGE_FACTORS = ("open", "low", "high", "close", "vol", "up_limit", "down_limit", "pre_close")
+CALLBACK_PARAMETER_COUNTS = {
+    "initialize": 1,
+    "beforeTrading": 1,
+    "onBar": 3,
+    "onSnapshot": 3,
+    "onOrder": 2,
+    "onTrade": 2,
+    "afterTrading": 1,
+    "finalize": 1,
+}
+BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
+    "coreBacktestName",
+    "coreBacktestConfig",
+    "coreBacktestCodes",
+    "coreBacktestStartDate",
+    "coreBacktestEndDate",
+    "coreBacktestAnnualTradingDays",
+    "coreBacktestRiskFreeRate",
+    "coreBacktestAdj",
+    "coreBacktestEngine",
+    "coreLoadedPlugins",
+    "coreBacktestComputedData",
+    "coreBacktestFilteredData",
+    "coreBacktestData",
+    "coreBacktestCodesSourceData",
+    "coreBacktestCodesComputedData",
+    "coreBacktestCodesFilteredData",
+    "coreBacktestCodesData",
+})
+BACKTEST_BOOLEAN_CONFIGS = frozenset({
+    "enableIndicatorOptimize",
+    "isBacktestMode",
+    "addTimeColumnInIndicator",
+    "enableSubscriptionToTickQuotes",
+    "outputOrderInfo",
+    "repayWithoutMarginBuy",
+    "outputSeqNum",
+    "outputTradeSeqNum",
+    "multiAssetQuoteUnifiedInput",
+    "msgAsPiecesOnSnapshot",
+    "enableAlgoOrder",
+    "immediateOrderConfirmation",
+    "immediateCancel",
+})
 
 
 class BacktestParameters(BaseModel):
@@ -27,9 +73,10 @@ class BacktestParameters(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True, validate_default=True)
 
-    name: str = Field(
+    name: str | None = Field(
+        default=None,
         min_length=1,
-        description="回测引擎名称。"
+        description="可选回测引擎名称。"
     )
 
     config: dict[str, Any] = Field(
@@ -65,7 +112,7 @@ class BacktestParameters(BaseModel):
     )
 
     source_ref: str = Field(
-        default="coreBacktestSource",
+        default="coreBacktestSourceData",
         description="基础因子查询结果变量名；存在则复用，不存在则生成。"
     )
 
@@ -74,13 +121,28 @@ class BacktestParameters(BaseModel):
         description="日频消息查询结果变量名；存在则复用，不存在则生成。"
     )
 
-    utils: dict[str, str] | None = Field(default_factory=dict)
+    utils: dict[str, str] = Field(default_factory=dict)
 
     callbacks: dict[CallbackName, str]
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        return normalize_str(value, "name") if value is not None else None
 
     @model_validator(mode="after")
     def validate_dataset_query_contract(self) -> "BacktestParameters":
         """补充复权因子，并校验股票范围和框架保留列。"""
+        validate_dolphindb_references(
+            {"source_ref": self.source_ref, "message_ref": self.message_ref},
+            reserved=BACKTEST_RESERVED_REFERENCES | frozenset(CALLBACK_PARAMETER_COUNTS),
+        )
+        if conflicts := set(self.utils) & (BACKTEST_RESERVED_REFERENCES | {self.source_ref, self.message_ref}):
+            raise ValueError(f"utils 函数名不能与内部或结果变量重名：{sorted(conflicts)}")
+        if overlap := set(self.utils) & set(self.callbacks):
+            raise ValueError(f"utils 与 callbacks 不能定义同名函数：{sorted(overlap)}")
+        if reserved_callbacks := set(self.utils) & set(CALLBACK_PARAMETER_COUNTS):
+            raise ValueError(f"utils 不能定义回调保留名称：{sorted(reserved_callbacks)}")
         if self.adj is not None:
             if "adj_factor" in self.dataset_query.derivatives:
                 raise ValueError("adj 不允许使用名为 adj_factor 的派生因子")
@@ -102,10 +164,14 @@ class BacktestParameters(BaseModel):
                 raise ValueError(f"股票回测当前只支持 .SH 和 .SZ 代码：{unsupported_codes[:10]}")
         return self
 
-    @field_validator("config")
+    @field_validator("config", mode="before")
     @classmethod
-    def validate_config(cls, value: dict[str, Any]) -> dict[str, Any]:
-        """拒绝框架保留配置，并规范需要浮点数的插件配置。"""
+    def validate_config(cls, value: Any) -> dict[str, Any]:
+        """拒绝框架保留配置，并校验已知 Backtest 插件配置。"""
+        if value is None:
+            value = {}
+        if not isinstance(value, dict):
+            raise ValueError("config 必须是 dict[str, Any]")
         if reserved := set(value) & {"startDate", "endDate", "strategyGroup", "dataType", "msgAsTable"}:
             raise ValueError(f"以下配置由回测框架根据查询生成，不能传入：{sorted(reserved)}")
 
@@ -116,56 +182,68 @@ class BacktestParameters(BaseModel):
             "matchingMode": 2,
             **value
         }
-        for name in ("cash", "commission", "tax", "matchingRatio", "orderBookMatchingRatio"):
+        for name in ("cash", "commission", "tax", "matchingRatio", "orderBookMatchingRatio", "enableMinimumPerTransactionFee"):
             if name not in result:
                 continue
-            if isinstance(result[name], bool):
+            if isinstance(result[name], bool) or not isinstance(result[name], Real):
                 raise ValueError(f"config[{name!r}] 必须是数值")
-            try:
-                result[name] = float(result[name])
-            except (TypeError, ValueError) as error:
-                raise ValueError(f"config[{name!r}] 必须是数值") from error
+            result[name] = float(result[name])
+            if not math.isfinite(result[name]):
+                raise ValueError(f"config[{name!r}] 不能是 NaN 或正负无穷")
+        if result["cash"] <= 0:
+            raise ValueError("config['cash'] 必须大于 0")
+        for name in ("commission", "tax", "enableMinimumPerTransactionFee"):
+            if name in result and result[name] < 0:
+                raise ValueError(f"config[{name!r}] 不能小于 0")
+        for name in ("matchingRatio", "orderBookMatchingRatio"):
+            if name in result and not 0 <= result[name] <= 1:
+                raise ValueError(f"config[{name!r}] 必须位于 0 到 1 之间")
+        for name, allowed in {
+            "matchingMode": {1, 2, 3},
+            "callbackForSnapshot": {0, 1, 2},
+            "outputQueuePosition": {0, 1, 2},
+        }.items():
+            if name not in result:
+                continue
+            if isinstance(result[name], bool) or not isinstance(result[name], Integral):
+                raise ValueError(f"config[{name!r}] 必须是整数")
+            result[name] = int(result[name])
+            if result[name] not in allowed:
+                raise ValueError(f"config[{name!r}] 只能是 {sorted(allowed)}")
+        for name in ("frequency", "latency"):
+            if name not in result:
+                continue
+            if isinstance(result[name], bool) or not isinstance(result[name], Integral):
+                raise ValueError(f"config[{name!r}] 必须是整数")
+            result[name] = int(result[name])
+            if result[name] < 0:
+                raise ValueError(f"config[{name!r}] 不能小于 0")
+        for name in BACKTEST_BOOLEAN_CONFIGS & set(result):
+            if not isinstance(result[name], bool):
+                raise ValueError(f"config[{name!r}] 必须是 bool")
         return result
 
     @field_validator("dataset_query", mode="after")
     @classmethod
     def validate_dataset_query(cls, value: FactorQuery) -> FactorQuery:
         """自动加入构造日频消息所需的原始行情因子。"""
-        merged = list(
-            set(value.factors) |
-            {"open", "low", "high", "close", "vol", "up_limit", "down_limit", "pre_close"}
-        )
+        missing = [factor for factor in DAILY_MESSAGE_FACTORS if factor not in value.factors]
+        return value.model_copy(update={"factors": [*value.factors, *missing]}) if missing else value
 
-        if len(merged) != len(value.factors):
-            value = value.model_copy(update={"factors": merged})
-        return value
-
-    @field_validator("source_ref", "message_ref")
+    @field_validator("utils", mode="before")
     @classmethod
-    def validate_reference(cls, value: str) -> str:
-        """校验可复用 DolphinDB 会话变量名，防止脚本注入。"""
-        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", value) is None:
-            raise ValueError(f"不是合法的 DolphinDB 变量名：{value!r}")
-        return value
-
-    @field_validator("utils")
-    @classmethod
-    def validate_utils(cls, value: dict[str, str] | None) -> dict[str, str]:
+    def validate_utils(cls, value: Any) -> dict[str, str]:
         """要求工具函数映射键与实际函数名一致。"""
-        if value is None:
-            return {}
-        return {
-            name: dedent(definition).strip()
-            for name, definition in value.items()
-        }
+        return normalize_dolphindb_functions(value, "utils")
 
-    @field_validator("callbacks")
+    @field_validator("callbacks", mode="before")
     @classmethod
-    def validate_callbacks(cls, value: dict[CallbackName, str]) -> dict[CallbackName, str]:
-        return {
-            name: dedent(definition).strip()
-            for name, definition in value.items()
-        }
+    def validate_callbacks(cls, value: Any) -> dict[str, str]:
+        return normalize_dolphindb_functions(
+            value,
+            "callbacks",
+            parameter_counts=CALLBACK_PARAMETER_COUNTS,
+        )
 
 
 __all__ = ["CallbackName", "Adj", "BacktestParameters"]

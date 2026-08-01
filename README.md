@@ -29,8 +29,8 @@ with analyze_factors(
     n_groups=5,
 ) as factor_result:
     processed = factor_result.processed_data
-    close_ic = factor_result.information_coefficient("close")
-    close_group_returns = factor_result.group_returns("close")
+    information_coefficient = factor_result.information_coefficient
+    group_returns = factor_result.group_returns
 
 with run_backtest(
     dataset_query,
@@ -69,10 +69,10 @@ from core.apps.backtest import BacktestResult, run_backtest
 
 ```powershell
 core-manage --help
-core-manage apps query --input-file query.json
-core-manage apps factor --input-file factor.json
-core-manage apps backtest --input-file backtest.json
-core-manage apps backtest --input-file backtest.json --output-cloud
+core-manage apps query --input-file query.json --output data
+core-manage apps factor --input-file factor.json --output processed_data information_coefficient group_returns
+core-manage apps backtest --input-file backtest.json --output daily_portfolios return_summary
+core-manage apps backtest --input-file backtest.json --output daily_portfolios --output-cloud
 core-manage workers --list-workers
 core-manage workers daily adj-factor --start-date 2025-01-01
 core-manage database compile --output-dir output
@@ -98,11 +98,13 @@ with analyze_factors(
     n_groups=5,
     preprocess=False,
 ) as factor_result:
-    close_ic = factor_result.information_coefficient("close_processed")
+    information_coefficient = factor_result.information_coefficient
 ```
 
 `apps query`、`apps factor` 和 `apps backtest` 都使用必填的
-`--input-file`，并支持可选的 `--output-cloud` 开关（默认 `False`）。
+`--input-file` 和 `--output`，并支持可选的 `--output-cloud` 开关（默认 `False`）。
+`--output` 后可以指定一个或多个结果属性；未指定会报错，未选中的结果属性不会
+被访问、下载或计算。
 输入文件必须是 UTF-8 JSON 对象，包含应用的全部非敏感参数。
 
 查询输入文件示例：
@@ -119,16 +121,18 @@ with analyze_factors(
 }
 ```
 
-本地模式下，相对 `output_dir` 以输入文件所在目录为基准，查询结果固定写入
-`<output_dir>/query.parquet`，目标目录不存在时会自动创建。
+查询可选输出为 `source_data`、`computed_data`、`filtered_data` 和 `data`；
+其中 `data` 写入 `<output_dir>/query.parquet`。本地模式下，相对
+`output_dir` 以输入文件所在目录为基准，目标目录不存在时会自动创建。
 
-因子分析输入参考 [factor.json](examples/factor.json)，固定输出：
+因子分析输入参考 [factor.json](examples/factor.json)，可选输出：
 
 - `factor_processed.parquet`
 - `factor_information_coefficients.parquet`
 - `factor_group_returns.parquet`
 
-后两张表使用 `factor` 列区分不同分析因子。
+访问结果属性时才会计算 IC 或分组收益。后两张表按 `time` 横向拼接全部因子，
+其余列以因子名为前缀，例如 `close_pct_chg_ic`。
 
 回测输入文件示例：
 
@@ -147,17 +151,12 @@ with analyze_factors(
   "config": {
     "cash": 100000
   },
-  "output_dir": "output/backtest",
-  "output": [
-    "trade_details",
-    "daily_portfolios"
-  ]
+  "output_dir": "output/backtest"
 }
 ```
 
-`output` 可省略，默认输出 `trade_details.parquet`、
-`daily_positions.parquet`、`daily_portfolios.parquet` 和
-`daily_trading_statistics.parquet`。回测输入还支持 `utils`、
+回测可选输出为 `trade_details`、`daily_positions`、`daily_portfolios`、
+`return_summary`、`daily_trading_statistics` 和 `engine_stat`。回测输入还支持 `utils`、
 `codes_query`、`adj`、`name`、`annual_trading_days`、`risk_free_rate`、
 `source_ref` 和 `message_ref`。命令执行结束后自动关闭 DolphinDB session。
 

@@ -1,6 +1,5 @@
 """在 DolphinDB 内完成统一因子查询、填充和 DSL 计算。"""
 
-import re
 import json
 from typing import Any
 from datetime import timedelta
@@ -16,14 +15,13 @@ from core.utils import (
     TIME_COLUMN,
     WEIGHT_PREFIX,
     get_trading_dates,
-    normalize_date_range
+    normalize_date_range,
+    validate_dolphindb_references,
 )
 from core.workers import FINANCIAL_FACTORS
 
 from .result import QueryResult
-from .schema import FactorQuery
-
-REFERENCE_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
+from .schema import FactorQuery, QUERY_RESERVED_REFERENCES
 
 SOURCE_REF = "coreQuerySourceData"
 COMPUTED_REF = "coreQueryComputedData"
@@ -40,6 +38,13 @@ def build_query_table(
         filtered_ref: str = FILTERED_REF,
         data_ref: str = DATA_REF,
 ) -> list[str]:
+    query = FactorQuery.model_validate(query)
+    validate_dolphindb_references({
+        "source_ref": source_ref,
+        "computed_ref": computed_ref,
+        "filtered_ref": filtered_ref,
+        "data_ref": data_ref,
+    }, reserved=QUERY_RESERVED_REFERENCES)
     output_start, output_end = normalize_date_range(query.start_date, query.end_date)
     calculation_start = (output_start - query.lookback).normalize()
     source_factors = query.source_factors()
@@ -156,12 +161,13 @@ def execute_query(
         session: Any | None = None
 ) -> QueryResult:
     """在服务端生成查询结果，并把当前会话移交给惰性结果对象。"""
+    query = FactorQuery.model_validate(request)
     owns_session = session is None
     current_session = create_session() if owns_session else session
     redirect_session_output(current_session)
 
     try:
-        build_query_table(request, session=current_session)
+        build_query_table(query, session=current_session)
         logger.success(f"因子查询已在 DolphinDB 会话中生成")
         return QueryResult(
             session=current_session,

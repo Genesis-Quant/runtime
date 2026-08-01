@@ -208,14 +208,14 @@ def get_codes() -> tuple[str, ...]:
     return get_stock_metadata()[0]
 
 
-class _ProProxy:
+class ProProxy:
     """兼容原有 ``pro`` 导出的惰性 Tushare Pro 代理。"""
 
     def __getattr__(self, name: str) -> Any:
         return getattr(get_pro(), name)
 
 
-pro = _ProProxy()
+pro = ProProxy()
 
 
 def __getattr__(name: str) -> Any:

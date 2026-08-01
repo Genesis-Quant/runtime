@@ -4,64 +4,36 @@ import argparse
 from contextlib import ExitStack
 from typing import Any
 
-from ._shared import (
+from .utils import (
     add_input_file_arguments,
     prepare_output_target,
-    validate_input_fields,
+    validate_model_input_fields,
+    validate_output_names,
     write_parquet,
 )
 
 NAME = "backtest"
 HELP = "执行日频回测"
 DESCRIPTION = "执行日频回测。"
-OUTPUT_NAMES = (
-    "trade_details",
-    "daily_positions",
-    "daily_portfolios",
-    "daily_trading_statistics",
-)
-RUN_FIELDS = (
-    "dataset_query",
-    "callbacks",
-    "utils",
-    "codes_query",
-    "adj",
-    "name",
-    "config",
-    "annual_trading_days",
-    "risk_free_rate",
-    "source_ref",
-    "message_ref",
-)
-INPUT_FIELDS = frozenset((*RUN_FIELDS, "output_dir", "output"))
-REQUIRED_FIELDS = frozenset(("dataset_query", "callbacks", "output_dir"))
-
-
+OUTPUT_FILENAMES = {
+    "trade_details": "trade_details.parquet",
+    "daily_positions": "daily_positions.parquet",
+    "daily_portfolios": "daily_portfolios.parquet",
+    "return_summary": "return_summary.parquet",
+    "daily_trading_statistics": "daily_trading_statistics.parquet",
+    "engine_stat": "engine_stat.parquet",
+}
 def configure_parser(parser: argparse.ArgumentParser) -> None:
     """注册回测命令参数。"""
     add_input_file_arguments(parser)
-
-
-def validate_output_names(
-    parser: argparse.ArgumentParser,
-    value: Any,
-) -> list[str]:
-    """校验需要保存的回测结果表名称。"""
-    if not isinstance(value, list):
-        parser.error("input_file.output 必须是 JSON 数组")
-    if not all(isinstance(name, str) for name in value):
-        parser.error("input_file.output 中的名称必须全部是字符串")
-    if not value:
-        parser.error("input_file.output 至少需要指定一张表")
-    unsupported = sorted(set(value) - set(OUTPUT_NAMES))
-    if unsupported:
-        parser.error(
-            f"不支持的回测输出：{unsupported}；"
-            f"可选值：{list(OUTPUT_NAMES)}"
-        )
-    if len(value) != len(set(value)):
-        parser.error("input_file.output 中的名称不能重复")
-    return value
+    parser.add_argument(
+        "--output",
+        nargs="+",
+        choices=OUTPUT_FILENAMES,
+        required=True,
+        metavar="RESULT",
+        help=f"需要输出的结果，可同时指定多个：{', '.join(OUTPUT_FILENAMES)}",
+    )
 
 
 def run(
@@ -71,28 +43,25 @@ def run(
 ) -> int:
     """执行回测并写出选定的 Parquet 结果表。"""
     from core.apps.backtest import run_backtest
+    from core.apps.backtest.schema import BacktestParameters
     from core.utils import logger
 
-    validate_input_fields(
+    run_fields = validate_model_input_fields(
         parser,
         data,
-        allowed=INPUT_FIELDS,
-        required=REQUIRED_FIELDS,
+        BacktestParameters,
+        extra_fields=frozenset({"output_dir"}),
     )
+    validate_output_names(parser, arguments.output)
     output_target, storage = prepare_output_target(
         parser,
         data["output_dir"],
         input_file=arguments.input_file,
         output_cloud=arguments.output_cloud,
     )
-    output_names = (
-        validate_output_names(parser, data["output"])
-        if "output" in data
-        else list(OUTPUT_NAMES)
-    )
     run_arguments = {
         name: data[name]
-        for name in RUN_FIELDS
+        for name in run_fields
         if name in data
     }
     outputs: list[str] = []
@@ -102,11 +71,11 @@ def run(
         backtest_result = stack.enter_context(
             run_backtest(**run_arguments)
         )
-        for output_name in output_names:
+        for output_name in arguments.output:
             outputs.append(
                 write_parquet(
                     getattr(backtest_result, output_name),
-                    f"{output_name}.parquet",
+                    OUTPUT_FILENAMES[output_name],
                     output_target=output_target,
                     storage=storage,
                 )

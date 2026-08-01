@@ -1,6 +1,8 @@
 """提供数据更新和查询共用的日期标准化。"""
 
 from datetime import date, datetime
+import re
+from typing import Any
 
 import pandas as pd
 
@@ -32,17 +34,44 @@ def normalize_date_range(
     return start, end
 
 
-def normalize_str_list(values: list[str], location: str) -> list[str]:
-    """清理字符串列表，在保持顺序的同时去重并拒绝空值。"""
+def validate_iso_date(value: Any, location: str) -> str:
+    """校验严格的 YYYY-MM-DD 日期字符串。"""
+    if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
+        raise ValueError(f"{location} 必须是 YYYY-MM-DD 格式的日期字符串")
+    try:
+        date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f"{location} 不是有效日期：{value!r}") from error
+    return value
+
+
+def normalize_str(value: Any, location: str) -> str:
+    """清理单个字符串并拒绝空值。"""
+    if not isinstance(value, str):
+        raise ValueError(f"{location} 必须是字符串")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{location} 不能为空")
+    return normalized
+
+
+def normalize_str_list(
+        values: Any,
+        location: str,
+        *,
+        reject_duplicates: bool = False,
+) -> list[str]:
+    """清理字符串列表，在保持顺序的同时处理重复项并拒绝空值。"""
+    if not isinstance(values, list):
+        raise ValueError(f"{location} 必须是 list[str]")
     result: list[str] = []
     seen: set[str] = set()
     for value in values:
-        if not isinstance(value, str):
-            raise ValueError(f"{location} 必须全部是字符串")
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError(f"{location} 不能包含空值")
-        if normalized not in seen:
-            result.append(normalized)
-            seen.add(normalized)
+        normalized = normalize_str(value, location)
+        if normalized in seen:
+            if reject_duplicates:
+                raise ValueError(f"{location} 不能包含重复值：{normalized!r}")
+            continue
+        result.append(normalized)
+        seen.add(normalized)
     return result

@@ -9,6 +9,8 @@ from pydantic import (
     model_validator,
 )
 
+from core.utils import normalize_str, normalize_str_list
+
 from ..query import FactorQuery
 
 
@@ -24,11 +26,13 @@ class FactorAnalysisParameters(BaseModel):
 
     factor_columns: list[str] = Field(
         ...,
+        min_length=1,
         description="需要评价的原始因子列或 DSL 手动预处理结果列。",
     )
 
     return_columns: list[str] = Field(
         ...,
+        min_length=1,
         description="用于计算 IC 和分组收益的收益率列。",
     )
 
@@ -54,17 +58,35 @@ class FactorAnalysisParameters(BaseModel):
         description="启用内置预处理时用于中性化的 Tushare 行业层级。"
     )
 
-    @model_validator(mode="after")
-    def add_required_query_columns(self) -> "FactorAnalysisParameters":
-        """把直接因子、收益率和市值列自动加入 dataset_query。"""
-        required = [*self.factor_columns, *self.return_columns, self.market_value_column]
-        outputs = set(self.dataset_query.factors) | set(self.dataset_query.derivatives)
-        missing = [name for name in required if name not in outputs]
-        if missing:
-            self.dataset_query = self.dataset_query.model_copy(
-                update={"factors": [*self.dataset_query.factors, *missing]}
-            )
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def add_required_query_columns(cls, data: Any) -> Any:
+        """在 FactorQuery 校验前补齐因子、收益率和市值列。"""
+        if not isinstance(data, dict):
+            return data
+        factor_columns = normalize_str_list(data.get("factor_columns"), "factor_columns", reject_duplicates=True)
+        return_columns = normalize_str_list(data.get("return_columns"), "return_columns", reject_duplicates=True)
+        market_value_column = normalize_str(data.get("market_value_column", "circ_mv"), "market_value_column")
+        result = {**data, "factor_columns": factor_columns, "return_columns": return_columns, "market_value_column": market_value_column}
+        dataset_query = data.get("dataset_query")
+        if isinstance(dataset_query, FactorQuery):
+            factors = dataset_query.factors
+            derivatives = set(dataset_query.derivatives)
+        elif isinstance(dataset_query, dict):
+            factors = dataset_query.get("factors") or []
+            derivatives_value = dataset_query.get("derivatives") or {}
+            if not isinstance(factors, list) or not isinstance(derivatives_value, dict):
+                return result
+            derivatives = set(derivatives_value)
+        else:
+            return result
+        required = [*factor_columns, *return_columns, market_value_column]
+        outputs = {name.strip() for name in factors if isinstance(name, str)} | {
+            name.strip() for name in derivatives if isinstance(name, str)
+        }
+        merged = [*factors, *(name for name in required if name not in outputs)]
+        result["dataset_query"] = dataset_query.model_copy(update={"factors": merged}) if isinstance(dataset_query, FactorQuery) else {**dataset_query, "factors": merged}
+        return result
 
     @model_validator(mode="after")
     def validate_analysis_contract(self) -> "FactorAnalysisParameters":
@@ -79,6 +101,10 @@ class FactorAnalysisParameters(BaseModel):
         if self.market_value_column in factor_set:
             raise ValueError(
                 "market_value_column 不能同时作为待分析因子"
+            )
+        if self.market_value_column in return_set:
+            raise ValueError(
+                "market_value_column 不能同时作为收益率列"
             )
 
         outputs = set(self.dataset_query.factors) | set(

@@ -45,17 +45,32 @@ class Derivative(StrictModel):
         on = getattr(self, "on", None)
         if not isinstance(on, Derivative):
             return self
-
-        output_kind = on.output_kind
-        if on.op == "unary.cast" and on.params.dtype == "bool":
-            output_kind = "BOOL"
-        elif on.op == "nullary.literal" and (
-            on.params.dtype == "bool" or isinstance(on.params.value, bool)
-        ):
-            output_kind = "BOOL"
-        if output_kind != "BOOL":
+        if derivative_output_kind(on) != "BOOL":
             raise ValueError(
                 f"{self.op} 的 on 嵌套表达式必须返回 BOOL，"
-                f"当前 {on.op!r} 返回 {output_kind}"
+                f"当前 {on.op!r} 返回 {derivative_output_kind(on)}"
             )
         return self
+
+
+def derivative_output_kind(derivative: Derivative) -> OutputKind:
+    """返回派生节点的静态输出类型，并处理可确定类型的动态算符。"""
+    if derivative.op == "unary.cast" and getattr(derivative.params, "dtype", None) == "bool":
+        return "BOOL"
+    if derivative.op == "nullary.literal" and (
+            getattr(derivative.params, "dtype", None) == "bool"
+            or isinstance(getattr(derivative.params, "value", None), bool)
+    ):
+        return "BOOL"
+    return derivative.output_kind
+
+
+def validate_bool_operand(value: Any, location: str) -> Any:
+    """拒绝静态可确定为非 BOOL 的常量和嵌套派生节点。"""
+    if isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, Derivative) and derivative_output_kind(value) == "BOOL":
+        return value
+    if isinstance(value, Derivative):
+        raise ValueError(f"{location} 必须返回 BOOL，当前 {value.op!r} 返回 {derivative_output_kind(value)}")
+    raise ValueError(f"{location} 必须是 BOOL 常量、字段引用或返回 BOOL 的派生节点")

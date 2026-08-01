@@ -4,16 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
-from textwrap import dedent
 
-_FUNCTION_PATTERN = re.compile(
-    r"^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*\{",
-    re.MULTILINE,
-)
-_PARAMETER_PATTERN = re.compile(
+from core.utils.validation import parse_dolphindb_function
+
+PARAMETER_PATTERN = re.compile(
     r"(?:mutable\s+)?([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*.+)?"
 )
-_MODULE_PATTERN = re.compile(
+MODULE_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$"
 )
 
@@ -31,18 +28,15 @@ class DolphinDBFunction:
 
     def __post_init__(self) -> None:
         """从函数定义解析并校验名称和参数。"""
-        definition = dedent(self.definition).strip()
-        match = _FUNCTION_PATTERN.match(definition)
-        if match is None:
-            raise ValueError("definition 必须以完整的 DolphinDB def 函数定义开头")
+        definition, function_name, signature = parse_dolphindb_function(self.definition)
 
         raw_parameters = tuple(
             parameter.strip()
-            for parameter in match.group(2).split(",")
+            for parameter in signature.split(",")
             if parameter.strip()
         )
         parameter_matches = [
-            _PARAMETER_PATTERN.fullmatch(parameter)
+            PARAMETER_PATTERN.fullmatch(parameter)
             for parameter in raw_parameters
         ]
         invalid = [
@@ -62,21 +56,21 @@ class DolphinDBFunction:
             if parameter_match is not None
         )
         if len(parameters) != len(set(parameters)):
-            raise ValueError(f"DolphinDB 函数 {match.group(1)!r} 包含重复参数")
+            raise ValueError(f"DolphinDB 函数 {function_name!r} 包含重复参数")
 
         dependency_keys = [
             (dependency.module, dependency.name)
             for dependency in self.dependencies
         ]
         if len(dependency_keys) != len(set(dependency_keys)):
-            raise ValueError(f"DolphinDB 函数 {match.group(1)!r} 包含重复依赖")
+            raise ValueError(f"DolphinDB 函数 {function_name!r} 包含重复依赖")
         if (
             self.module is not None
-            and _MODULE_PATTERN.fullmatch(self.module) is None
+            and MODULE_PATTERN.fullmatch(self.module) is None
         ):
             raise ValueError(f"DolphinDB 模块名非法：{self.module!r}")
 
         object.__setattr__(self, "definition", definition)
-        object.__setattr__(self, "name", match.group(1))
+        object.__setattr__(self, "name", function_name)
         object.__setattr__(self, "parameters", parameters)
-        object.__setattr__(self, "signature", match.group(2).strip())
+        object.__setattr__(self, "signature", signature)

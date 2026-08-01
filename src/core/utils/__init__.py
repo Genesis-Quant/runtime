@@ -1,6 +1,7 @@
 """统一导出数据层使用的日期、限流、重试、分页和 Tushare 对象。"""
 
-from .normalize import DateLike, normalize_date, normalize_date_range, normalize_str_list
+from .normalize import DateLike, normalize_date, normalize_date_range, normalize_str, normalize_str_list, validate_iso_date
+from .validation import normalize_dolphindb_functions, validate_dolphindb_callback_signature, validate_dolphindb_identifier, validate_dolphindb_references
 from .logging import logger
 from .paginate import Paginator
 from .result import SessionResult
@@ -65,7 +66,13 @@ __all__ = [
     "normalize_date",
     "normalize_date_range",
     "normalize_factors",
+    "normalize_dolphindb_functions",
+    "normalize_str",
     "normalize_str_list",
     "pro",
     "ts",
+    "validate_dolphindb_identifier",
+    "validate_dolphindb_callback_signature",
+    "validate_dolphindb_references",
+    "validate_iso_date",
 ]

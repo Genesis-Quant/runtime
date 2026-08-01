@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pytest
 
 import core.apps.backtest as backtest_package
 import core.apps.query as query_package
@@ -10,31 +11,43 @@ from core.manage import apps as manage_apps
 
 
 class FakeQueryResult:
-    data = pd.DataFrame(
-        {
+    def __init__(self) -> None:
+        self.accessed: list[str] = []
+
+    @property
+    def data(self) -> pd.DataFrame:
+        self.accessed.append("data")
+        return pd.DataFrame({
             "time": pd.to_datetime(["2025-01-02"]),
             "code": ["000001.SZ"],
             "close": [10.0],
-        }
-    )
+        })
 
     def __enter__(self) -> "FakeQueryResult":
         return self
 
-    def __exit__(self, *_: Any) -> None:
+    def __exit__(self, exception_type: Any, exception: Any, traceback: Any) -> None:
         return None
 
 
 class FakeBacktestResult:
-    trade_details = pd.DataFrame({"order_id": [1]})
-    daily_positions = pd.DataFrame({"time": ["2025-01-02"]})
-    daily_portfolios = pd.DataFrame({"net_value": [1.0]})
-    daily_trading_statistics = pd.DataFrame({"trade_count": [1]})
+    def __init__(self) -> None:
+        self.accessed: list[str] = []
+
+    @property
+    def trade_details(self) -> pd.DataFrame:
+        self.accessed.append("trade_details")
+        return pd.DataFrame({"order_id": [1]})
+
+    @property
+    def daily_portfolios(self) -> pd.DataFrame:
+        self.accessed.append("daily_portfolios")
+        return pd.DataFrame({"net_value": [1.0]})
 
     def __enter__(self) -> "FakeBacktestResult":
         return self
 
-    def __exit__(self, *_: Any) -> None:
+    def __exit__(self, exception_type: Any, exception: Any, traceback: Any) -> None:
         return None
 
 
@@ -54,7 +67,15 @@ def test_manage_apps_registers_each_application_module() -> None:
     ]
 
 
-def test_query_command_writes_fixed_output(
+@pytest.mark.parametrize("application", ["query", "factor", "backtest"])
+def test_application_requires_output(tmp_path: Path, application: str) -> None:
+    input_file = write_input(tmp_path / f"{application}.json", {})
+    with pytest.raises(SystemExit) as error:
+        manage_apps.main([application, "--input-file", str(input_file)])
+    assert error.value.code == 2
+
+
+def test_query_command_writes_only_requested_output(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -65,14 +86,15 @@ def test_query_command_writes_fixed_output(
             "output_dir": "output",
         },
     )
+    query_result = FakeQueryResult()
     monkeypatch.setattr(
         query_package,
         "execute_query",
-        lambda request: FakeQueryResult(),
+        lambda request: query_result,
     )
 
     assert manage_apps.main(
-        ["query", "--input-file", str(input_file)]
+        ["query", "--input-file", str(input_file), "--output", "data"]
     ) == 0
     output = tmp_path / "output" / "query.parquet"
     assert output.is_file()
@@ -81,6 +103,7 @@ def test_query_command_writes_fixed_output(
         "code",
         "close",
     ]
+    assert query_result.accessed == ["data"]
 
 
 def test_backtest_command_writes_only_requested_outputs(
@@ -93,17 +116,24 @@ def test_backtest_command_writes_only_requested_outputs(
             "dataset_query": {"start_date": "2025-01-02"},
             "callbacks": {},
             "output_dir": "output",
-            "output": ["trade_details", "daily_portfolios"],
         },
     )
+    backtest_result = FakeBacktestResult()
     monkeypatch.setattr(
         backtest_package,
         "run_backtest",
-        lambda **arguments: FakeBacktestResult(),
+        lambda **arguments: backtest_result,
     )
 
     assert manage_apps.main(
-        ["backtest", "--input-file", str(input_file)]
+        [
+            "backtest",
+            "--input-file",
+            str(input_file),
+            "--output",
+            "trade_details",
+            "daily_portfolios",
+        ]
     ) == 0
     assert sorted(
         path.name for path in (tmp_path / "output").glob("*.parquet")
@@ -111,3 +141,4 @@ def test_backtest_command_writes_only_requested_outputs(
         "daily_portfolios.parquet",
         "trade_details.parquet",
     ]
+    assert backtest_result.accessed == ["trade_details", "daily_portfolios"]

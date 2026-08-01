@@ -6,7 +6,7 @@ from types import ModuleType
 from typing import Any, Final
 
 from . import backtest, factor, query
-from ._shared import load_input_file
+from .utils import load_input_file
 
 APPLICATIONS: Final[tuple[ModuleType, ...]] = (
     query,
@@ -23,9 +23,9 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "示例：\n"
-            "  core-manage apps query --input-file query.json\n"
-            "  core-manage apps factor --input-file factor.json\n"
-            "  core-manage apps backtest --input-file backtest.json"
+            "  core-manage apps query --input-file query.json --output data\n"
+            "  core-manage apps factor --input-file factor.json --output processed_data information_coefficient\n"
+            "  core-manage apps backtest --input-file backtest.json --output daily_portfolios return_summary"
         ),
     )
     commands = parser.add_subparsers(

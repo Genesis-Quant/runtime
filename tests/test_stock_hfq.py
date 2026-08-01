@@ -20,7 +20,7 @@ def test_stock_hfq_treats_tushare_generic_error_as_empty(
 ) -> None:
     calls = 0
 
-    def raise_tushare_error(**_: str) -> pd.DataFrame:
+    def raise_tushare_error(**kwargs: str) -> pd.DataFrame:
         nonlocal calls
         calls += 1
         raise OSError("ERROR.")
@@ -40,7 +40,7 @@ def test_stock_hfq_treats_tushare_generic_error_as_empty(
 def test_stock_hfq_does_not_suppress_other_os_errors(
         monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def raise_other_error(**_: str) -> pd.DataFrame:
+    def raise_other_error(**kwargs: str) -> pd.DataFrame:
         raise OSError("connection failed")
 
     monkeypatch.setattr(stock_daily.ts, "pro_bar", raise_other_error)

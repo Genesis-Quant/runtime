@@ -13,32 +13,20 @@ from pydantic import (
 )
 
 from . import direct, cross_section, time_series
-from .derivative import Derivative
-from core.utils import get_codes, normalize_date_range, normalize_str_list
+from .derivative import Derivative, derivative_output_kind
+from .fields import BoolBinaryFields, BoolMultiaryFields, BoolUnaryFields, TernaryFields
+from core.utils import get_codes, normalize_date_range, normalize_str_list, validate_iso_date
 
 RESERVED_NAMES = frozenset(("time", "code"))
 
 
-def derivative_output_kind(derivative: Derivative) -> str:
-    """返回派生节点的静态输出类型，并识别可确定为 BOOL 的动态算符。"""
-    if derivative.op == "unary.cast" and getattr(
-            derivative.params, "dtype", None
-    ) == "bool":
-        return "BOOL"
-    if derivative.op == "nullary.literal" and (
-            getattr(derivative.params, "dtype", None) == "bool"
-            or isinstance(getattr(derivative.params, "value", None), bool)
-    ):
-        return "BOOL"
-    return derivative.output_kind
-
-
 def derivative_references(
         derivative: Derivative,
-) -> tuple[set[str], set[str]]:
-    """返回节点树中的全部字符串引用及其中作为 on 使用的引用。"""
+) -> tuple[set[str], set[str], set[str]]:
+    """返回全部字符串引用，以及 on 和逻辑操作数使用的引用。"""
     references: set[str] = set()
     on_references: set[str] = set()
+    bool_references: set[str] = set()
 
     def visit_operand(value: Any) -> None:
         """递归收集 fields 中的列名和命名派生因子引用。"""
@@ -61,8 +49,19 @@ def derivative_references(
         elif isinstance(on, Derivative):
             visit_derivative(on)
 
+        bool_values: list[Any] = []
+        if isinstance(value.fields, BoolUnaryFields):
+            bool_values.append(value.fields.col)
+        elif isinstance(value.fields, BoolBinaryFields):
+            bool_values.extend((value.fields.left, value.fields.right))
+        elif isinstance(value.fields, BoolMultiaryFields):
+            bool_values.extend(value.fields.cols)
+        elif isinstance(value.fields, TernaryFields):
+            bool_values.append(value.fields.condition)
+        bool_references.update(item for item in bool_values if isinstance(item, str))
+
     visit_derivative(derivative)
-    return references, on_references
+    return references, on_references, bool_references
 
 
 class FactorQuery(BaseModel):
@@ -110,6 +109,11 @@ class FactorQuery(BaseModel):
         default_factory=list,
         description="仅返回所有 BOOL 命名派生因子均为 true 的行。",
     )
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_date(cls, value: str, info: Any) -> str:
+        return validate_iso_date(value, info.field_name)
 
     @field_validator("lookback", mode="before")
     @classmethod
@@ -189,7 +193,7 @@ class FactorQuery(BaseModel):
         dependencies: dict[str, set[str]] = {}
         allowed_references = available | derivative_names | RESERVED_NAMES
         for name, derivative in self.derivatives.items():
-            references, on_references = derivative_references(derivative)
+            references, on_references, bool_references = derivative_references(derivative)
             if missing_on := on_references - derivative_names:
                 raise ValueError(
                     f"derivatives[{name!r}] 的 on 只能引用已定义的 BOOL "
@@ -207,6 +211,14 @@ class FactorQuery(BaseModel):
                 raise ValueError(
                     f"derivatives[{name!r}] 引用了不存在的字段或命名因子："
                     f"{sorted(unknown)}"
+                )
+            if non_bool_operands := [
+                reference for reference in bool_references & derivative_names
+                if derivative_output_kind(self.derivatives[reference]) != "BOOL"
+            ]:
+                raise ValueError(
+                    f"derivatives[{name!r}] 的逻辑操作数引用必须返回 BOOL："
+                    f"{sorted(non_bool_operands)}"
                 )
             dependencies[name] = references & derivative_names
 
@@ -240,7 +252,7 @@ class FactorQuery(BaseModel):
         references: set[str] = set()
 
         for derivative in self.derivatives.values():
-            derivative_inputs, _ = derivative_references(derivative)
+            derivative_inputs = derivative_references(derivative)[0]
             references.update(derivative_inputs)
         references -= set(self.derivatives) | RESERVED_NAMES
         return normalize_str_list(

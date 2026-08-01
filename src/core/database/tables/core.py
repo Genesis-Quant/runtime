@@ -22,25 +22,25 @@ from core.utils import (
 from ..session import create_session
 
 
-def _ddb_string(value: str) -> str:
+def ddb_string(value: str) -> str:
     """生成安全的 DolphinDB 字符串字面量。"""
     return json.dumps(value, ensure_ascii=False)
 
 
 CORE_TABLE = (
-    f"loadTable({_ddb_string(DolphinSettings.DATABASE)}, "
-    f"{_ddb_string(DolphinSettings.TABLE)})"
+    f"loadTable({ddb_string(DolphinSettings.DATABASE)}, "
+    f"{ddb_string(DolphinSettings.TABLE)})"
 )
 
 
 def ensure_core_table(session: Any, factors: list[str]) -> None:
     """统一因子库表缺失时，使用已有会话完成初始化。"""
     if session.run(
-        f"existsDatabase({_ddb_string(DolphinSettings.DATABASE)})"
+        f"existsDatabase({ddb_string(DolphinSettings.DATABASE)})"
     ) and session.run(
         "existsTable("
-        f"{_ddb_string(DolphinSettings.DATABASE)}, "
-        f"{_ddb_string(DolphinSettings.TABLE)})"
+        f"{ddb_string(DolphinSettings.DATABASE)}, "
+        f"{ddb_string(DolphinSettings.TABLE)})"
     ):
         return
 
@@ -117,7 +117,7 @@ def ensure_factor_partitions(
         ensure_core_table(current, factors)
 
         schema = current.run(
-            f"schema(database({_ddb_string(DolphinSettings.DATABASE)}))"
+            f"schema(database({ddb_string(DolphinSettings.DATABASE)}))"
         )
         existing = {str(value) for value in schema["partitionSchema"][1]}
         missing = [factor for factor in factors if factor not in existing]
@@ -133,7 +133,7 @@ def ensure_factor_partitions(
                 {"coreNewFactorPartitions": np.asarray(missing, dtype=str)}
             )
             current.run(
-                f"addValuePartitions(database({_ddb_string(DolphinSettings.DATABASE)}), "
+                f"addValuePartitions(database({ddb_string(DolphinSettings.DATABASE)}), "
                 "symbol(coreNewFactorPartitions), 1)"
             )
         return missing
