@@ -15,7 +15,7 @@ from pydantic import (
 from . import direct, cross_section, time_series
 from .derivative import Derivative, derivative_output_kind
 from .fields import BoolBinaryFields, BoolMultiaryFields, BoolUnaryFields, TernaryFields
-from core.utils import get_codes, normalize_date_range, normalize_str_list, validate_iso_date
+from core.utils import normalize_date_range, normalize_str_list, validate_iso_date
 
 RESERVED_NAMES = frozenset(("time", "code"))
 
@@ -138,9 +138,9 @@ class FactorQuery(BaseModel):
     def validate_query(self) -> "FactorQuery":
         """规范名称并校验字段、引用、过滤类型和派生依赖关系。"""
         normalize_date_range(self.start_date, self.end_date)
-        self.codes = normalize_str_list(self.codes, "codes") or list(get_codes())
-        self.factors = normalize_str_list(self.factors, "factors")
-        self.filters = normalize_str_list(self.filters, "filters")
+        self.codes = normalize_str_list(self.codes, "codes", reject_duplicates=True)
+        self.factors = normalize_str_list(self.factors, "factors", reject_duplicates=True)
+        self.filters = normalize_str_list(self.filters, "filters", reject_duplicates=True)
 
         normalized_derivatives: dict[str, Derivative] = {}
         for name, derivative in self.derivatives.items():
@@ -167,14 +167,6 @@ class FactorQuery(BaseModel):
                 f"factors 与 derivatives 名称冲突：{sorted(overlap)}"
             )
 
-        from core.workers import available_factors
-
-        available = set(available_factors())
-        if unknown := set(self.factors) - available:
-            raise ValueError(
-                f"factors 包含 Worker 未声明的字段：{sorted(unknown)}"
-            )
-
         derivative_names = set(self.derivatives)
         if missing_filters := set(self.filters) - derivative_names:
             raise ValueError(
@@ -191,7 +183,6 @@ class FactorQuery(BaseModel):
             )
 
         dependencies: dict[str, set[str]] = {}
-        allowed_references = available | derivative_names | RESERVED_NAMES
         for name, derivative in self.derivatives.items():
             references, on_references, bool_references = derivative_references(derivative)
             if missing_on := on_references - derivative_names:
@@ -206,11 +197,6 @@ class FactorQuery(BaseModel):
                 raise ValueError(
                     f"derivatives[{name!r}] 的 on 引用必须返回 BOOL："
                     f"{sorted(non_bool_on)}"
-                )
-            if unknown := references - allowed_references:
-                raise ValueError(
-                    f"derivatives[{name!r}] 引用了不存在的字段或命名因子："
-                    f"{sorted(unknown)}"
                 )
             if non_bool_operands := [
                 reference for reference in bool_references & derivative_names

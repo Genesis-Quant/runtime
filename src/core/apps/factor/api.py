@@ -14,6 +14,10 @@ from . import result, schema
 SOURCE_REF = "coreFactorSourceData"
 COMPUTED_REF = "coreFactorCOMPUTEDData"
 FILTERED_REF = "coreFactorFilteredData"
+CODES_SOURCE_REF = "coreFactorCodesSourceData"
+CODES_COMPUTED_REF = "coreFactorCodesComputedData"
+CODES_FILTERED_REF = "coreFactorCodesFilteredData"
+CODES_DATA_REF = "coreFactorCodesData"
 
 INPUT_REF = "coreFactorInputData"
 PROCESSED_REF = "coreFactorProcessedData"
@@ -47,6 +51,7 @@ def analyze_factors(
         return_columns: list[str],
         *,
         session: Any | None = None,
+        codes_query: dict[str, Any] | None = None,
         n_groups: int = 5,
         preprocess: bool = True,
         market_value_column: str = "circ_mv",
@@ -55,6 +60,7 @@ def analyze_factors(
     """生成预处理因子表，并把后续分析交给惰性结果对象。"""
     parameters = schema.FactorAnalysisParameters.model_validate({
         "dataset_query": dataset_query,
+        "codes_query": codes_query,
         "factor_columns": factor_columns,
         "return_columns": return_columns,
         "n_groups": n_groups,
@@ -68,6 +74,17 @@ def analyze_factors(
 
     try:
         query = parameters.dataset_query
+        if parameters.codes_query is not None:
+            codes = query_api.execute_codes_query(
+                parameters.codes_query,
+                session=current_session,
+                source_ref=CODES_SOURCE_REF,
+                computed_ref=CODES_COMPUTED_REF,
+                filtered_ref=CODES_FILTERED_REF,
+                data_ref=CODES_DATA_REF,
+            )
+            query = query.model_copy(update={"codes": codes})
+            parameters.dataset_query = query
         query_api.build_query_table(
             query,
             session=current_session,
@@ -138,6 +155,3 @@ def analyze_factors(
         if owns_session:
             current_session.close()
         raise
-
-
-__all__ = ["analyze_factors"]

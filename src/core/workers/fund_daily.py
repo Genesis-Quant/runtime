@@ -90,6 +90,8 @@ FUND_CODES = (
     "520870.SH",
     "164824.SZ",
 )
+FUND_DAILY_FACTORS = ("open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount")
+FUND_ADJ_FACTORS = ("adj_factor",)
 
 
 class FundDailyWorker(StockWorker):
@@ -110,17 +112,7 @@ class FundDailyWorker(StockWorker):
     @property
     def factors(self) -> tuple[str, ...]:
         """返回 Tushare 场内基金日线字段。"""
-        return (
-            "open",
-            "high",
-            "low",
-            "close",
-            "pre_close",
-            "change",
-            "pct_chg",
-            "vol",
-            "amount",
-        )
+        return FUND_DAILY_FACTORS
 
     def fetch_one(
             self,
@@ -174,7 +166,7 @@ class FundAdjFactorWorker(StockWorker):
     @property
     def factors(self) -> tuple[str, ...]:
         """返回 Tushare 基金复权因子字段。"""
-        return ("adj_factor",)
+        return FUND_ADJ_FACTORS
 
     def fetch_one(
             self,

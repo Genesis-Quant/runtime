@@ -19,9 +19,14 @@ class FactorAnalysisParameters(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True, validate_default=True)
 
+    codes_query: FactorQuery | None = Field(
+        default=None,
+        description="可选第一阶段选股 DSL；结果中的 code 去重后作为 dataset_query 的 codes。",
+    )
+
     dataset_query: FactorQuery = Field(
         ...,
-        description="用于生成原始因子、收益率和市值的因子 DSL。",
+        description="第二阶段因子 DSL；保留自身 filters，以第一阶段候选代码生成动态股票池。",
     )
 
     factor_columns: list[str] = Field(
@@ -84,7 +89,11 @@ class FactorAnalysisParameters(BaseModel):
         outputs = {name.strip() for name in factors if isinstance(name, str)} | {
             name.strip() for name in derivatives if isinstance(name, str)
         }
-        merged = [*factors, *(name for name in required if name not in outputs)]
+        merged = list(factors)
+        for name in required:
+            if name not in outputs:
+                merged.append(name)
+                outputs.add(name)
         result["dataset_query"] = dataset_query.model_copy(update={"factors": merged}) if isinstance(dataset_query, FactorQuery) else {**dataset_query, "factors": merged}
         return result
 

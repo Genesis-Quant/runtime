@@ -1,13 +1,17 @@
 """导出抽象任务层和每个固定数据接口的 Worker。"""
 
-from functools import cache
-
 from core.config import INDEX_CODES
+from core.utils import index_weight_factor
 
 from .base import BaseWorker, DateWorker, StockWorker, WideWorker
-from .fund_daily import FUND_CODES, FundAdjFactorWorker, FundDailyWorker
+from .fund_daily import FUND_ADJ_FACTORS, FUND_CODES, FUND_DAILY_FACTORS, FundAdjFactorWorker, FundDailyWorker
 from .index_weight import IndexWeightWorker
 from .stock_daily import (
+    STOCK_ADJ_FACTOR_FACTORS,
+    STOCK_DAILY_BASIC_FACTORS,
+    STOCK_DAILY_FACTORS,
+    STOCK_HFQ_FACTORS,
+    STOCK_LIMIT_FACTORS,
     StockAdjFactorWorker,
     StockDailyBasicWorker,
     StockDailyWorker,
@@ -23,28 +27,25 @@ from .stock_financial import (
     StockIncomeWorker,
 )
 from .stock_st import StockSTWorker
+from .stock_st import STOCK_ST_FACTORS
+
+AVAILABLE_FACTORS = tuple(sorted({
+    *FUND_ADJ_FACTORS,
+    *FUND_DAILY_FACTORS,
+    *STOCK_ADJ_FACTOR_FACTORS,
+    *STOCK_DAILY_BASIC_FACTORS,
+    *STOCK_DAILY_FACTORS,
+    *STOCK_HFQ_FACTORS,
+    *STOCK_LIMIT_FACTORS,
+    *STOCK_ST_FACTORS,
+    *FINANCIAL_FACTORS,
+    *(index_weight_factor(index_code) for index_code in INDEX_CODES),
+}))
 
 
-@cache
 def available_factors() -> tuple[str, ...]:
     """返回全部固定 Worker 和配置指数 Worker 声明的 factor。"""
-    sample_codes = ("000001.SZ",)
-    workers = [
-        FundAdjFactorWorker(),
-        FundDailyWorker(),
-        StockDailyWorker(),
-        StockLimitWorker(),
-        StockDailyBasicWorker(),
-        StockAdjFactorWorker(),
-        StockHfqWorker(codes=sample_codes),
-        StockSTWorker(),
-        StockBalanceSheetWorker(codes=sample_codes),
-        StockIncomeWorker(codes=sample_codes),
-        StockCashflowWorker(codes=sample_codes),
-        StockFinaIndicatorWorker(codes=sample_codes),
-        *(IndexWeightWorker(index_code) for index_code in INDEX_CODES),
-    ]
-    return tuple(sorted({factor for worker in workers for factor in worker.factors}))
+    return AVAILABLE_FACTORS
 
 
 __all__ = [

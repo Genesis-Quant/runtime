@@ -12,6 +12,8 @@ from core.utils import (
 
 from .base import DateWorker
 
+STOCK_ST_FACTORS = (IS_ST_FACTOR,)
+
 
 class StockSTWorker(DateWorker):
     """逐日抓取 ST 名单，只持久化 value=1 的股票。"""
@@ -23,7 +25,7 @@ class StockSTWorker(DateWorker):
     @property
     def factors(self) -> tuple[str, ...]:
         """返回 ST Worker 写入的因子。"""
-        return (IS_ST_FACTOR,)
+        return STOCK_ST_FACTORS
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的 ST 股票名单。"""

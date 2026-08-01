@@ -14,11 +14,13 @@ from core.utils import (
     IS_ST_FACTOR,
     TIME_COLUMN,
     WEIGHT_PREFIX,
+    get_codes,
     get_trading_dates,
     normalize_date_range,
+    normalize_str_list,
     validate_dolphindb_references,
 )
-from core.workers import FINANCIAL_FACTORS
+from core.workers import FINANCIAL_FACTORS, available_factors
 
 from .result import QueryResult
 from .schema import FactorQuery, QUERY_RESERVED_REFERENCES
@@ -48,6 +50,9 @@ def build_query_table(
     output_start, output_end = normalize_date_range(query.start_date, query.end_date)
     calculation_start = (output_start - query.lookback).normalize()
     source_factors = query.source_factors()
+    if unknown := set(source_factors) - set(available_factors()):
+        raise ValueError(f"查询包含 Worker 未声明的字段：{sorted(unknown)}")
+    codes = query.codes or list(get_codes())
     output_columns = [TIME_COLUMN, CODE_COLUMN, *query.factors, *query.derivatives]
     dates = get_trading_dates(calculation_start, output_end)
     definitions = {name: derivative.model_dump(mode="json") for name, derivative in query.derivatives.items()}
@@ -55,7 +60,7 @@ def build_query_table(
     session.upload({
         "coreQueryStart": calculation_start,
         "coreQueryEnd": output_end + timedelta(days=1),
-        "coreQueryCodes": np.asarray(query.codes, dtype=str),
+        "coreQueryCodes": np.asarray(codes, dtype=str),
         "coreQueryFactors": np.asarray(source_factors, dtype=str),
         "coreQueryDates": dates.to_numpy(dtype="datetime64[ms]"),
 
@@ -155,13 +160,50 @@ def build_query_table(
     return output_columns
 
 
+def execute_codes_query(
+        request: FactorQuery | dict[str, Any],
+        *,
+        session: Any,
+        source_ref: str,
+        computed_ref: str,
+        filtered_ref: str,
+        data_ref: str,
+) -> list[str]:
+    """执行第一阶段查询，并返回结果中去重后的股票代码。"""
+    if isinstance(request, dict):
+        query = FactorQuery.model_validate(request)
+    elif isinstance(request, FactorQuery):
+        query = request
+    else:
+        raise TypeError("request 必须是 FactorQuery 或 dict[str, Any]")
+    build_query_table(query, session=session, source_ref=source_ref, computed_ref=computed_ref, filtered_ref=filtered_ref, data_ref=data_ref)
+    logger.info(f"session.run: 从 {data_ref} 提取去重股票代码")
+    selected_codes = session.run(f"exec distinct {CODE_COLUMN} from {data_ref} where not isNull({CODE_COLUMN}) order by {CODE_COLUMN}")
+    if not isinstance(selected_codes, np.ndarray):
+        raise TypeError(f"codes_query 必须返回一维代码向量，实际为 {type(selected_codes).__name__}")
+    if selected_codes.ndim != 1:
+        raise ValueError(f"codes_query 必须返回一维代码向量，实际维数为 {selected_codes.ndim}")
+    codes = normalize_str_list(selected_codes.astype(str).tolist(), "codes_query", reject_duplicates=True)
+    if not codes:
+        raise ValueError("codes_query 没有选出任何股票")
+    if unsupported := [code for code in codes if not code.endswith((".SH", ".SZ"))]:
+        raise ValueError(f"codes_query 只能返回 .SH 和 .SZ 股票代码：{unsupported[:10]}")
+    logger.info(f"codes_query 选出 {len(codes):,} 只股票")
+    return codes
+
+
 def execute_query(
         request: FactorQuery | dict[str, Any],
         *,
         session: Any | None = None
 ) -> QueryResult:
     """在服务端生成查询结果，并把当前会话移交给惰性结果对象。"""
-    query = FactorQuery.model_validate(request)
+    if isinstance(request, dict):
+        query = FactorQuery.model_validate(request)
+    elif isinstance(request, FactorQuery):
+        query = request
+    else:
+        raise TypeError("request 必须是 FactorQuery 或 dict[str, Any]")
     owns_session = session is None
     current_session = create_session() if owns_session else session
     redirect_session_output(current_session)
@@ -181,6 +223,3 @@ def execute_query(
         if owns_session:
             current_session.close()
         raise
-
-
-__all__ = ["build_query_table", "execute_query"]

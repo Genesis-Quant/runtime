@@ -1,8 +1,12 @@
+import subprocess
+import sys
 from typing import Any
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from core.apps.backtest import api as backtest_api
 from core.apps.backtest.schema import BacktestParameters, DAILY_MESSAGE_FACTORS
 from core.apps.factor.schema import FactorAnalysisParameters
 from core.apps.query import FactorQuery
@@ -33,6 +37,15 @@ class FakeSession:
     def __init__(self) -> None:
         self.msg_logger = FakeLogger()
         self.closed = False
+        self.uploads: list[dict[str, Any]] = []
+        self.scripts: list[str] = []
+
+    def upload(self, values: dict[str, Any]) -> None:
+        self.uploads.append(values)
+
+    def run(self, script: str) -> bool:
+        self.scripts.append(script)
+        return False
 
     def close(self) -> None:
         self.closed = True
@@ -51,6 +64,33 @@ def test_execute_query_validates_dict_request(monkeypatch: pytest.MonkeyPatch) -
     assert isinstance(received[0], FactorQuery)
     result.close()
     assert session.closed is True
+
+
+def test_execute_codes_query_returns_distinct_query_codes(monkeypatch: pytest.MonkeyPatch) -> None:
+    received: list[tuple[FactorQuery, dict[str, str]]] = []
+
+    class CodesSession:
+        def run(self, script: str) -> np.ndarray:
+            assert "exec distinct code" in script
+            assert "from selectedData" in script
+            return np.asarray(["000001.SZ", "600000.SH"])
+
+    def build_query_table(query: FactorQuery, *, session: Any, **references: str) -> None:
+        received.append((query, references))
+
+    monkeypatch.setattr(query_api, "build_query_table", build_query_table)
+    codes = query_api.execute_codes_query(
+        query_request(),
+        session=CodesSession(),
+        source_ref="selectedSource",
+        computed_ref="selectedComputed",
+        filtered_ref="selectedFiltered",
+        data_ref="selectedData",
+    )
+
+    assert codes == ["000001.SZ", "600000.SH"]
+    assert isinstance(received[0][0], FactorQuery)
+    assert received[0][1]["data_ref"] == "selectedData"
 
 
 def test_build_query_table_validates_distinct_references() -> None:
@@ -78,6 +118,43 @@ def test_backtest_defaults_and_factor_order() -> None:
         "close",
         *(factor for factor in DAILY_MESSAGE_FACTORS if factor != "close"),
     ]
+
+
+def test_backtest_uses_codes_query_and_preserves_dataset_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession()
+    dataset_query = query_request()
+    dataset_query["derivatives"] = {
+        "eligible": {
+            "type": "DIRECT",
+            "op": "binary.gt",
+            "fields": {"left": "pe", "right": 5},
+            "params": {},
+        }
+    }
+    dataset_query["filters"] = ["eligible"]
+    codes_query = query_request()
+    codes_query["factors"] = ["pe"]
+    received: dict[str, Any] = {}
+
+    def execute_codes_query(request: Any, *, session: Any, **references: str) -> list[str]:
+        received["codes_query"] = request
+        received["codes_references"] = references
+        return ["600000.SH", "000001.SZ"]
+
+    def build_query_table(request: Any, *, session: Any, **references: str) -> list[str]:
+        received["dataset_query"] = request
+        received["dataset_references"] = references
+        return ["time", "code", *request.factors, *request.derivatives]
+
+    monkeypatch.setattr(query_api, "execute_codes_query", execute_codes_query)
+    monkeypatch.setattr(query_api, "build_query_table", build_query_table)
+    result = backtest_api.run_backtest(dataset_query, {}, codes_query=codes_query, session=session)
+
+    assert received["dataset_query"].codes == ["600000.SH", "000001.SZ"]
+    assert received["dataset_query"].filters == ["eligible"]
+    assert received["codes_references"]["data_ref"] == backtest_api.CODES_DATA_REF
+    assert next(values["coreBacktestCodes"].tolist() for values in session.uploads if "coreBacktestCodes" in values) == ["600000.SH", "000001.SZ"]
+    result.close()
 
 
 @pytest.mark.parametrize("field", ["callbacks", "utils"])
@@ -256,8 +333,31 @@ def test_query_rejects_named_non_bool_logical_operand() -> None:
         FactorQuery.model_validate(request)
 
 
-def test_execute_query_revalidates_model_request() -> None:
+def test_execute_query_validates_worker_factors_at_execution() -> None:
     query = FactorQuery.model_validate(query_request())
     query.factors = ["not_a_worker_factor"]
-    with pytest.raises(ValidationError, match="Worker 未声明"):
+    with pytest.raises(ValueError, match="Worker 未声明"):
         query_api.execute_query(query, session=FakeSession())
+
+
+def test_query_model_keeps_empty_codes_without_loading_market_data() -> None:
+    request = query_request()
+    request["codes"] = []
+
+    query = FactorQuery.model_validate(request)
+
+    assert query.codes == []
+
+
+def test_model_import_does_not_load_runtime_clients() -> None:
+    command = (
+        "import sys; "
+        "from core.apps.backtest.schema import BacktestParameters; "
+        "from core.apps.factor.schema import FactorAnalysisParameters; "
+        "from core.apps.query.schema import FactorQuery; "
+        "print(*(name in sys.modules for name in "
+        "('core.config', 'core.workers', 'core.apps.query.api', 'dolphindb', 'tushare')))"
+    )
+    completed = subprocess.run([sys.executable, "-c", command], check=True, capture_output=True, text=True)
+
+    assert completed.stdout.strip() == "False False False False False"

@@ -78,6 +78,8 @@ def normalize_dolphindb_functions(
         return {}
     if not isinstance(definitions, Mapping):
         raise ValueError(f"{location} 必须是函数名到 DolphinDB def 定义的映射")
+    if parameter_counts is not None and (unknown := sorted(set(definitions) - set(parameter_counts))):
+        raise ValueError(f"{location} 包含不支持的固定函数名：{unknown}")
     result: dict[str, str] = {}
     for expected_name, definition in definitions.items():
         if not isinstance(expected_name, str):

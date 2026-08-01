@@ -5,52 +5,18 @@ from typing import Any
 
 import numpy as np
 
-from core.utils import CODE_COLUMN, logger, normalize_date_range
+from core.utils import logger, normalize_date_range
 from core.database import create_session
 from core.database.session import has_session_variable, redirect_session_output
 
 from .result import BacktestResult
 from .schema import CallbackName, Adj, BacktestParameters
-from ..query import FactorQuery, api as query_api
+from ..query import api as query_api
 
 CODES_SOURCE_REF = "coreBacktestCodesSourceData"
 CODES_COMPUTED_REF = "coreBacktestCodesComputedData"
 CODES_FILTERED_REF = "coreBacktestCodesFilteredData"
 CODES_DATA_REF = "coreBacktestCodesData"
-
-
-def execute_codes_query(codes_query: FactorQuery, session: Any) -> list[str]:
-    """执行股票池查询并返回股票代码。"""
-    query_api.build_query_table(
-        codes_query,
-        session=session,
-        source_ref=CODES_SOURCE_REF,
-        computed_ref=CODES_COMPUTED_REF,
-        filtered_ref=CODES_FILTERED_REF,
-        data_ref=CODES_DATA_REF
-    )
-    logger.info(f"session.run: 从 {CODES_FILTERED_REF} 读取选股结果")
-    selected_codes = session.run(
-        f"""
-        exec distinct {CODE_COLUMN}
-        from {CODES_DATA_REF}
-        where
-            not isNull({CODE_COLUMN})
-        order by {CODE_COLUMN}
-        """
-    )
-    if not isinstance(selected_codes, np.ndarray):
-        raise TypeError(f"codes DSL 必须返回一维代码向量，实际为 {type(selected_codes).__name__}")
-    if selected_codes.ndim != 1:
-        raise ValueError(f"codes DSL 必须返回一维代码向量，实际维数为 {selected_codes.ndim}")
-    codes = selected_codes.astype(str).tolist()
-    if not codes:
-        raise ValueError("codes DSL 没有选出任何股票")
-    unsupported_codes = [code for code in codes if not code.endswith((".SH", ".SZ"))]
-    if unsupported_codes:
-        raise ValueError(f"codes DSL 只能返回 .SH 和 .SZ 股票代码：{unsupported_codes[:10]}")
-    logger.info(f"codes DSL 选出 {len(codes):,} 只股票")
-    return codes
 
 
 SOURCE_REF = "coreBacktestSourceData"
@@ -99,7 +65,14 @@ def run_backtest(
         validated_dataset_query = parameters.dataset_query
 
         if parameters.codes_query is not None:
-            codes = execute_codes_query(parameters.codes_query, current_session)
+            codes = query_api.execute_codes_query(
+                parameters.codes_query,
+                session=current_session,
+                source_ref=CODES_SOURCE_REF,
+                computed_ref=CODES_COMPUTED_REF,
+                filtered_ref=CODES_FILTERED_REF,
+                data_ref=CODES_DATA_REF,
+            )
             validated_dataset_query = validated_dataset_query.model_copy(update={"codes": codes})
 
         query_api.build_query_table(
@@ -200,6 +173,3 @@ def run_backtest(
         if owns_session:
             current_session.close()
         raise
-
-
-__all__ = ["run_backtest"]

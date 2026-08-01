@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 from pydantic import ValidationError
@@ -250,6 +251,54 @@ def test_factor_api_builds_server_results(
     assert "factor::factorGroupReturns" in "\n".join(session.scripts)
     assert not hasattr(result, "information_coefficients")
     assert not hasattr(result, "all_group_returns")
+
+
+def test_factor_api_uses_codes_query_and_preserves_dataset_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = FakeSession()
+    dataset_query = factor_request()
+    dataset_query["derivatives"] = {
+        "eligible": {
+            "type": "DIRECT",
+            "op": "binary.gt",
+            "fields": {"left": "pe", "right": 5},
+            "params": {},
+        }
+    }
+    dataset_query["filters"] = ["eligible"]
+    received: dict[str, Any] = {}
+
+    def execute_codes_query(request: Any, *, session: Any, **references: str) -> list[str]:
+        received["codes_query"] = request
+        received["codes_references"] = references
+        return ["600000.SH", "000001.SZ"]
+
+    def build_query_table(request: Any, *, session: Any, **references: str) -> list[str]:
+        received["dataset_query"] = request
+        received["dataset_references"] = references
+        return ["time", "code", *request.factors, *request.derivatives]
+
+    monkeypatch.setattr(factor_api.query_api, "execute_codes_query", execute_codes_query)
+    monkeypatch.setattr(factor_api.query_api, "build_query_table", build_query_table)
+    monkeypatch.setattr(
+        factor_api,
+        "industry_metadata",
+        lambda level: (np.asarray(["000001.SZ", "600000.SH"]), np.asarray(["银行", "银行"])),
+    )
+    codes_query = factor_request()
+    codes_query["factors"] = ["pe"]
+
+    result = analyze_factors(
+        dataset_query,
+        ["close"],
+        ["pct_chg"],
+        codes_query=codes_query,
+        session=session,
+    )
+
+    assert received["dataset_query"].codes == ["600000.SH", "000001.SZ"]
+    assert received["dataset_query"].filters == ["eligible"]
+    assert received["codes_references"]["data_ref"] == factor_api.CODES_DATA_REF
+    assert result.parameters.dataset_query.codes == ["600000.SH", "000001.SZ"]
 
 
 def test_factor_api_can_use_dsl_preprocessing(

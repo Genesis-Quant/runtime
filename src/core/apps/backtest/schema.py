@@ -86,12 +86,12 @@ class BacktestParameters(BaseModel):
 
     codes_query: FactorQuery | None = Field(
         default=None,
-        description="可选选股 DSL；结果中的 code 去重后作为正式回测股票范围。"
+        description="可选第一阶段选股 DSL；结果中的 code 去重后作为 dataset_query 的候选代码。"
     )
 
     dataset_query: FactorQuery = Field(
         ...,
-        description="用于筛选回测行情并计算策略数据的因子 DSL。"
+        description="第二阶段策略数据 DSL；保留自身 filters，以第一阶段候选代码生成动态股票池。"
     )
 
     adj: Adj | None = Field(

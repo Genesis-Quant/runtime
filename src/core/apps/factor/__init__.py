@@ -1,11 +1,20 @@
-"""导出 DolphinDB 因子分析接口、参数与结果。"""
+"""因子分析模型与按需加载的执行接口。"""
 
-from .api import analyze_factors
-from .result import FactorAnalysisResult
+from importlib import import_module
+from typing import Any
+
 from .schema import FactorAnalysisParameters
 
-__all__ = [
-    "FactorAnalysisParameters",
-    "FactorAnalysisResult",
-    "analyze_factors",
-]
+LAZY_EXPORTS = {
+    "FactorAnalysisResult": ("core.apps.factor.result", "FactorAnalysisResult"),
+    "analyze_factors": ("core.apps.factor.api", "analyze_factors"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name not in LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute_name = LAZY_EXPORTS[name]
+    value = getattr(import_module(module_name), attribute_name)
+    globals()[name] = value
+    return value

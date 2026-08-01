@@ -6,6 +6,15 @@ from core.utils import CODE_COLUMN, TIME_COLUMN, normalize_date, pro, ts
 
 from .base import DateWorker, StockWorker
 
+STOCK_DAILY_FACTORS = ("open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount")
+STOCK_LIMIT_FACTORS = ("up_limit", "down_limit")
+STOCK_DAILY_BASIC_FACTORS = (
+    "turnover_rate", "turnover_rate_f", "volume_ratio", "limit_status", "pe", "pe_ttm", "pb", "ps", "ps_ttm",
+    "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv",
+)
+STOCK_ADJ_FACTOR_FACTORS = ("adj_factor",)
+STOCK_HFQ_FACTORS = ("open_hfq", "high_hfq", "low_hfq", "close_hfq", "change_hfq", "pct_chg_hfq")
+
 
 class StockDailyWorker(DateWorker):
     """通过 daily 接口按自然日更新全市场未复权行情。"""
@@ -16,17 +25,7 @@ class StockDailyWorker(DateWorker):
 
     @property
     def factors(self) -> tuple[str, ...]:
-        return (
-            "open",
-            "high",
-            "low",
-            "close",
-            "pre_close",
-            "change",
-            "pct_chg",
-            "vol",
-            "amount",
-        )
+        return STOCK_DAILY_FACTORS
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场未复权日行情。"""
@@ -57,10 +56,7 @@ class StockLimitWorker(DateWorker):
 
     @property
     def factors(self) -> tuple[str, ...]:
-        return (
-            "up_limit",
-            "down_limit"
-        )
+        return STOCK_LIMIT_FACTORS
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场涨跌停价格。"""
@@ -91,24 +87,7 @@ class StockDailyBasicWorker(DateWorker):
 
     @property
     def factors(self) -> tuple[str, ...]:
-        return (
-            "turnover_rate",
-            "turnover_rate_f",
-            "volume_ratio",
-            "limit_status",
-            "pe",
-            "pe_ttm",
-            "pb",
-            "ps",
-            "ps_ttm",
-            "dv_ratio",
-            "dv_ttm",
-            "total_share",
-            "float_share",
-            "free_share",
-            "total_mv",
-            "circ_mv",
-        )
+        return STOCK_DAILY_BASIC_FACTORS
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场估值和市值指标。"""
@@ -139,7 +118,7 @@ class StockAdjFactorWorker(DateWorker):
 
     @property
     def factors(self) -> tuple[str, ...]:
-        return ("adj_factor",)
+        return STOCK_ADJ_FACTOR_FACTORS
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场复权因子。"""
@@ -170,14 +149,7 @@ class StockHfqWorker(StockWorker):
 
     @property
     def factors(self) -> tuple[str, ...]:
-        return (
-            "open_hfq",
-            "high_hfq",
-            "low_hfq",
-            "close_hfq",
-            "change_hfq",
-            "pct_chg_hfq",
-        )
+        return STOCK_HFQ_FACTORS
 
     def fetch_one(
             self,
