@@ -39,6 +39,5 @@
   ],
   "n_groups": 5,
   "preprocess": true,
-  "industry_level": "sector",
   "output_dir": "strategies/factor"
 }

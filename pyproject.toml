@@ -24,14 +24,14 @@ dependencies = [
 ]
 
 [project.scripts]
-core-manage = "core.manage:main"
+core-manage = "runtime.manage:main"
 
 [build-system]
 requires = ["uv_build>=0.11.25,<0.12.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "core"
+module-name = "runtime"
 source-include = ["examples/**"]
 
 #[[tool.uv.index]]
@@ -42,5 +42,4 @@ source-include = ["examples/**"]
 dev = [
     "ipykernel>=7.3.0",
     "notebook>=7.6.1",
-    "pytest>=8,<9",
 ]

@@ -5,7 +5,7 @@ Core 提供统一因子数据写入、DolphinDB 原生因子 DSL 查询和日频
 ## 安装
 
 ```powershell
-uv add arena-core
+uv add arena-runtime
 ```
 
 项目要求 Python 3.12，并需要可访问的 DolphinDB 服务。使用数据更新 Worker 或
@@ -16,7 +16,7 @@ uv add arena-core
 查询、因子分析和回测函数从顶层包直接导出：
 
 ```python
-from core import analyze_factors, execute_query, run_backtest
+from runtime import analyze_factors, execute_query, run_backtest
 
 with execute_query(query_request) as query_result:
     factor_data = query_result.data
@@ -44,13 +44,13 @@ with run_backtest(
 也可以从对应应用包显式导入：
 
 ```python
-from core.apps.query import FactorQuery, QueryResult, execute_query
-from core.apps.factor import FactorAnalysisResult, analyze_factors
-from core.apps.backtest import BacktestResult, run_backtest
+from runtime.apps.query import FactorQuery, QueryResult, execute_query
+from runtime.apps.factor import FactorAnalysisResult, analyze_factors
+from runtime.apps.backtest import BacktestResult, run_backtest
 ```
 
-`execute_query` 返回 `core.QueryResult`，`analyze_factors` 返回
-`core.FactorAnalysisResult`，`run_backtest` 返回 `core.BacktestResult`。
+`execute_query` 返回 `runtime.QueryResult`，`analyze_factors` 返回
+`runtime.FactorAnalysisResult`，`run_backtest` 返回 `runtime.BacktestResult`。
 结果保存在各自的 DolphinDB session 中；访问数据成员时才会执行对应 DOS
 代码并下载结果。三种结果都提供 `session` 属性、`download()`
 和 `close()`，退出
@@ -156,7 +156,8 @@ with analyze_factors(
 ```
 
 回测可选输出为 `trade_details`、`daily_positions`、`daily_portfolios`、
-`return_summary`、`daily_trading_statistics` 和 `engine_stat`。回测输入还支持 `utils`、
+`return_summary`、`daily_trading_statistics` 和 `engine_stat`。`utils` 是在回调定义前
+直接注入 DolphinDB 会话的字符串脚本，可包含函数、全局变量和初始化语句。回测输入还支持
 `codes_query`、`adj`、`name`、`annual_trading_days`、`risk_free_rate`、
 `source_ref` 和 `message_ref`。命令执行结束后自动关闭 DolphinDB session。
 
