@@ -43,6 +43,46 @@ def parse_dolphindb_function(definition: Any, location: str = "definition") -> t
     match = DOLPHINDB_FUNCTION_PATTERN.match(normalized)
     if match is None:
         raise ValueError(f"{location} 必须以完整的 DolphinDB def 函数定义开头")
+    depth = 0
+    quote = ""
+    offset = match.end() - 1
+    function_end = None
+    while offset < len(normalized):
+        character = normalized[offset]
+        if quote:
+            if character == "\\":
+                offset += 2
+                continue
+            if character == quote:
+                quote = ""
+            offset += 1
+            continue
+        if character in {'"', "'"}:
+            quote = character
+            offset += 1
+            continue
+        if normalized.startswith("//", offset):
+            line_end = normalized.find("\n", offset + 2)
+            offset = len(normalized) if line_end < 0 else line_end + 1
+            continue
+        if normalized.startswith("/*", offset):
+            comment_end = normalized.find("*/", offset + 2)
+            if comment_end < 0:
+                raise ValueError(f"{location} 包含未结束的块注释")
+            offset = comment_end + 2
+            continue
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                function_end = offset + 1
+                break
+        offset += 1
+    if function_end is None:
+        raise ValueError(f"{location} 包含未结束的 DolphinDB 函数定义")
+    if normalized[function_end:].strip():
+        raise ValueError(f"{location} 只能包含一个 DolphinDB def 函数定义")
     return normalized, match.group(1), match.group(2).strip()
 
 

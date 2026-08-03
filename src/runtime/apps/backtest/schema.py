@@ -122,7 +122,7 @@ class BacktestParameters(BaseModel):
 
     utils: str = Field(
         default="",
-        description="回测前直接注入 DolphinDB 会话的脚本，可定义函数、变量或执行初始化语句。",
+        description="在生命周期回调注册前原样执行的 DolphinDB 脚本。",
     )
 
     callbacks: dict[CallbackName, str]
@@ -218,6 +218,5 @@ class BacktestParameters(BaseModel):
             "callbacks",
             parameter_counts=CALLBACK_PARAMETER_COUNTS,
         )
-
 
 __all__ = ["CallbackName", "Adj", "BacktestParameters"]

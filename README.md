@@ -156,8 +156,8 @@ with analyze_factors(
 ```
 
 回测可选输出为 `trade_details`、`daily_positions`、`daily_portfolios`、
-`return_summary`、`daily_trading_statistics` 和 `engine_stat`。`utils` 是在回调定义前
-直接注入 DolphinDB 会话的字符串脚本，可包含函数、全局变量和初始化语句。回测输入还支持
+`return_summary`、`daily_trading_statistics` 和 `engine_stat`。`utils` 是在生命周期回调
+注册前原样执行的 DolphinDB 脚本，不限制脚本内容。回测输入还支持
 `codes_query`、`adj`、`name`、`annual_trading_days`、`risk_free_rate`、
 `source_ref` 和 `message_ref`。命令执行结束后自动关闭 DolphinDB session。
 
