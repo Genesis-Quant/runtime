@@ -178,6 +178,7 @@ class CoreTableWriter:
 
     def open(self) -> Any:
         """补建 factor 分区，返回整个更新过程复用的写入器。"""
+        DolphinSettings.validate()
         if self.closed:
             raise RuntimeError("CoreTableWriter 已关闭")
         if self.appender is not None:

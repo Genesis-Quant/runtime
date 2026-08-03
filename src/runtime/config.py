@@ -22,11 +22,16 @@ class DolphinSettings:
     HOST = os.getenv("DOLPHIN_HOST", "127.0.0.1")
     PORT = int(os.getenv("DOLPHIN_PORT", "8848"))
     USERNAME = os.getenv("DOLPHIN_USERNAME", "admin")
-    PASSWORD = os.getenv("DOLPHIN_PASSWORD", "123456")
+    PASSWORD = os.getenv("DOLPHIN_PASSWORD")
 
     DATABASE = os.getenv("DOLPHIN_CORE_DATABASE", "dfs://CoreData")
     TABLE = os.getenv("DOLPHIN_CORE_TABLE", "coreData")
     DIVIDEND_TABLE = os.getenv("DOLPHIN_DIVIDEND_TABLE", "stockDividend")
+
+    @classmethod
+    def validate(cls) -> None:
+        if not cls.PASSWORD:
+            raise RuntimeError("缺少 DolphinDB 配置：DOLPHIN_PASSWORD")
 
 
 class ObjectStorageSettings:
