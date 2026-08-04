@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from runtime.config import ArenaSettings
 from runtime.utils.storage import (
     ObjectStorage,
     ObjectStorageConfigurationError,
@@ -30,9 +31,12 @@ def add_input_file_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--output-cloud",
-        action="store_true",
-        default=False,
-        help="将 Parquet 上传到对象存储；默认写入本地目录",
+        action=argparse.BooleanOptionalAction,
+        default=ArenaSettings.SHARED_CLOUD,
+        help=(
+            "是否将 Parquet 上传到对象存储；默认读取 "
+            "ARENA_SHARED_CLOUD"
+        ),
     )
 
 

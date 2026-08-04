@@ -16,6 +16,19 @@ if PROD:
     warnings.filterwarnings("ignore")
 
 
+def boolean_environment(name: str, default: bool = False) -> bool:
+    value = os.getenv(name, str(default)).strip().lower()
+    if value not in {"true", "false"}:
+        raise RuntimeError(f"{name} 必须是 True 或 False")
+    return value == "true"
+
+
+class ArenaSettings:
+    """Arena 运行时行为配置。"""
+
+    SHARED_CLOUD = boolean_environment("ARENA_SHARED_CLOUD")
+
+
 class DolphinSettings:
     """DolphinDB 连接及统一因子长表配置。"""
 

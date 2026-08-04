@@ -1,7 +1,11 @@
-"""S3 兼容对象存储的 Parquet 上传支持。"""
+"""S3 兼容对象存储的 Parquet 上传、读取和清理支持。"""
 
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import datetime
 from tempfile import SpooledTemporaryFile
 from typing import Any, Self
+from urllib.parse import unquote, urlparse
 
 import boto3
 from botocore.config import Config
@@ -12,6 +16,15 @@ from runtime.config import ObjectStorageSettings
 
 PARQUET_CONTENT_TYPE = "application/vnd.apache.parquet"
 SPOOL_MAX_SIZE = 64 * 1024 * 1024
+DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class ObjectInfo:
+    """对象存储中文件的必要元信息。"""
+
+    size: int
+    modified_at: datetime
 
 
 class ObjectStorageConfigurationError(ValueError):
@@ -19,7 +32,7 @@ class ObjectStorageConfigurationError(ValueError):
 
 
 class ObjectStorage:
-    """复用一个 S3 客户端上传多个 Parquet 结果。"""
+    """复用一个 S3 客户端管理工作流结果。"""
 
     def __init__(
             self,
@@ -109,6 +122,27 @@ class ObjectStorage:
             return f"{self.root_folder}/{key}"
         return key
 
+    def key_from_uri(self, uri: str) -> str:
+        """解析本客户端 bucket 和根文件夹下的 S3 URI。"""
+        parsed = urlparse(uri)
+        key = unquote(parsed.path.lstrip("/"))
+        if (
+            parsed.scheme != "s3"
+            or parsed.netloc != self.bucket
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+            or not key
+        ):
+            raise ObjectStorageConfigurationError(
+                "对象存储 URI 必须指向已配置 bucket"
+            )
+        if self.root_folder and not key.startswith(f"{self.root_folder}/"):
+            raise ObjectStorageConfigurationError(
+                "对象存储 URI 不在 OBJECT_STORAGE_ROOT_FOLDER 下"
+            )
+        return key
+
     def upload_parquet(self, data: pd.DataFrame, key: str) -> str:
         """将 DataFrame 编码为 Parquet 并上传，返回 S3 URI。"""
         object_key = self.object_key(key)
@@ -125,6 +159,42 @@ class ObjectStorage:
                 ExtraArgs={"ContentType": PARQUET_CONTENT_TYPE},
             )
         return self.uri(object_key)
+
+    def object_info(self, key: str) -> ObjectInfo:
+        """读取对象大小和最后修改时间。"""
+        response = self.client.head_object(Bucket=self.bucket, Key=key)
+        return ObjectInfo(
+            size=int(response["ContentLength"]),
+            modified_at=response["LastModified"],
+        )
+
+    def iter_bytes(
+        self,
+        key: str,
+        chunk_size: int = DOWNLOAD_CHUNK_SIZE,
+    ) -> Iterator[bytes]:
+        """分块读取对象，并在迭代结束后关闭响应体。"""
+        body = self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
+        try:
+            while chunk := body.read(chunk_size):
+                yield chunk
+        finally:
+            body.close()
+
+    def delete_prefix(self, key: str) -> None:
+        """删除指定对象目录下的全部对象。"""
+        normalized = key.strip("/")
+        if not normalized or normalized == self.root_folder:
+            raise ObjectStorageConfigurationError("拒绝删除对象存储根目录")
+        prefix = f"{normalized}/"
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            for item in page.get("Contents", []):
+                if key := item.get("Key"):
+                    self.client.delete_object(
+                        Bucket=self.bucket,
+                        Key=key,
+                    )
 
     def uri(self, key: str) -> str:
         """返回便于日志展示的对象 URI。"""
