@@ -1,6 +1,5 @@
 """S3 兼容对象存储的 Parquet 上传、读取和清理支持。"""
 
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from tempfile import SpooledTemporaryFile
@@ -16,7 +15,6 @@ from runtime.config import ObjectStorageSettings
 
 PARQUET_CONTENT_TYPE = "application/vnd.apache.parquet"
 SPOOL_MAX_SIZE = 64 * 1024 * 1024
-DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -168,18 +166,13 @@ class ObjectStorage:
             modified_at=response["LastModified"],
         )
 
-    def iter_bytes(
-        self,
-        key: str,
-        chunk_size: int = DOWNLOAD_CHUNK_SIZE,
-    ) -> Iterator[bytes]:
-        """分块读取对象，并在迭代结束后关闭响应体。"""
-        body = self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
-        try:
-            while chunk := body.read(chunk_size):
-                yield chunk
-        finally:
-            body.close()
+    def download_url(self, key: str, expires_in: int = 300) -> str:
+        """生成浏览器可直接下载私有对象的短时签名 URL。"""
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": key},
+            ExpiresIn=expires_in,
+        )
 
     def delete_prefix(self, key: str) -> None:
         """删除指定对象目录下的全部对象。"""
