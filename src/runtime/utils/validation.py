@@ -115,15 +115,20 @@ def normalize_dolphindb_functions(
 ) -> dict[str, str]:
     """整理 DolphinDB 函数定义，并要求映射键与实际函数名一致。"""
     if definitions is None:
-        return {}
+        raise ValueError(f"{location} 不能为空")
     if not isinstance(definitions, Mapping):
         raise ValueError(f"{location} 必须是函数名到 DolphinDB def 定义的映射")
-    if parameter_counts is not None and (unknown := sorted(set(definitions) - set(parameter_counts))):
-        raise ValueError(f"{location} 包含不支持的固定函数名：{unknown}")
+    if any(not isinstance(name, str) for name in definitions):
+        raise ValueError(f"{location} 的函数名和定义必须都是字符串")
+    if parameter_counts is not None:
+        if unknown := sorted(set(definitions) - set(parameter_counts)):
+            raise ValueError(f"{location} 包含不支持的固定函数名：{unknown}")
+        if missing := [name for name in parameter_counts if name not in definitions]:
+            raise ValueError(f"{location} 缺少固定函数：{missing}")
     result: dict[str, str] = {}
-    for expected_name, definition in definitions.items():
-        if not isinstance(expected_name, str):
-            raise ValueError(f"{location} 的函数名和定义必须都是字符串")
+    names = parameter_counts if parameter_counts is not None else definitions
+    for expected_name in names:
+        definition = definitions[expected_name]
         definition_location = f"{location}[{expected_name!r}]"
         normalized, actual_name, signature = parse_dolphindb_function(definition, definition_location)
         if actual_name != expected_name:

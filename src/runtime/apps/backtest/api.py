@@ -160,14 +160,14 @@ def run_backtest(
                 {parameters.message_ref},
                 {COMPUTED_REF},
                 {FILTERED_REF},
-                {"initialize" if "initialize" in parameters.callbacks else "NULL"},
-                {"beforeTrading" if "beforeTrading" in parameters.callbacks else "NULL"},
-                {"onBar" if "onBar" in parameters.callbacks else "NULL"},
-                {"onSnapshot" if "onSnapshot" in parameters.callbacks else "NULL"},
-                {"onOrder" if "onOrder" in parameters.callbacks else "NULL"},
-                {"onTrade" if "onTrade" in parameters.callbacks else "NULL"},
-                {"afterTrading" if "afterTrading" in parameters.callbacks else "NULL"},
-                {"finalize" if "finalize" in parameters.callbacks else "NULL"}
+                initialize,
+                beforeTrading,
+                onBar,
+                onSnapshot,
+                onOrder,
+                onTrade,
+                afterTrading,
+                finalize
             )
             """
                             )

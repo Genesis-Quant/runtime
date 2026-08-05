@@ -147,6 +147,8 @@ class BacktestParameters(BaseModel):
         if overlap := output_columns & {"symbol", "tradeTime"}:
             raise ValueError(f"以下列由回测框架生成，DSL 不能重复定义：{sorted(overlap)}")
         if self.codes_query is None:
+            if not self.dataset_query.codes:
+                raise ValueError("codes_query 为空时 dataset_query.codes 不能为空")
             unsupported_codes = [code for code in self.dataset_query.codes if not code.endswith((".SH", ".SZ"))]
             if unsupported_codes:
                 raise ValueError(f"股票回测当前只支持 .SH 和 .SZ 代码：{unsupported_codes[:10]}")

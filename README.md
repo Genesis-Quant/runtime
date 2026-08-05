@@ -150,7 +150,14 @@ with analyze_factors(
     "factors": ["close"]
   },
   "callbacks": {
-    "initialize": "def initialize(mutable context) {}"
+    "initialize": "def initialize(mutable context) { return NULL }",
+    "beforeTrading": "def beforeTrading(mutable context) { return NULL }",
+    "onBar": "def onBar(mutable context, message, indicator) { return NULL }",
+    "onSnapshot": "def onSnapshot(mutable context, message, indicator) { return NULL }",
+    "onOrder": "def onOrder(mutable context, event) { return NULL }",
+    "onTrade": "def onTrade(mutable context, event) { return NULL }",
+    "afterTrading": "def afterTrading(mutable context) { return NULL }",
+    "finalize": "def finalize(mutable context) { return NULL }"
   },
   "config": {
     "cash": 100000
@@ -160,7 +167,9 @@ with analyze_factors(
 
 回测可选输出为 `trade_details`、`daily_positions`、`daily_portfolios`、
 `return_summary`、`daily_trading_statistics` 和 `engine_stat`。`utils` 是在生命周期回调
-注册前原样执行的 DolphinDB 脚本，不限制脚本内容。回测输入还支持
+注册前原样执行的 DolphinDB 脚本，不限制脚本内容。`callbacks` 必须完整提供上述 8 个
+固定生命周期回调且定义不能为空。`codes_query` 为空时，`dataset_query.codes` 必须提供
+至少一个股票代码。回测输入还支持
 `codes_query`、`adj`、`name`、`annual_trading_days`、`risk_free_rate`、
 `source_ref` 和 `message_ref`。命令执行结束后自动关闭 DolphinDB session。
 
