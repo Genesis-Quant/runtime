@@ -24,7 +24,7 @@ def boolean_environment(name: str, default: bool = False) -> bool:
 
 
 class ArenaSettings:
-    """Arena 运行时行为配置。"""
+    """Arena 直接运行时的行为配置。"""
 
     SHARED_CLOUD = boolean_environment("ARENA_SHARED_CLOUD")
 

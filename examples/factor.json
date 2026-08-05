@@ -38,6 +38,5 @@
     "pct_chg_hfq"
   ],
   "n_groups": 5,
-  "preprocess": true,
-  "output_dir": "strategies/factor"
+  "preprocess": true
 }

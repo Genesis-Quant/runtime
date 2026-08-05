@@ -3,92 +3,16 @@
 import argparse
 import time
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
-WORKER_ORDER = (
-    "daily",
-    "fund-daily",
-    "fund-adj-factor",
-    "limit",
-    "daily-basic",
-    "adj-factor",
-    "hfq",
-    "st",
-    "balance-sheet",
-    "income",
-    "cashflow",
-    "fina-indicator",
-    "dividend",
-    "index-weight",
+from runtime.workers.registry import (
+    DATE_WORKERS,
+    STOCK_WORKERS,
+    WORKER_DESCRIPTIONS,
+    WORKER_ORDER,
+    normalize_worker_names,
 )
-
-WORKER_DESCRIPTIONS = {
-    "daily": "全市场未复权日行情",
-    "fund-daily": "指定场内基金池未复权日线",
-    "fund-adj-factor": "指定场内基金池复权因子",
-    "limit": "全市场每日涨跌停价格",
-    "daily-basic": "全市场每日估值和市值指标",
-    "adj-factor": "全市场复权因子",
-    "hfq": "逐股票后复权日行情",
-    "st": "全市场 ST 名单",
-    "balance-sheet": "逐股票资产负债表",
-    "income": "逐股票利润表及 TTM 因子",
-    "cashflow": "逐股票现金流量表及 TTM 因子",
-    "fina-indicator": "逐股票财务指标",
-    "dividend": "逐股票分红送股宽表",
-    "index-weight": "指数成分股权重；每个指数创建一个 Worker",
-}
-
-WORKER_ALIASES = {
-    "stock-daily": "daily",
-    "stockdailyworker": "daily",
-    "fund": "fund-daily",
-    "funddailyworker": "fund-daily",
-    "fund-adj": "fund-adj-factor",
-    "fundadjfactorworker": "fund-adj-factor",
-    "stock-limit": "limit",
-    "stocklimitworker": "limit",
-    "stock-daily-basic": "daily-basic",
-    "stockdailybasicworker": "daily-basic",
-    "stock-adj-factor": "adj-factor",
-    "stockadjfactorworker": "adj-factor",
-    "stock-hfq": "hfq",
-    "stockhfqworker": "hfq",
-    "stock-st": "st",
-    "stockstworker": "st",
-    "balancesheet": "balance-sheet",
-    "stock-balance-sheet": "balance-sheet",
-    "stockbalancesheetworker": "balance-sheet",
-    "stock-income": "income",
-    "stockincomeworker": "income",
-    "stock-cashflow": "cashflow",
-    "stockcashflowworker": "cashflow",
-    "stock-fina-indicator": "fina-indicator",
-    "stockfinaindicatorworker": "fina-indicator",
-    "stock-dividend": "dividend",
-    "stockdividendworker": "dividend",
-    "indexweight": "index-weight",
-    "indexweightworker": "index-weight",
-}
-
-DATE_WORKERS = frozenset({
-    "daily",
-    "limit",
-    "daily-basic",
-    "adj-factor",
-    "st",
-    "index-weight",
-})
-STOCK_WORKERS = frozenset({
-    "fund-adj-factor",
-    "fund-daily",
-    "hfq",
-    "balance-sheet",
-    "income",
-    "cashflow",
-    "fina-indicator",
-    "dividend",
-})
 
 
 def positive_int(value: str) -> int:
@@ -200,6 +124,22 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         action="store_true",
         help="任一 Worker 失败后立即停止；默认继续运行其余 Worker",
     )
+    parser.add_argument(
+        "--job-id",
+        default="",
+        help="可选工作流任务标识，仅写入结构化结果",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="",
+        help="可选 JSON 结果目录；空字符串表示不输出结果",
+    )
+    parser.add_argument(
+        "--selected-workers",
+        default="",
+        metavar="WORKER[,WORKER...]",
+        help="工作流选择的 Worker；空字符串表示执行全部",
+    )
     return parser
 
 
@@ -223,27 +163,14 @@ def split_values(
     return tuple(result)
 
 
-def normalize_worker_names(values: Sequence[str]) -> tuple[str, ...]:
-    """规范 Worker 名称、展开 all，并保持用户给定的执行顺序。"""
-    if not values:
-        raise ValueError("至少指定一个 Worker，或使用 all")
-
-    normalized: list[str] = []
-    for value in values:
-        key = value.strip().lower().replace("_", "-")
-        key = WORKER_ALIASES.get(key, key)
-        if key == "all":
-            if len(values) != 1:
-                raise ValueError("all 不能与其他 Worker 同时使用")
-            return WORKER_ORDER
-        if key not in WORKER_DESCRIPTIONS:
-            available = "、".join(WORKER_ORDER)
-            raise ValueError(
-                f"未知 Worker：{value!r}；可用值：{available}、all"
-            )
-        if key not in normalized:
-            normalized.append(key)
-    return tuple(normalized)
+def normalize_worker_selection(value: str) -> tuple[str, ...] | None:
+    """解析工作流传入的逗号列表；空值表示不限制 Worker。"""
+    if not value.strip():
+        return None
+    parts = tuple(part.strip() for part in value.split(","))
+    if any(not part for part in parts):
+        raise ValueError("--selected-workers 不能包含空值")
+    return normalize_worker_names(parts)
 
 
 def worker_kwargs(arguments: argparse.Namespace) -> dict[str, Any]:
@@ -398,19 +325,79 @@ def main(
         return 0
 
     try:
-        names = normalize_worker_names(arguments.workers)
+        requested_names = normalize_worker_names(arguments.workers)
+        selection = normalize_worker_selection(arguments.selected_workers)
         split_values(arguments.codes, "--codes")
         split_values(arguments.index_code, "--index-code")
     except ValueError as error:
         parser.error(str(error))
-    validate_arguments(parser, names, arguments)
+    validate_arguments(parser, requested_names, arguments)
+    names = (
+        requested_names
+        if selection is None
+        else tuple(name for name in requested_names if name in selection)
+    )
+
+    from runtime.utils.logging import logger
+    from runtime.workers.result import (
+        WorkerAttempt,
+        WorkerExecutionResult,
+        WorkerResult,
+        worker_error,
+        write_worker_result,
+    )
+
+    result_worker = (
+        requested_names[0]
+        if len(requested_names) == 1
+        else "workers"
+    )
+    if not names:
+        started_at = datetime.now(UTC)
+        started = time.perf_counter()
+        logger.info(
+            f"Worker 未被本次工作流选中，跳过执行：{result_worker}"
+        )
+        finished_at = datetime.now(UTC)
+        elapsed = time.perf_counter() - started
+        result = WorkerResult(
+            job_id=arguments.job_id.strip() or None,
+            worker=result_worker,
+            status="SKIPPED",
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=elapsed,
+            metrics={
+                "rows_written": 0,
+                "workers_total": 0,
+                "workers_completed": 0,
+                "workers_succeeded": 0,
+                "workers_failed": 0,
+                "workers_cancelled": 0,
+                "selected": False,
+                "dry_run": arguments.dry_run,
+            },
+            attempts=[
+                WorkerAttempt(
+                    number=1,
+                    status="SKIPPED",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_seconds=elapsed,
+                    rows_written=0,
+                    executions=[],
+                )
+            ],
+        )
+        result_path = write_worker_result(arguments.output_dir, result)
+        if result_path is not None:
+            logger.info(f"Worker 结构化结果已写入：{result_path}")
+        return 0
 
     try:
         workers = create_workers(names, arguments)
     except (TypeError, ValueError) as error:
         parser.error(str(error))
-
-    from runtime.utils.logging import logger
 
     mode = "dry-run" if arguments.dry_run else "写入"
     if arguments.overwrite:
@@ -423,31 +410,125 @@ def main(
         f"任务={len(workers):,}，选择={list(names)}"
     )
 
+    started_at = datetime.now(UTC)
     started = time.perf_counter()
     total = 0
     failures: list[str] = []
+    executions: list[WorkerExecutionResult] = []
+    interrupted = False
     for number, worker in enumerate(workers, start=1):
         logger.info(f"运行 Worker {number:,}/{len(workers):,}：{worker}")
+        execution_started_at = datetime.now(UTC)
+        execution_started = time.perf_counter()
         try:
             rows = (
                 dry_run_worker(worker)
                 if arguments.dry_run
                 else worker.run()
             )
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as error:
             logger.warning(f"Worker 任务被用户中断：{worker}")
-            return 130
+            execution_finished_at = datetime.now(UTC)
+            executions.append(
+                WorkerExecutionResult(
+                    name=str(worker),
+                    status="CANCELLED",
+                    rows_written=0,
+                    started_at=execution_started_at,
+                    finished_at=execution_finished_at,
+                    duration_seconds=time.perf_counter() - execution_started,
+                    error=worker_error(error),
+                )
+            )
+            interrupted = True
+            break
         except Exception as error:
             failures.append(
                 f"{worker}: {type(error).__name__}: {error}"
             )
             logger.exception(f"Worker 运行失败：{worker}")
+            execution_finished_at = datetime.now(UTC)
+            executions.append(
+                WorkerExecutionResult(
+                    name=str(worker),
+                    status="FAILURE",
+                    rows_written=0,
+                    started_at=execution_started_at,
+                    finished_at=execution_finished_at,
+                    duration_seconds=time.perf_counter() - execution_started,
+                    error=worker_error(error),
+                )
+            )
             if arguments.fail_fast:
                 break
         else:
             total += rows
+            execution_finished_at = datetime.now(UTC)
+            executions.append(
+                WorkerExecutionResult(
+                    name=str(worker),
+                    status="SUCCESS",
+                    rows_written=rows,
+                    started_at=execution_started_at,
+                    finished_at=execution_finished_at,
+                    duration_seconds=time.perf_counter() - execution_started,
+                )
+            )
 
     elapsed = time.perf_counter() - started
+    finished_at = datetime.now(UTC)
+    status = "CANCELLED" if interrupted else "FAILURE" if failures else "SUCCESS"
+    result_error = next(
+        (
+            execution.error
+            for execution in reversed(executions)
+            if execution.error is not None
+        ),
+        None,
+    )
+    result = WorkerResult(
+        job_id=arguments.job_id.strip() or None,
+        worker=result_worker,
+        status=status,
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_seconds=elapsed,
+        metrics={
+            "rows_written": total,
+            "workers_total": len(workers),
+            "workers_completed": len(executions),
+            "workers_succeeded": sum(
+                execution.status == "SUCCESS" for execution in executions
+            ),
+            "workers_failed": sum(
+                execution.status == "FAILURE" for execution in executions
+            ),
+            "workers_cancelled": sum(
+                execution.status == "CANCELLED" for execution in executions
+            ),
+            "selected": True,
+            "dry_run": arguments.dry_run,
+        },
+        attempts=[
+            WorkerAttempt(
+                number=1,
+                status=status,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_seconds=elapsed,
+                rows_written=total,
+                executions=executions,
+                error=result_error,
+            )
+        ],
+        error=result_error,
+    )
+    result_path = write_worker_result(arguments.output_dir, result)
+    if result_path is not None:
+        logger.info(f"Worker 结构化结果已写入：{result_path}")
+
+    if interrupted:
+        return 130
     if failures:
         logger.error(
             f"Worker 任务完成但存在失败：成功结果={total:,}行，"

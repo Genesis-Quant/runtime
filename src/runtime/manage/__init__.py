@@ -19,6 +19,10 @@ COMMANDS: Final[dict[str, tuple[str, str]]] = {
         "管理 DolphinDB 代码",
         "runtime.manage.database",
     ),
+    "messages": (
+        "发送结构化消息",
+        "runtime.manage.messages",
+    ),
 }
 
 

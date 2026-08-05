@@ -20,8 +20,16 @@ def input_file_path(value: str) -> Path:
     return path.resolve()
 
 
-def add_input_file_arguments(parser: argparse.ArgumentParser) -> None:
-    """添加所有应用统一使用的输入文件和输出位置参数。"""
+def boolean_argument(value: str) -> bool:
+    """解析命令行中的显式 true/false。"""
+    normalized = value.strip().lower()
+    if normalized not in {"true", "false"}:
+        raise argparse.ArgumentTypeError("必须是 true 或 false")
+    return normalized == "true"
+
+
+def add_io_arguments(parser: argparse.ArgumentParser) -> None:
+    """添加所有应用统一使用的输入文件和输出参数。"""
     parser.add_argument(
         "--input-file",
         type=input_file_path,
@@ -30,12 +38,18 @@ def add_input_file_arguments(parser: argparse.ArgumentParser) -> None:
         help="包含全部应用参数的 UTF-8 JSON 文件",
     )
     parser.add_argument(
-        "--output-cloud",
-        action=argparse.BooleanOptionalAction,
+        "--output-dir",
+        required=True,
+        metavar="DIR",
+        help="本地输出目录或 bucket 内的相对对象路径",
+    )
+    parser.add_argument(
+        "--cloud",
+        type=boolean_argument,
         default=ArenaSettings.SHARED_CLOUD,
         help=(
-            "是否将 Parquet 上传到对象存储；默认读取 "
-            "ARENA_SHARED_CLOUD"
+            "是否将结果上传到对象存储；直接运行时默认读取 "
+            "ARENA_SHARED_CLOUD，工作流运行时由调用方显式传入"
         ),
     )
 
@@ -108,15 +122,11 @@ def validate_output_names(
 def resolve_output_dir(
     parser: argparse.ArgumentParser,
     value: Any,
-    *,
-    input_file: Path,
 ) -> Path:
-    """解析输出目录；相对路径以输入文件所在目录为基准。"""
+    """解析命令行指定的本地输出目录。"""
     if not isinstance(value, str) or not value.strip():
-        parser.error("input_file.output_dir 必须是非空字符串")
+        parser.error("--output-dir 必须是非空字符串")
     output_dir = Path(value).expanduser()
-    if not output_dir.is_absolute():
-        output_dir = input_file.parent / output_dir
     return output_dir.resolve()
 
 
@@ -126,7 +136,7 @@ def resolve_object_prefix(
 ) -> str:
     """校验云端 output_dir，并转换为 S3 对象键前缀。"""
     if not isinstance(value, str) or not value.strip():
-        parser.error("input_file.output_dir 必须是非空字符串")
+        parser.error("--output-dir 必须是非空字符串")
     normalized = value.strip().replace("\\", "/").rstrip("/")
     if (
         not normalized
@@ -136,7 +146,7 @@ def resolve_object_prefix(
         or any(part in {"", ".", ".."} for part in normalized.split("/"))
     ):
         parser.error(
-            "云端 input_file.output_dir 必须是 bucket 内的相对对象路径"
+            "云端 --output-dir 必须是 bucket 内的相对对象路径"
         )
     return normalized
 
@@ -145,11 +155,10 @@ def prepare_output_target(
     parser: argparse.ArgumentParser,
     output_dir: Any,
     *,
-    input_file: Path,
-    output_cloud: bool,
+    cloud: bool,
 ) -> tuple[Path | str, ObjectStorage | None]:
     """创建本地或对象存储输出目标。"""
-    if output_cloud:
+    if cloud:
         prefix = resolve_object_prefix(parser, output_dir)
         try:
             storage = ObjectStorage.from_env()
@@ -157,11 +166,7 @@ def prepare_output_target(
             parser.error(str(error))
         return prefix, storage
 
-    local_dir = resolve_output_dir(
-        parser,
-        output_dir,
-        input_file=input_file,
-    )
+    local_dir = resolve_output_dir(parser, output_dir)
     local_dir.mkdir(parents=True, exist_ok=True)
     return local_dir, None
 

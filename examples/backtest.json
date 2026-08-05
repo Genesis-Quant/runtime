@@ -90,6 +90,5 @@
   "name": "volume_price_risk_parity_cloud",
   "config": {
     "cash": 100000
-  },
-  "output_dir": "strategies/volume-price-risk-parity/backtest"
+  }
 }

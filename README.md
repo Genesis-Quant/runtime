@@ -69,12 +69,14 @@ from runtime.apps.backtest import BacktestResult, run_backtest
 
 ```powershell
 core-manage --help
-core-manage apps query --input-file query.json --output data
-core-manage apps factor --input-file factor.json --output processed_data information_coefficient group_returns
-core-manage apps backtest --input-file backtest.json --output daily_portfolios return_summary
-core-manage apps backtest --input-file backtest.json --output daily_portfolios --output-cloud
+core-manage apps query --input-file query.json --output-dir output/query --output data --cloud false
+core-manage apps factor --input-file factor.json --output-dir output/factor --output processed_data information_coefficient group_returns --cloud false
+core-manage apps backtest --input-file backtest.json --output-dir output/backtest --output daily_portfolios return_summary --cloud false
+core-manage apps backtest --input-file backtest.json --output-dir jobs/backtest-1 --output daily_portfolios --cloud true
 core-manage workers --list-workers
 core-manage workers daily adj-factor --start-date 2025-01-01
+core-manage workers daily --job-id incremental:1 --output-dir output/incremental --selected-workers daily,limit
+core-manage messages send --input-file output/incremental/message.json --channel console
 core-manage database compile --output-dir output
 ```
 
@@ -102,10 +104,13 @@ with analyze_factors(
 ```
 
 `apps query`、`apps factor` 和 `apps backtest` 都使用必填的
-`--input-file` 和 `--output`，并支持可选的 `--output-cloud` 开关（默认 `False`）。
+`--input-file`、`--output-dir` 和 `--output` 为必填项。直接运行时
+`--cloud true|false` 默认读取 `ARENA_SHARED_CLOUD`；工作流执行时由调用方显式传入，
+不会使用该默认值。
 `--output` 后可以指定一个或多个结果属性；未指定会报错，未选中的结果属性不会
 被访问、下载或计算。
-输入文件必须是 UTF-8 JSON 对象，包含应用的全部非敏感参数。
+输入文件必须是 UTF-8 JSON 对象，只包含应用的非敏感运行参数。输出目录、
+输出项和存储方式均由命令行参数指定。
 
 查询输入文件示例：
 
@@ -116,14 +121,13 @@ with analyze_factors(
     "end_date": "2025-01-31",
     "codes": ["000001.SZ"],
     "factors": ["close"]
-  },
-  "output_dir": "output/query"
+  }
 }
 ```
 
 查询可选输出为 `source_data`、`computed_data`、`filtered_data` 和 `data`；
 其中 `data` 写入 `<output_dir>/query.parquet`。本地模式下，相对
-`output_dir` 以输入文件所在目录为基准，目标目录不存在时会自动创建。
+`--output-dir` 以当前工作目录为基准，目标目录不存在时会自动创建。
 
 因子分析输入参考 [factor.json](examples/factor.json)，可选输出：
 
@@ -150,8 +154,7 @@ with analyze_factors(
   },
   "config": {
     "cash": 100000
-  },
-  "output_dir": "output/backtest"
+  }
 }
 ```
 
@@ -161,8 +164,8 @@ with analyze_factors(
 `codes_query`、`adj`、`name`、`annual_trading_days`、`risk_free_rate`、
 `source_ref` 和 `message_ref`。命令执行结束后自动关闭 DolphinDB session。
 
-指定 `--output-cloud` 后不会在 `output_dir` 落本地文件。此时
-`output_dir` 表示 bucket 内的相对对象路径，例如 `jobs/backtest-1`，
+指定 `--cloud true` 后不会在 `--output-dir` 落本地文件。此时
+`--output-dir` 表示 bucket 内的相对对象路径，例如 `jobs/backtest-1`，
 结果将上传为
 `s3://<OBJECT_STORAGE_BUCKET>/jobs/backtest-1/<文件名>.parquet`。
 对象路径不能是绝对路径，不能包含 `.` 或 `..` 路径段。
@@ -191,6 +194,18 @@ DolphinDB 凭据和 Tushare Token 等敏感信息同样不写入输入 JSON。
 
 仓库中的 [query.json](examples/query.json)、[factor.json](examples/factor.json)
 和 [backtest.json](examples/backtest.json) 可以直接作为输入文件示例。
+
+增量更新 Worker 可通过 `--job-id`、`--output-dir` 和 `--selected-workers`
+接收工作流上下文。未指定 `--output-dir` 时不生成结构化结果；指定后，每个 Task
+原子写入固定的 `<worker>.json`，并在 DolphinScheduler 重试时保留 `attempts`
+历史。未被 `--selected-workers` 选中的 Task 返回成功退出码，同时写入
+`SKIPPED` 结果，便于工作流保持并行结构并统一汇总。
+
+消息功能与具体工作流解耦。`runtime.messaging` 定义文本、图片和渠道专用消息块，
+负责 JSON 读写与 Channel 分发；`runtime.workers.report` 只负责把 Worker 结果构造成
+结构化消息。`console` 是默认 Channel，只打印可处理的普通消息块，并忽略其他
+Channel 的专用格式。新增发送渠道时，在 `runtime.messaging.channels` 中实现
+`MessageChannel` 并注册到 `CHANNEL_TYPES`，无需修改 Worker 或汇总逻辑。
 
 `database compile` 命令会重新生成 `common.dos`、`query.dos`、
 `factor.dos` 和 `backtest.dos`。

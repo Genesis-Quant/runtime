@@ -5,7 +5,7 @@ from contextlib import ExitStack
 from typing import Any
 
 from .utils import (
-    add_input_file_arguments,
+    add_io_arguments,
     prepare_output_target,
     validate_model_input_fields,
     validate_output_names,
@@ -22,7 +22,7 @@ OUTPUT_FILENAMES = {
 }
 def configure_parser(parser: argparse.ArgumentParser) -> None:
     """注册因子分析命令参数。"""
-    add_input_file_arguments(parser)
+    add_io_arguments(parser)
     parser.add_argument(
         "--output",
         nargs="+",
@@ -46,14 +46,12 @@ def run(
         parser,
         data,
         FactorAnalysisParameters,
-        extra_fields=frozenset({"output_dir"}),
     )
     validate_output_names(parser, arguments.output)
     output_target, storage = prepare_output_target(
         parser,
-        data["output_dir"],
-        input_file=arguments.input_file,
-        output_cloud=arguments.output_cloud,
+        arguments.output_dir,
+        cloud=arguments.cloud,
     )
     run_arguments = {
         name: data[name]
