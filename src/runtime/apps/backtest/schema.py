@@ -64,6 +64,7 @@ BACKTEST_BOOLEAN_CONFIGS = frozenset({
     "enableAlgoOrder",
     "immediateOrderConfirmation",
     "immediateCancel",
+    "enableMinimumPerTransactionFee",
 })
 
 
@@ -167,9 +168,10 @@ class BacktestParameters(BaseModel):
             "commission": 0.0,
             "tax": 0.0,
             "matchingMode": 2,
+            "enableMinimumPerTransactionFee": True,
             **value
         }
-        for name in ("cash", "commission", "tax", "matchingRatio", "orderBookMatchingRatio", "enableMinimumPerTransactionFee"):
+        for name in ("cash", "commission", "tax", "matchingRatio", "orderBookMatchingRatio"):
             if name not in result:
                 continue
             if isinstance(result[name], bool) or not isinstance(result[name], Real):
@@ -179,7 +181,7 @@ class BacktestParameters(BaseModel):
                 raise ValueError(f"config[{name!r}] 不能是 NaN 或正负无穷")
         if result["cash"] <= 0:
             raise ValueError("config['cash'] 必须大于 0")
-        for name in ("commission", "tax", "enableMinimumPerTransactionFee"):
+        for name in ("commission", "tax"):
             if name in result and result[name] < 0:
                 raise ValueError(f"config[{name!r}] 不能小于 0")
         for name in ("matchingRatio", "orderBookMatchingRatio"):

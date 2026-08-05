@@ -9126,7 +9126,7 @@ def ts_unary_shift(col, periods) {
     col : vector
         按时间升序排列的输入向量。
     periods : int, default 1
-        向后比较或位移的观测期数，必须至少为 1。
+        位移的观测期数；正数读取历史观测，负数读取未来观测，0 返回原值。
 
     Returns
     -------

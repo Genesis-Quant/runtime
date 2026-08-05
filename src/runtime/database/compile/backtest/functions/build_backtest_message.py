@@ -11,8 +11,11 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
 
         msg 仅包含插件所需的行情字段，不包含策略 DSL 因子和派生列。
         原始因子 vol、up_limit、down_limit 和 pre_close 会在 select 时转换为
-        插件列名；缺少任一必需行情字段的行会被删除。code 和 time 会转换为
-        symbol 和 tradeTime。adj 为 hfq 或 qfq 时使用 adj_factor 复权价格。
+        插件列名。Tushare 的 vol 单位为手，转换为 Backtest 默认使用的股/份时
+        乘以 100。up_limit 或 down_limit 缺失时，根据 pre_close 按 10% 涨跌幅
+        计算，并使用当日 high/low 保护实际价格边界；其他必需行情字段缺失的行
+        会被删除。code 和 time 会转换为 symbol 和 tradeTime。adj 为 hfq 或 qfq
+        时使用 adj_factor 复权价格。
         */
         if (!isNull(adj) && !(adj in ["hfq", "qfq"])) {
             throw "adj 只能是 hfq、qfq 或 NULL"
@@ -36,9 +39,29 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
             low,
             high,
             close,
-            vol as volume,
-            up_limit as upLimitPrice,
-            down_limit as downLimitPrice,
+            long(round(vol * 100, 0)) as volume,
+            double(
+                iif(
+                    isNull(up_limit),
+                    iif(
+                        high > round(pre_close * 1.1, 3),
+                        high,
+                        round(pre_close * 1.1, 3)
+                    ),
+                    up_limit
+                )
+            ) as upLimitPrice,
+            double(
+                iif(
+                    isNull(down_limit),
+                    iif(
+                        low < round(pre_close * 0.9, 3),
+                        low,
+                        round(pre_close * 0.9, 3)
+                    ),
+                    down_limit
+                )
+            ) as downLimitPrice,
             pre_close as prevClosePrice
         from market_data
 
@@ -69,7 +92,6 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
             `tradeTime,
             temporalAdd(timestamp(message.tradeTime), 15, "h")
         )
-        replaceColumn!(message, `volume, long(message.volume))
         message.sortBy!(`tradeTime`symbol)
         return message
     }
