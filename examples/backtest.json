@@ -92,7 +92,6 @@
     "afterTrading": "def afterTrading(mutable context) {\n    return NULL\n}",
     "finalize": "def finalize(mutable context) {\n    print(\"[Strategy][INFO] finalize volume_price_risk_parity\")\n}"
   },
-  "name": "volume_price_risk_parity_cloud",
   "config": {
     "cash": 100000
   }

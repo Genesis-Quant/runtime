@@ -5,13 +5,19 @@ from typing import Any
 
 import numpy as np
 
-from runtime.utils import logger, normalize_date_range
+from runtime.utils import (
+    logger,
+    normalize_date_range,
+    normalize_str,
+    validate_dolphindb_references,
+)
 from runtime.database import create_session
 from runtime.database.session import has_session_variable, redirect_session_output
 
 from .result import BacktestResult
-from .schema import CallbackName, Adj, BacktestParameters
+from .schema import CALLBACK_PARAMETER_COUNTS, CallbackName, Adj, BacktestParameters
 from ..query import api as query_api
+from ..query.schema import QUERY_RESERVED_REFERENCES
 
 CODES_SOURCE_REF = "coreBacktestCodesSourceData"
 CODES_COMPUTED_REF = "coreBacktestCodesComputedData"
@@ -25,6 +31,25 @@ FILTERED_REF = "coreBacktestFilteredData"
 DATA_REF = "coreBacktestData"
 MESSAGE_REF = "coreBacktestMessage"
 DAILY_MESSAGE_FACTORS = ("open", "low", "high", "close", "vol", "up_limit", "down_limit", "pre_close")
+BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
+    "coreBacktestName",
+    "coreBacktestConfig",
+    "coreBacktestCodes",
+    "coreBacktestStartDate",
+    "coreBacktestEndDate",
+    "coreBacktestAnnualTradingDays",
+    "coreBacktestRiskFreeRate",
+    "coreBacktestAdj",
+    "coreBacktestEngine",
+    "coreLoadedPlugins",
+    "coreBacktestComputedData",
+    "coreBacktestFilteredData",
+    "coreBacktestData",
+    "coreBacktestCodesSourceData",
+    "coreBacktestCodesComputedData",
+    "coreBacktestCodesFilteredData",
+    "coreBacktestCodesData",
+})
 
 
 def run_backtest(
@@ -49,14 +74,15 @@ def run_backtest(
         "utils": utils,
         "codes_query": codes_query,
         "adj": adj,
-        "name": name,
         "config": config,
         "annual_trading_days": annual_trading_days,
         "risk_free_rate": risk_free_rate,
-        "source_ref": source_ref,
-        "message_ref": message_ref,
     })
-    engine_name = parameters.name or f"coreBacktest_{uuid4().hex}"
+    validate_dolphindb_references(
+        {"source_ref": source_ref, "message_ref": message_ref},
+        reserved=BACKTEST_RESERVED_REFERENCES | frozenset(CALLBACK_PARAMETER_COUNTS),
+    )
+    engine_name = normalize_str(name, "name") if name is not None else f"coreBacktest_{uuid4().hex}"
     backtest_config = dict(parameters.config)
     owns_session = session is None
     current_session = create_session() if owns_session else session
@@ -83,7 +109,7 @@ def run_backtest(
         query_api.build_query_table(
             validated_dataset_query,
             session=current_session,
-            source_ref=parameters.source_ref,
+            source_ref=source_ref,
             computed_ref=COMPUTED_REF,
             filtered_ref=FILTERED_REF,
             data_ref=DATA_REF
@@ -141,23 +167,23 @@ def run_backtest(
         logger.info(f"session.run: 定义回调函数 {list(parameters.callbacks)}")
         current_session.run("\n".join(parameters.callbacks.values()))
 
-        if not has_session_variable(current_session, parameters.message_ref):
-            logger.info(f"session.run: 生成回测消息表 {parameters.message_ref}")
+        if not has_session_variable(current_session, message_ref):
+            logger.info(f"session.run: 生成回测消息表 {message_ref}")
             current_session.run(f"""
-                {parameters.message_ref} = backtest::build_backtest_message(
+                {message_ref} = backtest::build_backtest_message(
                     {DATA_REF},
                     coreBacktestAdj
                 )
             """)
         else:
-            logger.info(f"复用回测消息表 {parameters.message_ref}")
+            logger.info(f"复用回测消息表 {message_ref}")
 
         logger.info(f"session.run: 创建并运行回测引擎 {engine_name}")
         current_session.run(f"""
             coreBacktestEngine = backtest::run_backtest(
                 coreBacktestName,
                 coreBacktestConfig,
-                {parameters.message_ref},
+                {message_ref},
                 {COMPUTED_REF},
                 {FILTERED_REF},
                 initialize,

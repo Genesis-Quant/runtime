@@ -6,9 +6,9 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from runtime.utils import normalize_dolphindb_functions, normalize_str, validate_dolphindb_references
+from runtime.utils import normalize_dolphindb_functions
 
-from ..query.schema import FactorQuery, QUERY_RESERVED_REFERENCES
+from ..query.schema import FactorQuery
 
 CallbackName: TypeAlias = Literal[
     "initialize",
@@ -31,25 +31,6 @@ CALLBACK_PARAMETER_COUNTS = {
     "afterTrading": 1,
     "finalize": 1,
 }
-BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
-    "coreBacktestName",
-    "coreBacktestConfig",
-    "coreBacktestCodes",
-    "coreBacktestStartDate",
-    "coreBacktestEndDate",
-    "coreBacktestAnnualTradingDays",
-    "coreBacktestRiskFreeRate",
-    "coreBacktestAdj",
-    "coreBacktestEngine",
-    "coreLoadedPlugins",
-    "coreBacktestComputedData",
-    "coreBacktestFilteredData",
-    "coreBacktestData",
-    "coreBacktestCodesSourceData",
-    "coreBacktestCodesComputedData",
-    "coreBacktestCodesFilteredData",
-    "coreBacktestCodesData",
-})
 BACKTEST_BOOLEAN_CONFIGS = frozenset({
     "enableIndicatorOptimize",
     "isBacktestMode",
@@ -72,12 +53,6 @@ class BacktestParameters(BaseModel):
     """保存 Python 回测入口完成解析和规范化后的参数。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, validate_default=True)
-
-    name: str | None = Field(
-        default=None,
-        min_length=1,
-        description="可选回测引擎名称。"
-    )
 
     config: dict[str, Any] = Field(
         default_factory=dict,
@@ -111,16 +86,6 @@ class BacktestParameters(BaseModel):
         description="计算 Sharpe 比率使用的年化无风险收益率。"
     )
 
-    source_ref: str = Field(
-        default="coreBacktestSourceData",
-        description="基础因子查询结果变量名；存在则复用，不存在则生成。"
-    )
-
-    message_ref: str = Field(
-        default="coreBacktestMessage",
-        description="日频消息查询结果变量名；存在则复用，不存在则生成。"
-    )
-
     utils: str = Field(
         default="",
         description="在生命周期回调注册前原样执行的 DolphinDB 脚本。",
@@ -128,18 +93,9 @@ class BacktestParameters(BaseModel):
 
     callbacks: dict[CallbackName, str]
 
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str | None) -> str | None:
-        return normalize_str(value, "name") if value is not None else None
-
     @model_validator(mode="after")
     def validate_dataset_query_contract(self) -> "BacktestParameters":
         """校验股票范围和框架保留列。"""
-        validate_dolphindb_references(
-            {"source_ref": self.source_ref, "message_ref": self.message_ref},
-            reserved=BACKTEST_RESERVED_REFERENCES | frozenset(CALLBACK_PARAMETER_COUNTS),
-        )
         if self.adj is not None:
             if "adj_factor" in self.dataset_query.derivatives:
                 raise ValueError("adj 不允许使用名为 adj_factor 的派生因子")

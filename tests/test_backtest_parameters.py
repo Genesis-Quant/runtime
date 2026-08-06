@@ -91,6 +91,19 @@ class BacktestParametersTests(unittest.TestCase):
 
         self.assertEqual(list(result.callbacks), list(CALLBACKS))
 
+    def test_runtime_only_parameters_are_not_part_of_input_json(self) -> None:
+        for name, value in {
+            "name": "custom-engine",
+            "source_ref": "customSource",
+            "message_ref": "customMessage",
+        }.items():
+            with self.subTest(name=name):
+                payload = parameters()
+                payload[name] = value
+
+                with self.assertRaises(ValidationError):
+                    BacktestParameters.model_validate(payload)
+
     def test_packaged_backtest_example_matches_the_model(self) -> None:
         example = json.loads((Path(__file__).parents[1] / "examples" / "backtest.json").read_text(encoding="utf-8"))
 
