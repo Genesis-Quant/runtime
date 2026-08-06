@@ -2,12 +2,9 @@
 
 import time
 from collections.abc import Callable
-from typing import TypeVar
 
 from .logging import logger
 from .throttle import RateLimiter
-
-Result = TypeVar("Result")
 
 
 class Retry:
@@ -29,7 +26,7 @@ class Retry:
         self.retry_interval = retry_interval
         self.limiter = limiter
 
-    def __call__(
+    def __call__[Result](
             self,
             operation: Callable[[], Result],
             *,
