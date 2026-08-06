@@ -1,18 +1,40 @@
 """注册并分发 query、factor 和 backtest 应用命令。"""
 
 import argparse
+import json
 from collections.abc import Sequence
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Final
 
 from . import backtest, factor, query
-from .utils import load_input_file
 
 APPLICATIONS: Final[tuple[ModuleType, ...]] = (
     query,
     factor,
     backtest,
 )
+
+
+def load_input_file(
+    parser: argparse.ArgumentParser,
+    path: Path,
+) -> dict[str, Any]:
+    """读取 UTF-8 JSON 对象，格式错误时按命令行参数错误退出。"""
+    try:
+        content = path.read_text(encoding="utf-8-sig")
+    except OSError as error:
+        parser.error(f"无法读取输入文件 {path}：{error}")
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError as error:
+        parser.error(
+            f"输入文件 {path} 不是有效 JSON："
+            f"第 {error.lineno} 行第 {error.colno} 列，{error.msg}"
+        )
+    if not isinstance(result, dict):
+        parser.error(f"输入文件 {path} 的顶层必须是 JSON 对象")
+    return result
 
 
 def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
@@ -60,7 +82,7 @@ def main(
     return int(handler(parser, arguments, data))
 
 
-__all__ = ["APPLICATIONS", "build_parser", "main"]
+__all__ = ["main"]
 
 
 if __name__ == "__main__":

@@ -11,7 +11,8 @@ from runtime.database import (
     ensure_stock_dividend_table,
     normalize_stock_dividends,
 )
-from runtime.utils import logger, pro
+from runtime.utils import logger
+from runtime.utils.ts_api import pro
 
 from .base import WideWorker
 

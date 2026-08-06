@@ -7,11 +7,10 @@ from typing import Any, Self
 from urllib.parse import unquote, urlparse
 
 import boto3
-from botocore.config import Config
 import pandas as pd
+from botocore.config import Config
 
 from runtime.config import ObjectStorageSettings
-
 
 PARQUET_CONTENT_TYPE = "application/vnd.apache.parquet"
 SPOOL_MAX_SIZE = 64 * 1024 * 1024
@@ -62,8 +61,12 @@ class ObjectStorage:
             raise ObjectStorageConfigurationError(
                 f"缺少对象存储配置：{missing}"
             )
-
-        bucket = ObjectStorageSettings.BUCKET.strip()
+        settings = {
+            name: value.strip()
+            for name, value in required.items()
+            if isinstance(value, str)
+        }
+        bucket = settings["OBJECT_STORAGE_BUCKET"]
         addressing_style = ObjectStorageSettings.ADDRESSING_STYLE
         if addressing_style not in {"auto", "path", "virtual"}:
             raise ObjectStorageConfigurationError(
@@ -76,9 +79,9 @@ class ObjectStorage:
         )
         client = boto3.client(
             "s3",
-            endpoint_url=ObjectStorageSettings.ENDPOINT_URL,
-            aws_access_key_id=ObjectStorageSettings.ACCESS_KEY_ID,
-            aws_secret_access_key=ObjectStorageSettings.SECRET_ACCESS_KEY,
+            endpoint_url=settings["OBJECT_STORAGE_ENDPOINT_URL"],
+            aws_access_key_id=settings["OBJECT_STORAGE_ACCESS_KEY_ID"],
+            aws_secret_access_key=settings["OBJECT_STORAGE_SECRET_ACCESS_KEY"],
             region_name=ObjectStorageSettings.REGION,
             config=Config(s3={"addressing_style": addressing_style}),
         )

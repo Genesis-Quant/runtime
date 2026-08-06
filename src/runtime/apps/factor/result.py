@@ -33,51 +33,31 @@ class FactorAnalysisResult(SessionResult):
     @property
     def information_coefficient(self) -> pd.DataFrame:
         """计算全部因子的 IC，并按 time 横向拼接。"""
-        tables: list[pd.DataFrame] = []
-        for factor in self.factor_columns:
-            self.session.upload({"coreFactorCurrentColumn": factor})
-            logger.info(f"session.run: 计算因子 {factor} 的 IC")
-            table = self.download(f"""
-                factor::factorInformationCoefficient(
-                    {self.processed_ref},
-                    coreFactorReturnColumns,
-                    coreFactorCurrentColumn,
-                    "time"
-                )
-            """)
-            table = table.rename(columns={
-                column: f"{factor}_{column}"
-                for column in table.columns
-                if column != "time"
-            })
-            tables.append(table.set_index("time"))
-        return pd.concat(tables, axis=1).sort_index().reset_index()
+        logger.info("session.run: 计算全部因子的 IC")
+        return self.download(f"""
+            factor::factorInformationCoefficient(
+                {self.processed_ref},
+                coreFactorReturnColumns,
+                coreFactorColumns,
+                "time"
+            )
+        """)
 
     @property
     def group_returns(self) -> pd.DataFrame:
         """计算全部因子的分组收益，并按 time 横向拼接。"""
-        tables: list[pd.DataFrame] = []
-        for factor in self.factor_columns:
-            self.session.upload({"coreFactorCurrentColumn": factor})
-            logger.info(f"session.run: 计算因子 {factor} 的分组收益")
-            table = self.download(f"""
-                factor::factorGroupReturns(
-                    {self.processed_ref},
-                    coreFactorReturnColumns,
-                    coreFactorCurrentColumn,
-                    coreFactorGroupCount,
-                    "time",
-                    "code",
-                    coreFactorMarketValueColumn
-                )
-            """)
-            table = table.rename(columns={
-                column: f"{factor}_{column}"
-                for column in table.columns
-                if column != "time"
-            })
-            tables.append(table.set_index("time"))
-        return pd.concat(tables, axis=1).sort_index().reset_index()
+        logger.info("session.run: 计算全部因子的分组收益")
+        return self.download(f"""
+            factor::factorGroupReturns(
+                {self.processed_ref},
+                coreFactorReturnColumns,
+                coreFactorColumns,
+                coreFactorGroupCount,
+                "time",
+                "code",
+                coreFactorMarketValueColumn
+            )
+        """)
 
 
 __all__ = ["FactorAnalysisResult"]

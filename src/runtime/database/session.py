@@ -38,7 +38,7 @@ def has_session_variable(session: Any, name: str) -> bool:
 
 def create_session() -> Any:
     """连接 DolphinDB，不检查或初始化业务库表。"""
-    DolphinSettings.validate()
+    password = DolphinSettings.validate()
     logger.info(
         f"DolphinDB: {DolphinSettings.HOST}:{DolphinSettings.PORT}"
     )
@@ -48,7 +48,7 @@ def create_session() -> Any:
         DolphinSettings.HOST,
         DolphinSettings.PORT,
         DolphinSettings.USERNAME,
-        DolphinSettings.PASSWORD,
+        password,
     ):
         return session
     session.close()

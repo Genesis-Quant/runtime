@@ -1,6 +1,5 @@
-"""定义统一因子数据的列契约和 factor 命名规则。"""
+"""定义统一因子数据的列契约和指数权重 factor 命名规则。"""
 
-from collections.abc import Iterable
 import re
 
 TIME_COLUMN = "time"
@@ -23,19 +22,3 @@ def index_weight_factor(index_code: str) -> str:
     if re.fullmatch(r"[A-Z0-9]+\.[A-Z0-9]+", normalized) is None:
         raise ValueError(f"无效指数代码：{index_code!r}")
     return WEIGHT_PREFIX + normalized.replace(".", "")
-
-
-def normalize_factors(values: Iterable[str]) -> list[str]:
-    """清理、去重并校验 factor 列表。"""
-    factors: list[str] = []
-    for value in values:
-        if value is None:
-            continue
-        factor = str(value).strip()
-        if not factor:
-            continue
-        if factor not in factors:
-            factors.append(factor)
-    if not factors:
-        raise ValueError("factor 至少包含一个非空值")
-    return factors

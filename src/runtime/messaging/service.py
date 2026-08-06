@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from uuid import uuid4
 
 from runtime.messaging.channels import create_message_channel
 from runtime.messaging.models import MessageDeliveryResult, StructuredMessage
+from runtime.utils.files import atomic_write_text
 
 
 def read_message(path: Path | str) -> StructuredMessage:
@@ -23,20 +22,7 @@ def read_message(path: Path | str) -> StructuredMessage:
 
 def write_message(path: Path | str, message: StructuredMessage) -> Path:
     """原子写入一个结构化消息 JSON 文件。"""
-    destination = Path(path).expanduser().resolve()
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(
-        f".{destination.name}.{uuid4().hex}.tmp"
-    )
-    try:
-        temporary.write_text(
-            message.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return destination
+    return atomic_write_text(path, message.model_dump_json(indent=2))
 
 
 def send_message(

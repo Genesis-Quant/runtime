@@ -343,6 +343,7 @@ def main(
         WorkerAttempt,
         WorkerExecutionResult,
         WorkerResult,
+        WorkerStatus,
         worker_error,
         write_worker_result,
     )
@@ -477,7 +478,7 @@ def main(
 
     elapsed = time.perf_counter() - started
     finished_at = datetime.now(UTC)
-    status = "CANCELLED" if interrupted else "FAILURE" if failures else "SUCCESS"
+    status: WorkerStatus = "CANCELLED" if interrupted else "FAILURE" if failures else "SUCCESS"
     result_error = next(
         (
             execution.error

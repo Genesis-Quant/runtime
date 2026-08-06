@@ -1,14 +1,18 @@
 """因子分析模型与按需加载的执行接口。"""
 
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .schema import FactorAnalysisParameters
 
+if TYPE_CHECKING:
+    from .api import analyze_factors
+
 LAZY_EXPORTS = {
-    "FactorAnalysisResult": ("runtime.apps.factor.result", "FactorAnalysisResult"),
     "analyze_factors": ("runtime.apps.factor.api", "analyze_factors"),
 }
+
+__all__ = ["FactorAnalysisParameters", "analyze_factors"]
 
 
 def __getattr__(name: str) -> Any:

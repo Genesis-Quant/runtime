@@ -1,14 +1,14 @@
 """定义写入自定义 DolphinDB 宽表的按股票 Worker。"""
 
-from abc import ABC, abstractmethod
 import time
+from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
 
 from runtime.database import create_session
-from runtime.utils import logger
+from runtime.utils import logger, normalize_date
 
 from .stock import StockWorker
 
@@ -172,9 +172,9 @@ class WideWorker(StockWorker, ABC):
 
         dates = (
             {
-                str(getattr(row, self.KEY_COLUMN)): pd.Timestamp(
-                    getattr(row, self.DATE_COLUMN)
-                ).normalize()
+                str(getattr(row, self.KEY_COLUMN)): normalize_date(
+                    getattr(row, self.DATE_COLUMN), self.DATE_COLUMN
+                )
                 for row in result.itertuples(index=False)
                 if not pd.isna(getattr(row, self.DATE_COLUMN))
             }

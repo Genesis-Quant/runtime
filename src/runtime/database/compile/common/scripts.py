@@ -4,9 +4,8 @@ from pathlib import Path
 
 from runtime.database.compile import (
     build_script as compile_script,
-    write_script as write_compiled_script,
 )
-from runtime.utils import logger
+from runtime.database.compile.script import write_module
 
 from .functions import COMMON_FUNCTIONS
 
@@ -21,13 +20,7 @@ def build_script() -> str:
 
 def write_script(*, output_dir: Path = DEFAULT_OUTPUT_DIR) -> Path:
     """将 common.dos 写入指定输出目录。"""
-    path = write_compiled_script(
-        MODULE,
-        build_script(),
-        output_dir=output_dir,
-    )
-    logger.success(f"DolphinDB common 模块已生成：{path}")
-    return path
+    return write_module(MODULE, build_script(), output_dir=output_dir)
 
 
 if __name__ == "__main__":

@@ -3,11 +3,10 @@
 from pathlib import Path
 
 from runtime.database.compile import build_script as compile_script
-from runtime.database.compile import write_script as write_compiled_script
 from runtime.database.compile.query.scripts import (
     write_script as write_query_script,
 )
-from runtime.utils import logger
+from runtime.database.compile.script import write_module
 
 from .functions import FACTOR_FUNCTIONS
 
@@ -22,14 +21,12 @@ def build_script() -> str:
 
 def write_script(*, output_dir: Path = DEFAULT_OUTPUT_DIR) -> Path:
     """按依赖顺序生成 common、query 和 factor 模块。"""
-    write_query_script(output_dir=output_dir)
-    path = write_compiled_script(
+    return write_module(
         MODULE,
         build_script(),
         output_dir=output_dir,
+        dependencies=(write_query_script,),
     )
-    logger.success(f"DolphinDB factor 模块已生成：{path}")
-    return path
 
 
 if __name__ == "__main__":

@@ -1,27 +1,27 @@
 """定义逐自然日更新的抽象 Worker。"""
 import time
 from abc import ABC, abstractmethod
-from datetime import timedelta
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 
 from runtime.config import DATA_START_DATE
-from runtime.utils import (
-    CODE_COLUMN,
-    DateLike,
-    FACTOR_COLUMN,
-    TIME_COLUMN,
-    VALUE_COLUMN,
-    logger,
-    normalize_date,
-)
 from runtime.database import (
     CORE_TABLE,
     CoreTableWriter,
     create_session,
+)
+from runtime.utils import (
+    CODE_COLUMN,
+    FACTOR_COLUMN,
+    TIME_COLUMN,
+    VALUE_COLUMN,
+    DateLike,
+    logger,
+    normalize_date,
 )
 
 from .worker import BaseWorker
@@ -182,7 +182,7 @@ class DateWorker(BaseWorker, ABC):
                 f"最近数据日=无，查询耗时={elapsed:.2f}秒"
             )
             return None
-        latest = pd.Timestamp(value).normalize()
+        latest = normalize_date(value, TIME_COLUMN)
         elapsed = time.perf_counter() - started
         logger.info(
             f"{self} 增量基线：因子={len(self.factors):,}，"

@@ -42,9 +42,10 @@ class DolphinSettings:
     DIVIDEND_TABLE = os.getenv("DOLPHIN_DIVIDEND_TABLE", "stockDividend")
 
     @classmethod
-    def validate(cls) -> None:
+    def validate(cls) -> str:
         if not cls.PASSWORD:
             raise RuntimeError("缺少 DolphinDB 配置：DOLPHIN_PASSWORD")
+        return cls.PASSWORD
 
 
 class ObjectStorageSettings:

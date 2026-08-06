@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
-from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from runtime.utils.files import atomic_write_text
 
 WorkerStatus = Literal["SUCCESS", "FAILURE", "CANCELLED", "SKIPPED"]
 
@@ -80,18 +79,7 @@ def write_worker_result(output_dir: str, result: WorkerResult) -> Path | None:
     directory.mkdir(parents=True, exist_ok=True)
     destination = directory / f"{result.worker}.json"
     result = merge_previous_attempts(destination, result)
-    temporary = destination.with_name(
-        f".{destination.name}.{uuid4().hex}.tmp"
-    )
-    try:
-        temporary.write_text(
-            result.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return destination
+    return atomic_write_text(destination, result.model_dump_json(indent=2))
 
 
 def merge_previous_attempts(

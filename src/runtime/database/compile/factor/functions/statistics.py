@@ -8,20 +8,21 @@ from .helpers import (
     FACTOR_WEIGHTED_RETURN,
 )
 
-
 FACTOR_INFORMATION_COEFFICIENT = DolphinDBFunction(
     module="factor",
     definition=r"""
     def factorInformationCoefficient(
         processedTable,
         returnCols,
-        factorCol,
+        factorCols,
         timeCol="time") {
         returnColNames = factorStringVector(returnCols)
+        factorColNames = factorStringVector(factorCols)
         factorCheckColumns(
             processedTable,
-            symbol([timeCol, factorCol])
+            symbol([timeCol])
         )
+        factorCheckColumns(processedTable, symbol(factorColNames))
         factorCheckColumns(
             processedTable,
             symbol(returnColNames)
@@ -33,42 +34,50 @@ FACTOR_INFORMATION_COEFFICIENT = DolphinDBFunction(
         result = result.sortBy!(`time)
 
         timeSym = symbol([timeCol])[0]
-        factorSym = symbol([factorCol])[0]
-        for (retCol in returnColNames) {
-            retSym = symbol([string(retCol)])[0]
-            corrTable = sql(
-                [
-                    sqlCol(timeSym, , `time),
-                    sqlColAlias(
-                        makeCall(
-                            corr,
-                            sqlCol(factorSym),
-                            sqlCol(retSym)
+        for (factorCol in factorColNames) {
+            factorSym = symbol([string(factorCol)])[0]
+            for (retCol in returnColNames) {
+                retSym = symbol([string(retCol)])[0]
+                corrTable = sql(
+                    [
+                        sqlCol(timeSym, , `time),
+                        sqlColAlias(
+                            makeCall(
+                                corr,
+                                sqlCol(factorSym),
+                                sqlCol(retSym)
+                            ),
+                            `ic
                         ),
-                        `ic
-                    ),
-                    sqlColAlias(
-                        makeCall(
-                            spearmanr,
-                            sqlCol(factorSym),
-                            sqlCol(retSym)
-                        ),
-                        `rank_ic
-                    )
-                ],
-                processedTable,
-                ,
-                [sqlCol(timeSym)]
-            ).eval()
-            result = lj(result, corrTable, `time)
-            result.rename!(
-                `ic,
-                symbol([string(retCol) + "_ic"])[0]
-            )
-            result.rename!(
-                `rank_ic,
-                symbol([string(retCol) + "_rank_ic"])[0]
-            )
+                        sqlColAlias(
+                            makeCall(
+                                spearmanr,
+                                sqlCol(factorSym),
+                                sqlCol(retSym)
+                            ),
+                            `rank_ic
+                        )
+                    ],
+                    processedTable,
+                    ,
+                    [sqlCol(timeSym)]
+                ).eval()
+                result = lj(result, corrTable, `time)
+                result.rename!(
+                    `ic,
+                    symbol([
+                        string(factorCol) + "_" +
+                        string(retCol) + "_ic"
+                    ])[0]
+                )
+                result.rename!(
+                    `rank_ic,
+                    symbol([
+                        string(factorCol) + "_" +
+                        string(retCol) + "_rank_ic"
+                    ])[0]
+                )
+            }
         }
         return result
     }
@@ -85,7 +94,7 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
     def factorGroupReturns(
         processedFactorTable,
         returnCols,
-        factorCol,
+        factorCols,
         nGroups,
         timeCol="time",
         codeCol="code",
@@ -94,17 +103,12 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
             throw "nGroups must be at least 2"
         }
         returnColNames = factorStringVector(returnCols)
-        groupCol = string(factorCol) + "_group"
+        factorColNames = factorStringVector(factorCols)
         factorCheckColumns(
             processedFactorTable,
-            symbol([
-                timeCol,
-                codeCol,
-                factorCol,
-                mktmvCol,
-                groupCol
-            ])
+            symbol([timeCol, codeCol, mktmvCol])
         )
+        factorCheckColumns(processedFactorTable, symbol(factorColNames))
         factorCheckColumns(
             processedFactorTable,
             symbol(returnColNames)
@@ -116,34 +120,43 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
         result = result.sortBy!(`time)
 
         timeSym = symbol([timeCol])[0]
-        groupSym = symbol([groupCol])[0]
         mktmvSym = symbol([mktmvCol])[0]
-        for (retCol in returnColNames) {
-            retSym = symbol([string(retCol)])[0]
-            for (groupId in 0 .. (nGroups - 1)) {
-                weighted = sql(
-                    [
-                        sqlCol(timeSym, , `time),
-                        sqlColAlias(
-                            makeCall(
-                                factorWeightedReturn,
-                                sqlCol(mktmvSym),
-                                sqlCol(retSym)
-                            ),
-                            `ret
-                        )
-                    ],
-                    processedFactorTable,
-                    expr(sqlCol(groupSym), ==, groupId),
-                    [sqlCol(timeSym)]
-                ).eval()
-                result = lj(result, weighted, `time)
-                result.rename!(
-                    `ret,
-                    symbol([
-                        string(retCol) + "_group" + string(groupId)
-                    ])[0]
-                )
+        for (factorCol in factorColNames) {
+            groupCol = string(factorCol) + "_group"
+            factorCheckColumns(
+                processedFactorTable,
+                symbol([groupCol])
+            )
+            groupSym = symbol([groupCol])[0]
+            for (retCol in returnColNames) {
+                retSym = symbol([string(retCol)])[0]
+                for (groupId in 0 .. (nGroups - 1)) {
+                    weighted = sql(
+                        [
+                            sqlCol(timeSym, , `time),
+                            sqlColAlias(
+                                makeCall(
+                                    factorWeightedReturn,
+                                    sqlCol(mktmvSym),
+                                    sqlCol(retSym)
+                                ),
+                                `ret
+                            )
+                        ],
+                        processedFactorTable,
+                        expr(sqlCol(groupSym), ==, groupId),
+                        [sqlCol(timeSym)]
+                    ).eval()
+                    result = lj(result, weighted, `time)
+                    result.rename!(
+                        `ret,
+                        symbol([
+                            string(factorCol) + "_" +
+                            string(retCol) + "_group" +
+                            string(groupId)
+                        ])[0]
+                    )
+                }
             }
         }
         return result

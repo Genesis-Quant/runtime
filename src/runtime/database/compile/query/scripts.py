@@ -2,14 +2,13 @@
 
 from pathlib import Path
 
+from runtime.database.compile import (
+    build_script as compile_script,
+)
 from runtime.database.compile.common.scripts import (
     write_script as write_common_script,
 )
-from runtime.database.compile import (
-    build_script as compile_script,
-    write_script as write_compiled_script,
-)
-from runtime.utils import logger
+from runtime.database.compile.script import write_module
 
 from .functions import QUERY_FUNCTIONS
 
@@ -24,14 +23,12 @@ def build_script() -> str:
 
 def write_script(*, output_dir: Path = DEFAULT_OUTPUT_DIR) -> Path:
     """按依赖顺序生成 common.dos 和 query.dos。"""
-    write_common_script(output_dir=output_dir)
-    path = write_compiled_script(
+    return write_module(
         MODULE,
         build_script(),
         output_dir=output_dir,
+        dependencies=(write_common_script,),
     )
-    logger.success(f"DolphinDB query 模块已生成：{path}")
-    return path
 
 
 if __name__ == "__main__":

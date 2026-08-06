@@ -1,14 +1,18 @@
 """回测模型与按需加载的执行接口。"""
 
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .schema import BacktestParameters
 
+if TYPE_CHECKING:
+    from .api import run_backtest
+
 LAZY_EXPORTS = {
-    "BacktestResult": ("runtime.apps.backtest.result", "BacktestResult"),
     "run_backtest": ("runtime.apps.backtest.api", "run_backtest"),
 }
+
+__all__ = ["BacktestParameters", "run_backtest"]
 
 
 def __getattr__(name: str) -> Any:

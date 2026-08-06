@@ -44,13 +44,13 @@ with run_backtest(
 也可以从对应应用包显式导入：
 
 ```python
-from runtime.apps.query import FactorQuery, QueryResult, execute_query
-from runtime.apps.factor import FactorAnalysisResult, analyze_factors
-from runtime.apps.backtest import BacktestResult, run_backtest
+from runtime.apps.query import FactorQuery, execute_query
+from runtime.apps.factor import FactorAnalysisParameters, analyze_factors
+from runtime.apps.backtest import BacktestParameters, run_backtest
 ```
 
-`execute_query` 返回 `runtime.QueryResult`，`analyze_factors` 返回
-`runtime.FactorAnalysisResult`，`run_backtest` 返回 `runtime.BacktestResult`。
+`execute_query`、`analyze_factors` 和 `run_backtest` 分别返回查询、因子分析和
+回测结果对象。
 结果保存在各自的 DolphinDB session 中；访问数据成员时才会执行对应 DOS
 代码并下载结果。三种结果都提供 `session` 属性、`download()`
 和 `close()`，退出

@@ -1,11 +1,12 @@
 """按基金增量维护指定场内基金的日线数据。"""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import pandas as pd
 
-from runtime.utils import TIME_COLUMN, pro
+from runtime.utils import TIME_COLUMN
+from runtime.utils.ts_api import pro
 
 from .base import StockWorker
 
@@ -94,6 +95,37 @@ FUND_DAILY_FACTORS = ("open", "high", "low", "close", "pre_close", "change", "pc
 FUND_ADJ_FACTORS = ("adj_factor",)
 
 
+def fetch_fund(
+        worker: StockWorker,
+        endpoint: Callable[..., pd.DataFrame],
+        endpoint_name: str,
+        code: str,
+        start_date: pd.Timestamp,
+        end_date: pd.Timestamp,
+) -> pd.DataFrame:
+    """分页查询一只基金，并转换为统一长表。"""
+    response = worker.paginator.fetch(
+        endpoint,
+        params={
+            "ts_code": code,
+            "start_date": start_date.strftime("%Y%m%d"),
+            "end_date": end_date.strftime("%Y%m%d"),
+            "fields": ",".join(("ts_code", "trade_date", *worker.factors)),
+        },
+        page_size=2_000,
+        context=f"{worker}[{code}].{endpoint_name}",
+        stop_on_short=True,
+    )
+    if response.empty:
+        return worker.EMPTY
+    return worker.melt(
+        code,
+        response.rename(columns={"trade_date": TIME_COLUMN}),
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
 class FundDailyWorker(StockWorker):
     """通过 fund_daily 接口更新指定场内基金的未复权日线。"""
 
@@ -122,29 +154,13 @@ class FundDailyWorker(StockWorker):
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """分页获取一只基金的日线并转换为统一长表。"""
-        response = self.paginator.fetch(
+        return fetch_fund(
+            self,
             pro.fund_daily,
-            params={
-                "ts_code": code,
-                "start_date": start_date.strftime("%Y%m%d"),
-                "end_date": end_date.strftime("%Y%m%d"),
-                "fields": ",".join(
-                    ("ts_code", "trade_date", *self.factors)
-                ),
-            },
-            page_size=2_000,
-            context=f"{self}[{code}].fund_daily",
-            stop_on_short=True,
-        )
-        if response.empty:
-            return self.EMPTY
-
-        data = response.rename(columns={"trade_date": TIME_COLUMN})
-        return self.melt(
+            "fund_daily",
             code,
-            data,
-            start_date=start_date,
-            end_date=end_date,
+            start_date,
+            end_date,
         )
 
 
@@ -176,27 +192,11 @@ class FundAdjFactorWorker(StockWorker):
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """分页获取一只基金的复权因子并转换为统一长表。"""
-        response = self.paginator.fetch(
+        return fetch_fund(
+            self,
             pro.fund_adj,
-            params={
-                "ts_code": code,
-                "start_date": start_date.strftime("%Y%m%d"),
-                "end_date": end_date.strftime("%Y%m%d"),
-                "fields": ",".join(
-                    ("ts_code", "trade_date", *self.factors)
-                ),
-            },
-            page_size=2_000,
-            context=f"{self}[{code}].fund_adj",
-            stop_on_short=True,
-        )
-        if response.empty:
-            return self.EMPTY
-
-        data = response.rename(columns={"trade_date": TIME_COLUMN})
-        return self.melt(
+            "fund_adj",
             code,
-            data,
-            start_date=start_date,
-            end_date=end_date,
+            start_date,
+            end_date,
         )

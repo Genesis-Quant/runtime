@@ -1,9 +1,13 @@
 """定义四个财报接口各自独立的数据更新 Worker。"""
 
+from collections.abc import Callable
+from datetime import date
+
 import numpy as np
 import pandas as pd
 
-from runtime.utils import TIME_COLUMN, pro
+from runtime.utils import TIME_COLUMN
+from runtime.utils.ts_api import pro
 
 from .base import StockWorker
 
@@ -222,6 +226,49 @@ def prepare(df: pd.DataFrame, ann_date_col) -> pd.DataFrame:
     return data
 
 
+def fetch_financial(
+        worker: StockWorker,
+        endpoint: Callable[..., pd.DataFrame],
+        endpoint_name: str,
+        code: str,
+        start_date: pd.Timestamp,
+        end_date: pd.Timestamp,
+        ann_date_col: str,
+        lookback_years: int,
+        flow_factors: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
+    """分页查询一类财报，完成公告日整理并转换为统一长表。"""
+    response = worker.paginator.fetch(
+        endpoint,
+        params={
+            "ts_code": code,
+            "start_date": date(
+                year=start_date.year - lookback_years,
+                month=start_date.month,
+                day=1,
+            ).strftime("%Y%m%d"),
+            "end_date": end_date.strftime("%Y%m%d"),
+        },
+        page_size=100,
+        context=f"{worker}[{code}].{endpoint_name}",
+        stop_on_short=True,
+    )
+    if response.empty:
+        return worker.EMPTY
+    data = prepare(response, ann_date_col)
+    if flow_factors is not None:
+        data = process_flow(data, flow_factors)
+    data = data.rename(columns={ann_date_col: TIME_COLUMN})[
+        [TIME_COLUMN, *worker.factors]
+    ]
+    return worker.melt(
+        code,
+        data,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
 class StockBalanceSheetWorker(StockWorker):
     """通过 balancesheet 接口更新资产负债表。"""
 
@@ -242,32 +289,16 @@ class StockBalanceSheetWorker(StockWorker):
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的资产负债表。"""
-        ann_date_col = "f_ann_date"
-
-        response = self.paginator.fetch(
+        return fetch_financial(
+            self,
             pro.balancesheet,
-            params={
-                "ts_code": code,
-                "start_date": pd.Timestamp(
-                    year=start_date.year - 1,
-                    month=start_date.month,
-                    day=1,
-                ).strftime("%Y%m%d"),
-                "end_date": end_date.strftime("%Y%m%d"),
-            },
-            page_size=100,
-            context=f"{self}[{code}].balancesheet",
-            stop_on_short=True,
+            "balancesheet",
+            code,
+            start_date,
+            end_date,
+            "f_ann_date",
+            1,
         )
-
-        if response.empty:
-            return self.EMPTY
-
-        data = prepare(response, ann_date_col)
-        data = data.rename(columns={ann_date_col: TIME_COLUMN})[
-            [TIME_COLUMN, *self.factors]
-        ]
-        return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
 class StockIncomeWorker(StockWorker):
@@ -290,32 +321,17 @@ class StockIncomeWorker(StockWorker):
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的利润表并计算报告期和 TTM 因子。"""
-        ann_date_col = "f_ann_date"
-
-        response = self.paginator.fetch(
+        return fetch_financial(
+            self,
             pro.income,
-            params={
-                "ts_code": code,
-                "start_date": pd.Timestamp(
-                    year=start_date.year - 2,
-                    month=start_date.month,
-                    day=1,
-                ).strftime("%Y%m%d"),
-                "end_date": end_date.strftime("%Y%m%d"),
-            },
-            page_size=100,
-            context=f"{self}[{code}].income",
-            stop_on_short=True,
+            "income",
+            code,
+            start_date,
+            end_date,
+            "f_ann_date",
+            2,
+            INCOME_RAW_FACTORS,
         )
-        if response.empty:
-            return self.EMPTY
-
-        data = prepare(response, ann_date_col)
-        data = process_flow(data, INCOME_RAW_FACTORS)
-        data = data.rename(columns={ann_date_col: TIME_COLUMN})[
-            [TIME_COLUMN, *self.factors]
-        ]
-        return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
 class StockCashflowWorker(StockWorker):
@@ -338,33 +354,17 @@ class StockCashflowWorker(StockWorker):
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的现金流量表并计算报告期和 TTM 因子。"""
-        ann_date_col = "f_ann_date"
-
-        response = self.paginator.fetch(
+        return fetch_financial(
+            self,
             pro.cashflow,
-            params={
-                "ts_code": code,
-                "start_date": pd.Timestamp(
-                    year=start_date.year - 2,
-                    month=start_date.month,
-                    day=1,
-                ).strftime("%Y%m%d"),
-                "end_date": end_date.strftime("%Y%m%d"),
-            },
-            page_size=100,
-            context=f"{self}[{code}].cashflow",
-            stop_on_short=True,
+            "cashflow",
+            code,
+            start_date,
+            end_date,
+            "f_ann_date",
+            2,
+            CASHFLOW_RAW_FACTORS,
         )
-
-        if response.empty:
-            return self.EMPTY
-
-        data = prepare(response, ann_date_col)
-        data = process_flow(data, CASHFLOW_RAW_FACTORS)
-        data = data.rename(columns={ann_date_col: TIME_COLUMN})[
-            [TIME_COLUMN, *self.factors]
-        ]
-        return self.melt(code, data, start_date=start_date, end_date=end_date)
 
 
 class StockFinaIndicatorWorker(StockWorker):
@@ -387,29 +387,13 @@ class StockFinaIndicatorWorker(StockWorker):
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """获取一只股票的财务指标。"""
-        ann_date_col = "ann_date"
-
-        response = self.paginator.fetch(
+        return fetch_financial(
+            self,
             pro.fina_indicator,
-            params={
-                "ts_code": code,
-                "start_date": pd.Timestamp(
-                    year=start_date.year - 1,
-                    month=start_date.month,
-                    day=1,
-                ).strftime("%Y%m%d"),
-                "end_date": end_date.strftime("%Y%m%d"),
-            },
-            page_size=100,
-            context=f"{self}[{code}].fina_indicator",
-            stop_on_short=True,
+            "fina_indicator",
+            code,
+            start_date,
+            end_date,
+            "ann_date",
+            1,
         )
-
-        if response.empty:
-            return self.EMPTY
-
-        data = prepare(response, ann_date_col)
-        data = data.rename(columns={ann_date_col: TIME_COLUMN})[
-            [TIME_COLUMN, *self.factors]
-        ]
-        return self.melt(code, data, start_date=start_date, end_date=end_date)

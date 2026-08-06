@@ -7,8 +7,8 @@ from runtime.utils import (
     IS_ST_FACTOR,
     TIME_COLUMN,
     normalize_date,
-    pro,
 )
+from runtime.utils.ts_api import pro
 
 from .base import DateWorker
 

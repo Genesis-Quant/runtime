@@ -1,18 +1,14 @@
 """初始化项目唯一的 Tushare 模块和股票元数据。"""
 
 from functools import cache
-import threading
 from typing import Any
 
 import pandas as pd
 import tushare as ts
 
 from runtime.config import TUSHARE_TOKEN
-from .normalize import DateLike, normalize_date_range
-from .logging import logger
-from .retry import Retry
-from .throttle import RateLimiter
 
+from .logging import logger
 
 INDUSTRY_TO_SECTOR = {
     "煤炭开采": "能源",
@@ -225,101 +221,3 @@ def __getattr__(name: str) -> Any:
         "CODE_TO_INDUSTRY": code_to_industry,
     }
     return values[name]
-
-trading_calendar_cache = pd.DatetimeIndex([])
-trading_calendar_cache_start = pd.NaT
-trading_calendar_cache_end = pd.NaT
-trading_calendar_cache_date = pd.NaT
-trading_calendar_lock = threading.Lock()
-trading_calendar_retry = Retry(
-    max_retries=5,
-    retry_interval=2,
-    limiter=RateLimiter(0),
-)
-
-
-def get_trading_dates(
-        start_date: DateLike,
-        end_date: DateLike,
-) -> pd.DatetimeIndex:
-    """返回上交所开放日；同一天复用缓存，接口异常时自动重试。"""
-    global trading_calendar_cache
-    global trading_calendar_cache_start
-    global trading_calendar_cache_end
-    global trading_calendar_cache_date
-
-    start, end = normalize_date_range(start_date, end_date)
-    current_date = pd.Timestamp(pd.Timestamp.today().date())
-
-    with trading_calendar_lock:
-        cache_current = trading_calendar_cache_date == current_date
-        cache_covers_range = (
-            cache_current
-            and trading_calendar_cache_start <= start
-            and trading_calendar_cache_end >= end
-        )
-        if not cache_covers_range:
-            request_start = (
-                min(start, trading_calendar_cache_start)
-                if cache_current
-                else start
-            )
-            request_end = (
-                max(end, trading_calendar_cache_end)
-                if cache_current
-                else end
-            )
-
-            def request_calendar() -> pd.DatetimeIndex:
-                """请求并校验一段完整交易日历。"""
-                response = get_pro().trade_cal(
-                    exchange="SSE",
-                    start_date=request_start.strftime("%Y%m%d"),
-                    end_date=request_end.strftime("%Y%m%d"),
-                    fields="cal_date,is_open",
-                )
-                if response is None:
-                    raise RuntimeError("trade_cal 返回 None")
-                if not isinstance(response, pd.DataFrame):
-                    raise TypeError("trade_cal 返回值必须是 DataFrame")
-                if response.empty:
-                    raise ValueError("trade_cal 返回空数据")
-                required = {"cal_date", "is_open"}
-                if missing := required - set(response.columns):
-                    raise ValueError(
-                        f"trade_cal 返回结果缺少列：{sorted(missing)}"
-                    )
-                is_open = pd.to_numeric(
-                    response["is_open"],
-                    errors="coerce",
-                )
-                if is_open.isna().any():
-                    raise ValueError("trade_cal 返回了无效 is_open")
-                values = response.loc[is_open.eq(1), "cal_date"]
-                dates = pd.to_datetime(
-                    values,
-                    format="%Y%m%d",
-                    errors="coerce",
-                )
-                if dates.isna().any():
-                    raise ValueError("trade_cal 返回了无效 cal_date")
-                return pd.DatetimeIndex(
-                    dates.drop_duplicates().sort_values()
-                )
-
-            trading_calendar_cache = trading_calendar_retry(
-                request_calendar,
-                context=(
-                    "trade_cal"
-                    f"[{request_start:%Y-%m-%d}~{request_end:%Y-%m-%d}]"
-                ),
-            )
-            trading_calendar_cache_start = request_start
-            trading_calendar_cache_end = request_end
-            trading_calendar_cache_date = current_date
-
-        selected = trading_calendar_cache[
-            (trading_calendar_cache >= start)
-            & (trading_calendar_cache <= end)
-        ]
-        return selected.copy()

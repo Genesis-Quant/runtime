@@ -1,15 +1,12 @@
 """实现因子查询命令。"""
 
 import argparse
-from contextlib import ExitStack
 from typing import Any
 
-from .utils import (
-    add_io_arguments,
-    prepare_output_target,
+from runtime.utils.manage import (
+    add_app_arguments,
+    save_app_outputs,
     validate_input_fields,
-    validate_output_names,
-    write_parquet,
 )
 
 NAME = "query"
@@ -26,15 +23,7 @@ INPUT_FIELDS = frozenset(("dataset_query",))
 
 def configure_parser(parser: argparse.ArgumentParser) -> None:
     """注册查询命令参数。"""
-    add_io_arguments(parser)
-    parser.add_argument(
-        "--output",
-        nargs="+",
-        choices=OUTPUT_FILENAMES,
-        required=True,
-        metavar="RESULT",
-        help=f"需要输出的结果，可同时指定多个：{', '.join(OUTPUT_FILENAMES)}",
-    )
+    add_app_arguments(parser, OUTPUT_FILENAMES)
 
 
 def run(
@@ -52,27 +41,7 @@ def run(
         allowed=INPUT_FIELDS,
         required=INPUT_FIELDS,
     )
-    validate_output_names(parser, arguments.output)
-    output_target, storage = prepare_output_target(
-        parser,
-        arguments.output_dir,
-        cloud=arguments.cloud,
-    )
-    with ExitStack() as stack:
-        if storage is not None:
-            stack.enter_context(storage)
-        query_result = stack.enter_context(
-            execute_query(data["dataset_query"])
-        )
-        outputs = [
-            write_parquet(
-                getattr(query_result, output_name),
-                OUTPUT_FILENAMES[output_name],
-                output_target=output_target,
-                storage=storage,
-            )
-            for output_name in arguments.output
-        ]
+    outputs = save_app_outputs(parser, arguments, OUTPUT_FILENAMES, lambda: execute_query(data["dataset_query"]))
     logger.success(f"查询结果已保存为 Parquet：{outputs}")
     return 0
 

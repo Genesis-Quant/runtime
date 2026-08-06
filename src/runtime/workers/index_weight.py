@@ -9,8 +9,8 @@ from runtime.utils import (
     DateLike,
     index_weight_factor,
     normalize_date,
-    pro,
 )
+from runtime.utils.ts_api import pro
 
 from .base import DateWorker
 

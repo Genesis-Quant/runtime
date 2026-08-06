@@ -1,11 +1,10 @@
 """nullary.literal 算符模型。"""
 
-from datetime import datetime
 import re
+from datetime import datetime
 from typing import ClassVar, Literal
 
 from pydantic import Field, model_validator
-
 
 from runtime.apps.query.dsl.base import DirectOperator
 from runtime.apps.query.dsl.fields import NullaryFields
@@ -29,33 +28,33 @@ class DirectNullaryLiteralParams(StrictModel):
         """校验 NULL 和日期字面量具有可确定类型。"""
         if self.value is None and self.dtype is None:
             raise ValueError("NULL 字面量必须指定 params.dtype")
-        if (
-            self.value is not None
-            and self.dtype in {"date", "timestamp"}
-            and not isinstance(self.value, str)
-        ):
+        if self.value is None:
+            return self
+        if self.dtype not in {"date", "timestamp"}:
+            return self
+        if not isinstance(self.value, str):
             raise ValueError(f"dtype={self.dtype!r} 时 params.value 必须是字符串")
-        if self.dtype == "date" and self.value is not None:
+        if self.dtype == "date":
             try:
                 datetime.strptime(self.value, "%Y-%m-%d")
             except ValueError as error:
                 raise ValueError("dtype='date' 时 params.value 必须为 YYYY-MM-DD") from error
-        if self.dtype == "timestamp" and self.value is not None:
-            if re.fullmatch(
-                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?"
-                r"(?:Z|[+-]\d{2}:\d{2})?",
-                self.value,
-            ) is None:
-                raise ValueError(
-                    "dtype='timestamp' 时 params.value 必须为 "
-                    "YYYY-MM-DDTHH:MM:SS 或带三位毫秒"
-                )
-            try:
-                parsed = datetime.fromisoformat(self.value)
-            except ValueError as error:
-                raise ValueError("dtype='timestamp' 时 params.value 必须为 ISO 8601 时间") from error
-            if parsed.tzinfo is not None:
-                raise ValueError("DolphinDB TIMESTAMP 字面量不能包含时区")
+            return self
+        if re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?"
+            r"(?:Z|[+-]\d{2}:\d{2})?",
+            self.value,
+        ) is None:
+            raise ValueError(
+                "dtype='timestamp' 时 params.value 必须为 "
+                "YYYY-MM-DDTHH:MM:SS 或带三位毫秒"
+            )
+        try:
+            parsed = datetime.fromisoformat(self.value)
+        except ValueError as error:
+            raise ValueError("dtype='timestamp' 时 params.value 必须为 ISO 8601 时间") from error
+        if parsed.tzinfo is not None:
+            raise ValueError("DolphinDB TIMESTAMP 字面量不能包含时区")
         return self
 
 

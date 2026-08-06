@@ -179,4 +179,4 @@ class BacktestParameters(BaseModel):
             parameter_counts=CALLBACK_PARAMETER_COUNTS,
         )
 
-__all__ = ["CallbackName", "Adj", "BacktestParameters"]
+__all__ = ["CallbackName", "Adj", "BacktestParameters", "CALLBACK_PARAMETER_COUNTS"]

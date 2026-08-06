@@ -10,18 +10,19 @@ import numpy as np
 import pandas as pd
 
 from runtime.config import DATA_START_DATE
-from runtime.utils import (
-    CODE_COLUMN,
-    DateLike,
-    FACTOR_COLUMN,
-    TIME_COLUMN,
-    VALUE_COLUMN,
-    get_codes,
-    logger,
-)
 from runtime.database import (
     CORE_TABLE,
     create_session,
+)
+from runtime.utils import (
+    CODE_COLUMN,
+    FACTOR_COLUMN,
+    TIME_COLUMN,
+    VALUE_COLUMN,
+    DateLike,
+    get_codes,
+    logger,
+    normalize_date,
 )
 
 from .worker import BaseWorker
@@ -114,9 +115,7 @@ class StockWorker(BaseWorker, ABC):
             session.close()
         dates = (
             {
-                str(getattr(row, CODE_COLUMN)): pd.Timestamp(
-                    getattr(row, TIME_COLUMN)
-                ).normalize()
+                str(getattr(row, CODE_COLUMN)): normalize_date(getattr(row, TIME_COLUMN), TIME_COLUMN)
                 for row in result.itertuples(index=False)
                 if not pd.isna(getattr(row, TIME_COLUMN))
             }

@@ -1,23 +1,23 @@
 """使用因子 DSL 构造日频消息并运行 DolphinDB Backtest 策略。"""
 
-from uuid import uuid4
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 
+from runtime.database import create_session
+from runtime.database.session import has_session_variable, redirect_session_output
 from runtime.utils import (
     logger,
     normalize_date_range,
     normalize_str,
     validate_dolphindb_references,
 )
-from runtime.database import create_session
-from runtime.database.session import has_session_variable, redirect_session_output
 
-from .result import BacktestResult
-from .schema import CALLBACK_PARAMETER_COUNTS, CallbackName, Adj, BacktestParameters
 from ..query import api as query_api
 from ..query.schema import QUERY_RESERVED_REFERENCES
+from .result import BacktestResult
+from .schema import CALLBACK_PARAMETER_COUNTS, Adj, BacktestParameters, CallbackName
 
 CODES_SOURCE_REF = "coreBacktestCodesSourceData"
 CODES_COMPUTED_REF = "coreBacktestCodesComputedData"
@@ -61,7 +61,7 @@ def run_backtest(
         utils: str = "",
         name: str | None = None,
         config: dict[str, Any] | None = None,
-        adj: Adj = None,
+        adj: Adj | None = None,
         risk_free_rate: float = 0.04,
         annual_trading_days: int = 250,
         source_ref: str = SOURCE_REF,

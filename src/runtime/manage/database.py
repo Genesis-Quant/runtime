@@ -5,29 +5,25 @@ from collections.abc import Sequence
 from pathlib import Path
 
 
-DOS_NAMES = ("common.dos", "query.dos", "factor.dos", "backtest.dos")
-
-
 def regenerate_dos(output_dir: Path | str = "output") -> tuple[Path, ...]:
     """按依赖顺序重新生成全部 DolphinDB DOS 模块。"""
-    from runtime.database.compile.backtest.scripts import (
-        write_script as write_backtest_script,
-    )
-    from runtime.database.compile.factor.scripts import (
-        write_script as write_factor_script,
-    )
+    from runtime.database.compile import write_script
+    from runtime.database.compile.backtest.scripts import build_script as build_backtest
+    from runtime.database.compile.common.scripts import build_script as build_common
+    from runtime.database.compile.factor.scripts import build_script as build_factor
+    from runtime.database.compile.query.scripts import build_script as build_query
 
     target = Path(output_dir).expanduser().resolve()
-    write_backtest_script(output_dir=target)
-    write_factor_script(output_dir=target)
-    paths = tuple(target / name for name in DOS_NAMES)
-    missing = [path for path in paths if not path.is_file()]
-    if missing:
-        raise RuntimeError(
-            "DOS 模块生成后缺少文件："
-            + "、".join(map(str, missing))
-        )
-    return paths
+    modules = (
+        ("common", build_common),
+        ("query", build_query),
+        ("factor", build_factor),
+        ("backtest", build_backtest),
+    )
+    return tuple(
+        write_script(module, build(), output_dir=target)
+        for module, build in modules
+    )
 
 
 def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:

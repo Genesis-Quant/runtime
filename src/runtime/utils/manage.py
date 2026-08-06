@@ -1,11 +1,15 @@
-"""提供应用命令共用的输入、输出和对象存储能力。"""
+"""提供管理命令共用的输入、输出和对象存储能力。"""
 
 import argparse
-import json
+from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from runtime.config import ArenaSettings
+from runtime.utils.result import SessionResult
 from runtime.utils.storage import (
     ObjectStorage,
     ObjectStorageConfigurationError,
@@ -28,8 +32,8 @@ def boolean_argument(value: str) -> bool:
     return normalized == "true"
 
 
-def add_io_arguments(parser: argparse.ArgumentParser) -> None:
-    """添加所有应用统一使用的输入文件和输出参数。"""
+def add_app_arguments(parser: argparse.ArgumentParser, output_filenames: Mapping[str, str]) -> None:
+    """添加应用统一使用的输入和输出参数。"""
     parser.add_argument(
         "--input-file",
         type=input_file_path,
@@ -52,27 +56,14 @@ def add_io_arguments(parser: argparse.ArgumentParser) -> None:
             "ARENA_SHARED_CLOUD，工作流运行时由调用方显式传入"
         ),
     )
-
-
-def load_input_file(
-    parser: argparse.ArgumentParser,
-    path: Path,
-) -> dict[str, Any]:
-    """读取 UTF-8 JSON 对象，格式错误时按命令行参数错误退出。"""
-    try:
-        content = path.read_text(encoding="utf-8-sig")
-    except OSError as error:
-        parser.error(f"无法读取输入文件 {path}：{error}")
-    try:
-        result = json.loads(content)
-    except json.JSONDecodeError as error:
-        parser.error(
-            f"输入文件 {path} 不是有效 JSON："
-            f"第 {error.lineno} 行第 {error.colno} 列，{error.msg}"
-        )
-    if not isinstance(result, dict):
-        parser.error(f"输入文件 {path} 的顶层必须是 JSON 对象")
-    return result
+    parser.add_argument(
+        "--output",
+        nargs="+",
+        choices=output_filenames,
+        required=True,
+        metavar="RESULT",
+        help=f"需要输出的结果，可同时指定多个：{', '.join(output_filenames)}",
+    )
 
 
 def validate_input_fields(
@@ -89,15 +80,15 @@ def validate_input_fields(
         parser.error(f"输入文件缺少必填字段：{missing}")
 
 
-def validate_model_input_fields(
+def model_input(
     parser: argparse.ArgumentParser,
     data: dict[str, Any],
-    model: type[Any],
+    model: type[BaseModel],
     *,
     extra_fields: frozenset[str] = frozenset(),
-) -> tuple[str, ...]:
-    """使用 Pydantic 模型字段生成命令输入的允许和必填字段。"""
-    model_fields = tuple(model.model_fields)
+) -> dict[str, Any]:
+    """校验并返回 Pydantic 模型声明的命令输入。"""
+    model_fields = tuple(model.model_fields.keys())
     required = frozenset(
         name for name, field in model.model_fields.items() if field.is_required()
     )
@@ -107,7 +98,7 @@ def validate_model_input_fields(
         allowed=frozenset(model_fields) | extra_fields,
         required=required | extra_fields,
     )
-    return model_fields
+    return {name: data[name] for name in model_fields if name in data}
 
 
 def validate_output_names(
@@ -190,4 +181,28 @@ def write_parquet(
     output = output_target / filename
     data.to_parquet(output, index=False)
     return str(output.resolve())
+
+
+def save_app_outputs(
+    parser: argparse.ArgumentParser,
+    arguments: argparse.Namespace,
+    output_filenames: Mapping[str, str],
+    result_factory: Callable[[], SessionResult],
+) -> list[str]:
+    """运行应用并将选定结果写入本地目录或对象存储。"""
+    validate_output_names(parser, arguments.output)
+    output_target, storage = prepare_output_target(parser, arguments.output_dir, cloud=arguments.cloud)
+    with ExitStack() as stack:
+        if storage is not None:
+            stack.enter_context(storage)
+        result = stack.enter_context(result_factory())
+        return [
+            write_parquet(
+                getattr(result, output_name),
+                output_filenames[output_name],
+                output_target=output_target,
+                storage=storage,
+            )
+            for output_name in arguments.output
+        ]
 

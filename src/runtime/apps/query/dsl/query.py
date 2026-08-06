@@ -1,24 +1,36 @@
 """定义统一因子查询请求及其依赖解析。"""
 
+import re
+from datetime import date, timedelta
 from typing import Any
-from datetime import timedelta
 
 from pydantic import (
-    Field,
     BaseModel,
     ConfigDict,
+    Field,
     SerializeAsAny,
     TypeAdapter,
     field_validator,
     model_validator,
 )
 
-from . import direct, cross_section, time_series
+from runtime.utils import normalize_date_range, normalize_str_list
+
 from .derivative import Derivative, derivative_output_kind
 from .fields import BoolBinaryFields, BoolMultiaryFields, BoolUnaryFields, TernaryFields
-from runtime.utils import normalize_date_range, normalize_str_list, validate_iso_date
 
 RESERVED_NAMES = frozenset(("time", "code"))
+
+
+def validate_iso_date(value: Any, location: str) -> str:
+    """校验严格的 YYYY-MM-DD 日期字符串。"""
+    if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
+        raise ValueError(f"{location} 必须是 YYYY-MM-DD 格式的日期字符串")
+    try:
+        date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f"{location} 不是有效日期：{value!r}") from error
+    return value
 
 
 def derivative_references(
@@ -41,7 +53,7 @@ def derivative_references(
 
     def visit_derivative(value: Derivative) -> None:
         """收集一个节点的 fields，并单独记录字符串 on。"""
-        for field_name in type(value.fields).model_fields:
+        for field_name in type(value.fields).model_fields.keys():
             visit_operand(getattr(value.fields, field_name))
         on = getattr(value, "on", None)
         if isinstance(on, str):

@@ -11,7 +11,7 @@ from pydantic import (
 
 from runtime.utils import normalize_str, normalize_str_list
 
-from ..query import FactorQuery
+from ..query.schema import FactorQuery
 
 
 class FactorAnalysisParameters(BaseModel):
@@ -67,18 +67,17 @@ class FactorAnalysisParameters(BaseModel):
         factor_columns = normalize_str_list(data.get("factor_columns"), "factor_columns", reject_duplicates=True)
         return_columns = normalize_str_list(data.get("return_columns"), "return_columns", reject_duplicates=True)
         market_value_column = normalize_str(data.get("market_value_column", "circ_mv"), "market_value_column")
-        result = {**data, "factor_columns": factor_columns, "return_columns": return_columns, "market_value_column": market_value_column}
+        result: dict[str, Any] = {**data, "factor_columns": factor_columns, "return_columns": return_columns, "market_value_column": market_value_column}
         dataset_query = data.get("dataset_query")
         if isinstance(dataset_query, FactorQuery):
-            factors = dataset_query.factors
-            derivatives = set(dataset_query.derivatives)
+            query_data = dataset_query.model_dump(mode="python")
         elif isinstance(dataset_query, dict):
-            factors = dataset_query.get("factors") or []
-            derivatives_value = dataset_query.get("derivatives") or {}
-            if not isinstance(factors, list) or not isinstance(derivatives_value, dict):
-                return result
-            derivatives = set(derivatives_value)
+            query_data = dataset_query
         else:
+            return result
+        factors = query_data.get("factors") or []
+        derivatives = query_data.get("derivatives") or {}
+        if not isinstance(factors, list) or not isinstance(derivatives, dict):
             return result
         required = [*factor_columns, *return_columns, market_value_column]
         outputs = {name.strip() for name in factors if isinstance(name, str)} | {
@@ -89,7 +88,7 @@ class FactorAnalysisParameters(BaseModel):
             if name not in outputs:
                 merged.append(name)
                 outputs.add(name)
-        result["dataset_query"] = dataset_query.model_copy(update={"factors": merged}) if isinstance(dataset_query, FactorQuery) else {**dataset_query, "factors": merged}
+        result["dataset_query"] = FactorQuery.model_validate({**query_data, "factors": merged})
         return result
 
     @model_validator(mode="after")

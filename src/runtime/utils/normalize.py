@@ -1,7 +1,6 @@
 """提供数据更新和查询共用的日期标准化。"""
 
 from datetime import date, datetime
-import re
 from typing import Any
 
 import pandas as pd
@@ -15,7 +14,7 @@ def normalize_date(value: DateLike, name: str = "date") -> pd.Timestamp:
         result = pd.Timestamp(value)
     except Exception as error:
         raise ValueError(f"{name} 不是有效日期：{value!r}") from error
-    if pd.isna(result):
+    if not isinstance(result, pd.Timestamp):
         raise ValueError(f"{name} 不是有效日期：{value!r}")
     if result.tzinfo is not None:
         result = result.tz_localize(None)
@@ -32,17 +31,6 @@ def normalize_date_range(
     if start > end:
         raise ValueError("start_date 不能晚于 end_date")
     return start, end
-
-
-def validate_iso_date(value: Any, location: str) -> str:
-    """校验严格的 YYYY-MM-DD 日期字符串。"""
-    if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
-        raise ValueError(f"{location} 必须是 YYYY-MM-DD 格式的日期字符串")
-    try:
-        date.fromisoformat(value)
-    except ValueError as error:
-        raise ValueError(f"{location} 不是有效日期：{value!r}") from error
-    return value
 
 
 def normalize_str(value: Any, location: str) -> str:

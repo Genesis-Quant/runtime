@@ -2,7 +2,8 @@
 
 import pandas as pd
 
-from runtime.utils import CODE_COLUMN, TIME_COLUMN, normalize_date, pro, ts
+from runtime.utils import CODE_COLUMN, TIME_COLUMN, normalize_date
+from runtime.utils.ts_api import pro, ts
 
 from .base import DateWorker, StockWorker
 
@@ -14,6 +15,28 @@ STOCK_DAILY_BASIC_FACTORS = (
 )
 STOCK_ADJ_FACTOR_FACTORS = ("adj_factor",)
 STOCK_HFQ_FACTORS = ("open_hfq", "high_hfq", "low_hfq", "close_hfq", "change_hfq", "pct_chg_hfq")
+
+
+def fetch_daily(
+        worker: DateWorker,
+        endpoint: str,
+        current_date: pd.Timestamp,
+) -> pd.DataFrame:
+    """调用按交易日查询的行情接口，并转换为统一长表。"""
+    current = normalize_date(current_date, "current_date")
+    response = worker.retry(
+        lambda: getattr(pro, endpoint)(
+            trade_date=current.strftime("%Y%m%d"),
+            fields=",".join(("ts_code", "trade_date", *worker.factors)),
+        ),
+        context=f"{worker}[{current:%Y-%m-%d}]",
+    )
+    if response is None or response.empty:
+        return worker.EMPTY
+    return worker.melt(current, response.rename(columns={
+        "trade_date": TIME_COLUMN,
+        "ts_code": CODE_COLUMN,
+    }))
 
 
 class StockDailyWorker(DateWorker):
@@ -29,22 +52,7 @@ class StockDailyWorker(DateWorker):
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场未复权日行情。"""
-        current = normalize_date(current_date, "current_date")
-        response = self.retry(
-            lambda: pro.daily(
-                trade_date=current.strftime("%Y%m%d"),
-                fields=",".join(("ts_code", "trade_date", *self.factors)),
-            ),
-            context=f"{self}[{current:%Y-%m-%d}]",
-        )
-
-        if response is None or response.empty:
-            return self.EMPTY
-
-        data = response.rename(
-            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
-        )
-        return self.melt(current, data)
+        return fetch_daily(self, "daily", current_date)
 
 
 class StockLimitWorker(DateWorker):
@@ -60,22 +68,7 @@ class StockLimitWorker(DateWorker):
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场涨跌停价格。"""
-        current = normalize_date(current_date, "current_date")
-        response = self.retry(
-            lambda: pro.stk_limit(
-                trade_date=current.strftime("%Y%m%d"),
-                fields=",".join(("ts_code", "trade_date", *self.factors)),
-            ),
-            context=f"{self}[{current:%Y-%m-%d}]",
-        )
-
-        if response is None or response.empty:
-            return self.EMPTY
-
-        data = response.rename(
-            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
-        )
-        return self.melt(current, data)
+        return fetch_daily(self, "stk_limit", current_date)
 
 
 class StockDailyBasicWorker(DateWorker):
@@ -91,22 +84,7 @@ class StockDailyBasicWorker(DateWorker):
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场估值和市值指标。"""
-        current = normalize_date(current_date, "current_date")
-        response = self.retry(
-            lambda: pro.daily_basic(
-                trade_date=current.strftime("%Y%m%d"),
-                fields=",".join(("ts_code", "trade_date", *self.factors)),
-            ),
-            context=f"{self}[{current:%Y-%m-%d}]",
-        )
-
-        if response is None or response.empty:
-            return self.EMPTY
-
-        data = response.rename(
-            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
-        )
-        return self.melt(current, data)
+        return fetch_daily(self, "daily_basic", current_date)
 
 
 class StockAdjFactorWorker(DateWorker):
@@ -122,22 +100,7 @@ class StockAdjFactorWorker(DateWorker):
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场复权因子。"""
-        current = normalize_date(current_date, "current_date")
-        response = self.retry(
-            lambda: pro.adj_factor(
-                trade_date=current.strftime("%Y%m%d"),
-                fields=",".join(("ts_code", "trade_date", *self.factors)),
-            ),
-            context=f"{self}[{current:%Y-%m-%d}]",
-        )
-
-        if response is None or response.empty:
-            return self.EMPTY
-
-        data = response.rename(
-            columns={"trade_date": TIME_COLUMN, "ts_code": CODE_COLUMN}
-        )
-        return self.melt(current, data)
+        return fetch_daily(self, "adj_factor", current_date)
 
 
 class StockHfqWorker(StockWorker):

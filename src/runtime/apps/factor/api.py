@@ -9,7 +9,8 @@ from runtime.database.session import redirect_session_output
 from runtime.utils import get_stock_metadata, logger
 
 from ..query import api as query_api
-from . import result, schema
+from .result import FactorAnalysisResult
+from .schema import FactorAnalysisParameters
 
 SOURCE_REF = "coreFactorSourceData"
 COMPUTED_REF = "coreFactorCOMPUTEDData"
@@ -33,9 +34,9 @@ def analyze_factors(
         n_groups: int = 5,
         preprocess: bool = True,
         market_value_column: str = "circ_mv",
-) -> result.FactorAnalysisResult:
+) -> FactorAnalysisResult:
     """生成预处理因子表，并把后续分析交给惰性结果对象。"""
-    parameters = schema.FactorAnalysisParameters.model_validate({
+    parameters = FactorAnalysisParameters.model_validate({
         "dataset_query": dataset_query,
         "codes_query": codes_query,
         "factor_columns": factor_columns,
@@ -105,7 +106,7 @@ def analyze_factors(
 
         logger.success("因子预处理已在 DolphinDB 会话中生成")
 
-        return result.FactorAnalysisResult(
+        return FactorAnalysisResult(
             session=current_session,
             parameters=parameters,
             processed_ref=PROCESSED_REF,

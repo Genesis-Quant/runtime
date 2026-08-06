@@ -1,7 +1,7 @@
 """管理 CoreData 统一因子长表的初始化、分区和批量写入。"""
 
-from collections.abc import Iterable
 import json
+from collections.abc import Iterable
 from typing import Any
 
 import dolphindb
@@ -16,7 +16,6 @@ from runtime.utils import (
     TIME_COLUMN,
     VALUE_COLUMN,
     logger,
-    normalize_factors,
 )
 
 from ..session import create_session
@@ -25,6 +24,20 @@ from ..session import create_session
 def ddb_string(value: str) -> str:
     """生成安全的 DolphinDB 字符串字面量。"""
     return json.dumps(value, ensure_ascii=False)
+
+
+def normalize_factors(values: Iterable[str]) -> list[str]:
+    """清理、去重并校验统一长表的 factor 列表。"""
+    factors: list[str] = []
+    for value in values:
+        if value is None:
+            continue
+        factor = str(value).strip()
+        if factor and factor not in factors:
+            factors.append(factor)
+    if not factors:
+        raise ValueError("factor 至少包含一个非空值")
+    return factors
 
 
 CORE_TABLE = (
@@ -178,7 +191,7 @@ class CoreTableWriter:
 
     def open(self) -> Any:
         """补建 factor 分区，返回整个更新过程复用的写入器。"""
-        DolphinSettings.validate()
+        password = DolphinSettings.validate()
         if self.closed:
             raise RuntimeError("CoreTableWriter 已关闭")
         if self.appender is not None:
@@ -191,7 +204,7 @@ class CoreTableWriter:
             DolphinSettings.PORT,
             threadNum=self.thread_count,
             userid=DolphinSettings.USERNAME,
-            password=DolphinSettings.PASSWORD,
+            password=password,
             reConnect=True,
             show_output=False,
         )

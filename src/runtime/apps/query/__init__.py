@@ -1,16 +1,18 @@
 """因子查询模型与按需加载的执行接口。"""
 
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .schema import Derivative, FactorQuery
 
+if TYPE_CHECKING:
+    from .api import execute_query
+
 LAZY_EXPORTS = {
-    "QueryResult": ("runtime.apps.query.result", "QueryResult"),
-    "build_query_table": ("runtime.apps.query.api", "build_query_table"),
-    "execute_codes_query": ("runtime.apps.query.api", "execute_codes_query"),
     "execute_query": ("runtime.apps.query.api", "execute_query"),
 }
+
+__all__ = ["Derivative", "FactorQuery", "execute_query"]
 
 
 def __getattr__(name: str) -> Any:
