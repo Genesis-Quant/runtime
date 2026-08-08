@@ -59,6 +59,11 @@ class BacktestParameters(BaseModel):
         description="初始资金、费用和撮合等 Backtest 配置。"
     )
 
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="传给策略的简单参数字典，可在回调中通过 getParams() 读取。",
+    )
+
     codes_query: FactorQuery | None = Field(
         default=None,
         description="可选第一阶段选股 DSL；结果中的 code 去重后作为 dataset_query 的候选代码。"

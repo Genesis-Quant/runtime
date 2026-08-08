@@ -40,6 +40,8 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestAnnualTradingDays",
     "coreBacktestRiskFreeRate",
     "coreBacktestAdj",
+    "coreBacktestParams",
+    "getParams",
     "coreBacktestEngine",
     "coreLoadedPlugins",
     "coreBacktestComputedData",
@@ -59,6 +61,7 @@ def run_backtest(
         session: Any | None = None,
         codes_query: dict[str, Any] | None = None,
         utils: str = "",
+        params: dict[str, Any] | None = None,
         name: str | None = None,
         config: dict[str, Any] | None = None,
         adj: Adj | None = None,
@@ -72,6 +75,7 @@ def run_backtest(
         "dataset_query": dataset_query,
         "callbacks": callbacks,
         "utils": utils,
+        "params": params if params is not None else {},
         "codes_query": codes_query,
         "adj": adj,
         "config": config,
@@ -140,6 +144,9 @@ def run_backtest(
                 "coreBacktestAdj": parameters.adj or "",
             }
         )
+        current_session.run("coreBacktestParams = dict(STRING, ANY)")
+        if parameters.params:
+            current_session.upload({"coreBacktestParams": parameters.params})
 
         # DolphinDB resolves plugin functions while compiling a module, before
         # executing that module's top-level statements. The plugins therefore

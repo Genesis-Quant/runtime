@@ -2,10 +2,12 @@
 
 from .build_backtest_message import BUILD_BACKTEST_MESSAGE
 from .data import GET_HISTORY_DATA, GET_LAST_DATA
+from .params import GET_PARAMS
 from .return_summary import STANDARDIZE_RETURN_SUMMARY
 from .run_backtest import RUN_BACKTEST
 
 BACKTEST_FUNCTIONS = (
+    GET_PARAMS,
     GET_HISTORY_DATA,
     GET_LAST_DATA,
     BUILD_BACKTEST_MESSAGE,
