@@ -28,6 +28,40 @@ from runtime.workers.result import (
 
 
 class MessagingTests(unittest.TestCase):
+    def test_incremental_message_normalizes_worker_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            write_worker_result(
+                directory,
+                worker_result("daily", "SUCCESS", rows_written=12),
+            )
+
+            message = build_incremental_message(
+                directory,
+                job_id="job-1",
+                selected_workers=("stock-daily",),
+            )
+
+            self.assertEqual(message.metadata["status"], "SUCCESS")
+            self.assertEqual(message.metadata["selected_workers"], ["daily"])
+            self.assertEqual(message.metadata["succeeded_workers"], ["daily"])
+            self.assertEqual(message.metadata["rows_written"], 12)
+            self.assertEqual(
+                message.metadata["worker_results"],
+                [
+                    {
+                        "worker": "daily",
+                        "description": "全市场未复权日行情",
+                        "status": "SUCCESS",
+                        "rows_written": 12,
+                        "duration_seconds": 0,
+                        "attempts": 1,
+                        "workers_total": 0,
+                        "workers_completed": 0,
+                        "error": None,
+                    }
+                ],
+            )
+
     def test_incremental_message_summarizes_worker_results(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             write_worker_result(
@@ -58,6 +92,42 @@ class MessagingTests(unittest.TestCase):
             self.assertEqual(
                 message.metadata["worker_errors"],
                 {"limit": "RuntimeError: boom"},
+            )
+            self.assertEqual(
+                message.metadata["worker_results"],
+                [
+                    {
+                        "worker": "daily",
+                        "description": "全市场未复权日行情",
+                        "status": "SUCCESS",
+                        "rows_written": 12,
+                        "duration_seconds": 0,
+                        "attempts": 1,
+                        "workers_total": 0,
+                        "workers_completed": 0,
+                        "error": None,
+                    },
+                    {
+                        "worker": "limit",
+                        "description": "全市场每日涨跌停价格",
+                        "status": "FAILURE",
+                        "rows_written": 0,
+                        "duration_seconds": 0,
+                        "attempts": 1,
+                        "workers_total": 0,
+                        "workers_completed": 0,
+                        "error": "RuntimeError: boom",
+                    },
+                ],
+            )
+            detail_block = message.blocks[1]
+            self.assertIsInstance(detail_block, TextMessageBlock)
+            assert isinstance(detail_block, TextMessageBlock)
+            self.assertEqual(
+                detail_block.text,
+                "Worker 明细：\n"
+                "- daily（全市场未复权日行情）：成功，写入 12 行，耗时 0.00 秒\n"
+                "- limit（全市场每日涨跌停价格）：失败，写入 0 行，耗时 0.00 秒，RuntimeError: boom",
             )
             self.assertEqual(path, Path(directory).resolve() / "message.json")
             self.assertEqual(read_message(path), message)

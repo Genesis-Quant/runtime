@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Literal
 
 from runtime.messaging.models import StructuredMessage, TextMessageBlock
-from runtime.workers.registry import WORKER_ORDER
+from runtime.workers.registry import (
+    WORKER_DESCRIPTIONS,
+    WORKER_ORDER,
+    normalize_worker_names,
+)
 from runtime.workers.result import WorkerResult
 
 IncrementalMessageStatus = Literal[
@@ -24,6 +28,7 @@ def build_incremental_message(
     selected_workers: tuple[str, ...],
 ) -> StructuredMessage:
     """汇总同一次增量工作流的 Worker 输出。"""
+    selected_workers = normalize_worker_names(selected_workers)
     normalized_output_dir = output_dir.strip()
     if not normalized_output_dir:
         return unknown_incremental_message(job_id, selected_workers)
@@ -95,16 +100,72 @@ def build_incremental_message(
         f"取消 {len(cancelled_workers)}，缺失 {len(missing_workers)}\n"
         f"写入行数：{rows_written:,}"
     )
-    details = detail_lines(
-        failed_workers=failed_workers,
-        cancelled_workers=cancelled_workers,
-        missing_workers=missing_workers,
-        invalid_workers=invalid_workers,
-        worker_errors=worker_errors,
-    )
-    blocks = [TextMessageBlock(text=summary)]
-    if details:
-        blocks.append(TextMessageBlock(text="\n".join(details)))
+    status_labels = {
+        "SUCCESS": "成功",
+        "FAILURE": "失败",
+        "CANCELLED": "已取消",
+        "SKIPPED": "已跳过",
+        "MISSING": "缺失结果",
+        "INVALID": "结果无效",
+    }
+    worker_details: list[dict[str, object]] = []
+    worker_lines: list[str] = []
+    for name in selected_workers:
+        result = selected_results.get(name)
+        description = WORKER_DESCRIPTIONS[name]
+        if result is None:
+            worker_status = "INVALID" if name in invalid else "MISSING"
+            detail: dict[str, object] = {
+                "worker": name,
+                "description": description,
+                "status": worker_status,
+            }
+            worker_lines.append(
+                f"- {name}（{description}）：{status_labels[worker_status]}"
+            )
+        else:
+            rows = int(result.metrics.get("rows_written", 0))
+            workers_total = int(result.metrics.get("workers_total", 0))
+            workers_completed = int(
+                result.metrics.get("workers_completed", 0)
+            )
+            error = (
+                f"{result.error.type}: {result.error.message}"
+                if result.error is not None
+                else None
+            )
+            detail = {
+                "worker": name,
+                "description": description,
+                "status": result.status,
+                "rows_written": rows,
+                "duration_seconds": result.duration_seconds,
+                "attempts": len(result.attempts),
+                "workers_total": workers_total,
+                "workers_completed": workers_completed,
+                "error": error,
+            }
+            parts = [
+                status_labels[result.status],
+                f"写入 {rows:,} 行",
+                f"耗时 {result.duration_seconds:.2f} 秒",
+            ]
+            if workers_total:
+                parts.append(f"任务 {workers_completed:,}/{workers_total:,}")
+            if len(result.attempts) > 1:
+                parts.append(f"尝试 {len(result.attempts):,} 次")
+            if error:
+                parts.append(error)
+            worker_lines.append(
+                f"- {name}（{description}）：{'，'.join(parts)}"
+            )
+        worker_details.append(detail)
+    blocks = [
+        TextMessageBlock(text=summary),
+        TextMessageBlock(
+            text="Worker 明细：\n" + "\n".join(worker_lines)
+        ),
+    ]
 
     return StructuredMessage(
         title={
@@ -126,6 +187,7 @@ def build_incremental_message(
             "missing_workers": missing_workers,
             "invalid_workers": invalid_workers,
             "worker_errors": worker_errors,
+            "worker_results": worker_details,
             "rows_written": rows_written,
         },
     )
@@ -179,33 +241,6 @@ def load_worker_results(
             continue
         results[name] = result
     return results, invalid
-
-
-def detail_lines(
-    *,
-    failed_workers: list[str],
-    cancelled_workers: list[str],
-    missing_workers: list[str],
-    invalid_workers: list[str],
-    worker_errors: dict[str, str],
-) -> list[str]:
-    """构造只包含异常项的简短文本。"""
-    groups: tuple[tuple[str, list[str]], ...] = (
-        ("失败", failed_workers),
-        ("取消", cancelled_workers),
-        ("缺失结果", missing_workers),
-        ("无效结果", invalid_workers),
-    )
-    lines = [
-        f"{label}：{', '.join(values)}"
-        for label, values in groups
-        if values
-    ]
-    lines.extend(
-        f"{name}：{error}"
-        for name, error in worker_errors.items()
-    )
-    return lines
 
 
 __all__ = [
