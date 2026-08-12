@@ -20,10 +20,11 @@ def regenerate_dos(output_dir: Path | str = "output") -> tuple[Path, ...]:
         ("factor", build_factor),
         ("backtest", build_backtest),
     )
-    return tuple(
+    paths = tuple(
         write_script(module, build(), output_dir=target)
         for module, build in modules
     )
+    return paths
 
 
 def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:

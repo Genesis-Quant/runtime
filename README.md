@@ -169,9 +169,26 @@ with analyze_factors(
 `return_summary`、`daily_trading_statistics` 和 `engine_stat`。`utils` 是在生命周期回调
 注册前原样执行的 DolphinDB 脚本，不限制脚本内容。`callbacks` 必须完整提供上述 8 个
 固定生命周期回调且定义不能为空。`codes_query` 为空时，`dataset_query.codes` 必须提供
-至少一个股票代码。回测输入还支持
+至少一个股票代码。日线会转换为每天 09:30 和 15:00 的单档合成快照，盘口数量使用
+十亿股/份的安全盘口容量表示近似无限流动性，避免插件内部整数运算溢出；策略在
+`onSnapshot` 中通过 `message.timestamp`、`message.lastPrice` 和单档盘口下单；框架固定
+使用 `dataType=1`、`matchingMode=1`、`matchingRatio=0` 和
+`orderBookMatchingRatio=1`。`config.syntheticSpread` 可设置单档合成盘口的完整相对
+价差，买一和卖一各偏离 `lastPrice` 一半。回测输入还支持
 `codes_query`、`adj`、`name`、`annual_trading_days`、`risk_free_rate`、
 `source_ref` 和 `message_ref`。命令执行结束后自动关闭 DolphinDB session。
+
+`dataset_query` 和 `codes_query` 的输入仍使用 `.SH/.SZ`；数据查询完成后，回测专用的
+source、computed、filtered 和 data 表会统一转换为 `.XSHG/.XSHE`。因此生命周期回调
+中的 `history.code`、`message.symbol`、持仓和订单使用完全相同的证券代码，不需要策略
+自行转换。
+
+`onSnapshot` 可调用 `backtest::order_target(context, message, stockCode,
+targetAmount, orderLabel)` 将持仓调整到精确目标股数，或调用
+`backtest::order_target_value(context, message, stockCode, targetValue,
+orderLabel)` 调整到目标市值。后者使用当前快照 `lastPrice` 换算目标股数并按 100 股
+整手调整；目标市值为 0 时会卖出不足一手的剩余持仓。两者分别以卖一价买入、
+买一价卖出。
 
 指定 `--cloud true` 后不会在 `--output-dir` 落本地文件。此时
 `--output-dir` 表示 bucket 内的相对对象路径，例如 `jobs/backtest-1`，

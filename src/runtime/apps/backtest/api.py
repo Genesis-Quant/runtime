@@ -1,4 +1,4 @@
-"""使用因子 DSL 构造日频消息并运行 DolphinDB Backtest 策略。"""
+"""使用因子 DSL 日线构造开收盘单档合成快照并运行 Backtest 策略。"""
 
 from typing import Any
 from uuid import uuid4
@@ -30,7 +30,7 @@ COMPUTED_REF = "coreBacktestComputedData"
 FILTERED_REF = "coreBacktestFilteredData"
 DATA_REF = "coreBacktestData"
 MESSAGE_REF = "coreBacktestMessage"
-DAILY_MESSAGE_FACTORS = ("open", "low", "high", "close", "vol", "up_limit", "down_limit", "pre_close")
+DAILY_MESSAGE_FACTORS = ("open", "low", "high", "close", "up_limit", "down_limit", "pre_close")
 BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestName",
     "coreBacktestConfig",
@@ -40,6 +40,7 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestAnnualTradingDays",
     "coreBacktestRiskFreeRate",
     "coreBacktestAdj",
+    "coreBacktestSyntheticSpread",
     "coreBacktestParams",
     "getParams",
     "coreBacktestEngine",
@@ -105,7 +106,7 @@ def run_backtest(
         source_ref: str = SOURCE_REF,
         message_ref: str = MESSAGE_REF,
 ) -> BacktestResult:
-    """运行日频回测，并把保存服务端输出的会话移交给惰性结果。"""
+    """使用日线合成的开收盘快照回测，并把结果会话移交给惰性结果。"""
     parameters = BacktestParameters.model_validate({
         "dataset_query": dataset_query,
         "callbacks": callbacks,
@@ -123,6 +124,7 @@ def run_backtest(
     )
     engine_name = normalize_str(name, "name") if name is not None else f"coreBacktest_{uuid4().hex}"
     backtest_config = dict(parameters.config)
+    synthetic_spread = backtest_config.pop("syntheticSpread", 0.0)
     owns_session = session is None
     current_session = create_session() if owns_session else session
     redirect_session_output(current_session)
@@ -153,6 +155,13 @@ def run_backtest(
             filtered_ref=FILTERED_REF,
             data_ref=DATA_REF
         )
+        logger.info("session.run: 统一回测证券代码为 XSHG/XSHE 格式")
+        current_session.run(f"""
+            replaceColumn!({source_ref}, `code, symbol(strReplace(strReplace(string({source_ref}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
+            replaceColumn!({COMPUTED_REF}, `code, symbol(strReplace(strReplace(string({COMPUTED_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
+            replaceColumn!({FILTERED_REF}, `code, symbol(strReplace(strReplace(string({FILTERED_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
+            replaceColumn!({DATA_REF}, `code, symbol(strReplace(strReplace(string({DATA_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
+        """)
 
         output_start, output_end = normalize_date_range(
             validated_dataset_query.start_date,
@@ -163,9 +172,14 @@ def run_backtest(
                 "startDate": output_start.to_datetime64().astype("datetime64[D]"),
                 "endDate": output_end.to_datetime64().astype("datetime64[D]"),
                 "strategyGroup": "stock",
-                "dataType": 4,
+                "dataType": np.int32(1),
+                "matchingMode": np.int32(1),
+                "frequency": np.int32(0),
+                "callbackForSnapshot": np.int32(0),
                 "msgAsTable": True,
-                "matchingMode": 2,
+                "msgAsPiecesOnSnapshot": True,
+                "matchingRatio": 0.0,
+                "orderBookMatchingRatio": 1.0,
             }
         )
         current_session.upload(
@@ -178,6 +192,7 @@ def run_backtest(
                 "coreBacktestAnnualTradingDays": parameters.annual_trading_days,
                 "coreBacktestRiskFreeRate": parameters.risk_free_rate,
                 "coreBacktestAdj": parameters.adj or "",
+                "coreBacktestSyntheticSpread": synthetic_spread,
             }
         )
         current_session.run("coreBacktestParams = dict(STRING, ANY)")
@@ -201,7 +216,8 @@ def run_backtest(
             current_session.run(f"""
                 {message_ref} = backtest::build_backtest_message(
                     {DATA_REF},
-                    coreBacktestAdj
+                    coreBacktestAdj,
+                    coreBacktestSyntheticSpread
                 )
             """)
         else:
@@ -213,8 +229,6 @@ def run_backtest(
                 coreBacktestName,
                 coreBacktestConfig,
                 {message_ref},
-                {COMPUTED_REF},
-                {FILTERED_REF},
                 initialize,
                 beforeTrading,
                 onBar,

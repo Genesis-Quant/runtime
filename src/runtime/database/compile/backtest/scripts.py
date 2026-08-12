@@ -16,8 +16,9 @@ def build_script() -> str:
     """生成 backtest.dos 模块。"""
     return compile_script(MODULE, BACKTEST_FUNCTIONS)
 
+
 def write_script(*, output_dir: Path = DEFAULT_OUTPUT_DIR) -> Path:
-    """按依赖顺序生成 common、query 和 backtest 模块。"""
+    """按依赖顺序生成 common、query、backtest 模块。"""
     return write_module(
         MODULE,
         build_script(),

@@ -41,7 +41,6 @@ BACKTEST_BOOLEAN_CONFIGS = frozenset({
     "outputSeqNum",
     "outputTradeSeqNum",
     "multiAssetQuoteUnifiedInput",
-    "msgAsPiecesOnSnapshot",
     "enableAlgoOrder",
     "immediateOrderConfirmation",
     "immediateCancel",
@@ -127,7 +126,11 @@ class BacktestParameters(BaseModel):
             value = {}
         if not isinstance(value, dict):
             raise ValueError("config 必须是 dict[str, Any]")
-        if reserved := set(value) & {"startDate", "endDate", "strategyGroup", "dataType", "msgAsTable", "matchingMode"}:
+        if reserved := set(value) & {
+            "startDate", "endDate", "strategyGroup", "dataType", "msgAsTable",
+            "matchingMode", "frequency", "callbackForSnapshot",
+            "msgAsPiecesOnSnapshot", "matchingRatio", "orderBookMatchingRatio",
+        }:
             raise ValueError(f"以下配置由回测框架根据查询生成，不能传入：{sorted(reserved)}")
 
         result = {
@@ -137,7 +140,7 @@ class BacktestParameters(BaseModel):
             "enableMinimumPerTransactionFee": True,
             **value
         }
-        for name in ("cash", "commission", "tax", "matchingRatio", "orderBookMatchingRatio"):
+        for name in ("cash", "commission", "tax", "syntheticSpread"):
             if name not in result:
                 continue
             if isinstance(result[name], bool) or not isinstance(result[name], Real):
@@ -150,28 +153,22 @@ class BacktestParameters(BaseModel):
         for name in ("commission", "tax"):
             if name in result and result[name] < 0:
                 raise ValueError(f"config[{name!r}] 不能小于 0")
-        for name in ("matchingRatio", "orderBookMatchingRatio"):
-            if name in result and not 0 <= result[name] <= 1:
-                raise ValueError(f"config[{name!r}] 必须位于 0 到 1 之间")
-        for name, allowed in {
-            "callbackForSnapshot": {0, 1, 2},
-            "outputQueuePosition": {0, 1, 2},
-        }.items():
-            if name not in result:
-                continue
-            if isinstance(result[name], bool) or not isinstance(result[name], Integral):
-                raise ValueError(f"config[{name!r}] 必须是整数")
-            result[name] = int(result[name])
-            if result[name] not in allowed:
-                raise ValueError(f"config[{name!r}] 只能是 {sorted(allowed)}")
-        for name in ("frequency", "latency"):
-            if name not in result:
-                continue
-            if isinstance(result[name], bool) or not isinstance(result[name], Integral):
-                raise ValueError(f"config[{name!r}] 必须是整数")
-            result[name] = int(result[name])
-            if result[name] < 0:
-                raise ValueError(f"config[{name!r}] 不能小于 0")
+        if "syntheticSpread" in result and not 0 <= result["syntheticSpread"] < 1:
+            raise ValueError("config['syntheticSpread'] 必须位于 [0, 1)")
+        if "outputQueuePosition" in result:
+            value = result["outputQueuePosition"]
+            if isinstance(value, bool) or not isinstance(value, Integral):
+                raise ValueError("config['outputQueuePosition'] 必须是整数")
+            result["outputQueuePosition"] = int(value)
+            if result["outputQueuePosition"] not in {0, 1, 2}:
+                raise ValueError("config['outputQueuePosition'] 只能是 [0, 1, 2]")
+        if "latency" in result:
+            value = result["latency"]
+            if isinstance(value, bool) or not isinstance(value, Integral):
+                raise ValueError("config['latency'] 必须是整数")
+            result["latency"] = int(value)
+            if result["latency"] < 0:
+                raise ValueError("config['latency'] 不能小于 0")
         for name in BACKTEST_BOOLEAN_CONFIGS & set(result):
             if not isinstance(result[name], bool):
                 raise ValueError(f"config[{name!r}] 必须是 bool")
