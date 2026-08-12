@@ -170,7 +170,7 @@ with analyze_factors(
 注册前原样执行的 DolphinDB 脚本，不限制脚本内容。`callbacks` 必须完整提供上述 8 个
 固定生命周期回调且定义不能为空。`codes_query` 为空时，`dataset_query.codes` 必须提供
 至少一个股票代码。日线会转换为每天 09:30 和 15:00 的单档合成快照，盘口数量使用
-LONG 最大值表示无限流动性；策略在
+十亿股/份的安全盘口容量表示近似无限流动性，避免插件内部整数运算溢出；策略在
 `onSnapshot` 中通过 `message.timestamp`、`message.lastPrice` 和单档盘口下单；框架固定
 使用 `dataType=1`、`matchingMode=1`、`matchingRatio=0` 和
 `orderBookMatchingRatio=1`。`config.syntheticSpread` 可设置单档合成盘口的完整相对

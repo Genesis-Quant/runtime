@@ -10,8 +10,9 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
         从完整股票范围的未筛选日线构造开盘、收盘单档合成快照。
 
         每个交易日生成 09:30 和 15:00 两条快照，盘口只有一档，买卖价格分别
-        使用当日 open 和 close。盘口数量使用 LONG 最大值表示无限流动性，盘口
-        撮合比例固定为 100%，不使用当天结束后才能确定的成交量。
+        使用当日 open 和 close。盘口数量固定为十亿股/份，作为不会触发插件
+        整数溢出的近似无限流动性；盘口撮合比例固定为 100%，不使用当天结束后
+        才能确定的成交量。
         adj 为 hfq 或 qfq 时使用
         adj_factor 复权价格。synthetic_spread 表示合成买卖盘口的完整相对价差，
         买一和卖一分别位于 lastPrice 的下方和上方一半价差处。
@@ -97,7 +98,7 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
         levels = unionAll(open_snapshot, close_snapshot)
         levels.sortBy!(`timestamp`code)
         ends = int(1..levels.rows())
-        unlimited_quantity = take(9223372036854775807l, levels.rows())
+        unlimited_quantity = take(1000000000l, levels.rows())
         codes = string(levels.code)
         if (any(!(endsWith(codes, ".XSHE") || endsWith(codes, ".XSHG")))) {
             throw "回测证券代码必须使用 XSHG/XSHE 格式"
