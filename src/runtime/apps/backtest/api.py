@@ -54,6 +54,41 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
 })
 
 
+def load_backtest_environment(session: Any) -> None:
+    """加载回测脚本编译和执行依赖的插件及模块。"""
+    logger.info("session.run: 加载 Backtest 和 MatchingEngineSimulator 插件")
+    session.run(
+        """
+        coreLoadedPlugins = exec plugin from getLoadedPlugins()
+        if (!("MatchingEngineSimulator" in coreLoadedPlugins)) {
+            loadPlugin("MatchingEngineSimulator")
+        }
+        if (!("Backtest" in coreLoadedPlugins)) {
+            loadPlugin("Backtest")
+        }
+        """
+    )
+    logger.info("session.run: 加载 backtest 模块")
+    session.run("use backtest")
+
+
+def compile_backtest_scripts(parameters: BacktestParameters, session: Any | None = None) -> None:
+    """在独立 DolphinDB 会话中编译 utils 和全部回调，提交前暴露语法错误。"""
+    owns_session = session is None
+    current_session = create_session() if owns_session else session
+    redirect_session_output(current_session)
+    try:
+        load_backtest_environment(current_session)
+        if parameters.utils:
+            logger.info("session.run: 编译 utils 脚本")
+            current_session.run(parameters.utils)
+        logger.info(f"session.run: 编译回调函数 {list(parameters.callbacks)}")
+        current_session.run("\n".join(parameters.callbacks.values()))
+    finally:
+        if owns_session:
+            current_session.close()
+
+
 def run_backtest(
         dataset_query: dict[str, Any],
         callbacks: dict[CallbackName, str],
@@ -130,6 +165,7 @@ def run_backtest(
                 "strategyGroup": "stock",
                 "dataType": 4,
                 "msgAsTable": True,
+                "matchingMode": 2,
             }
         )
         current_session.upload(
@@ -149,23 +185,9 @@ def run_backtest(
             current_session.upload({"coreBacktestParams": parameters.params})
 
         # DolphinDB resolves plugin functions while compiling a module, before
-        # executing that module's top-level statements. The plugins therefore
-        # have to be loaded before `use backtest` compiles backtest.dos.
-        logger.info("session.run: 加载 Backtest 和 MatchingEngineSimulator 插件")
-        current_session.run(
-            """
-            coreLoadedPlugins = exec plugin from getLoadedPlugins()
-            if (!("MatchingEngineSimulator" in coreLoadedPlugins)) {
-                loadPlugin("MatchingEngineSimulator")
-            }
-            if (!("Backtest" in coreLoadedPlugins)) {
-                loadPlugin("Backtest")
-            }
-            """
-        )
-
-        logger.info("session.run: 加载 backtest 模块")
-        current_session.run("use backtest")
+        # executing that module's top-level statements. Load the environment
+        # before compiling user utilities and callbacks.
+        load_backtest_environment(current_session)
 
         if parameters.utils:
             logger.info("session.run: 执行 utils 脚本")

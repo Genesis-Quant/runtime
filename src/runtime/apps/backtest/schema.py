@@ -46,6 +46,7 @@ BACKTEST_BOOLEAN_CONFIGS = frozenset({
     "immediateOrderConfirmation",
     "immediateCancel",
     "enableMinimumPerTransactionFee",
+    "enableSellCloseRestrict",
 })
 
 
@@ -56,7 +57,10 @@ class BacktestParameters(BaseModel):
 
     config: dict[str, Any] = Field(
         default_factory=dict,
-        description="初始资金、费用和撮合等 Backtest 配置。"
+        description=(
+            "用户可配置的资金、费用和输出选项。startDate、endDate、strategyGroup、"
+            "dataType、msgAsTable、matchingMode 由 Runtime 固定，禁止传入。"
+        ),
     )
 
     params: dict[str, Any] = Field(
@@ -123,14 +127,13 @@ class BacktestParameters(BaseModel):
             value = {}
         if not isinstance(value, dict):
             raise ValueError("config 必须是 dict[str, Any]")
-        if reserved := set(value) & {"startDate", "endDate", "strategyGroup", "dataType", "msgAsTable"}:
+        if reserved := set(value) & {"startDate", "endDate", "strategyGroup", "dataType", "msgAsTable", "matchingMode"}:
             raise ValueError(f"以下配置由回测框架根据查询生成，不能传入：{sorted(reserved)}")
 
         result = {
             "cash": 1_000_000.0,
             "commission": 0.0,
             "tax": 0.0,
-            "matchingMode": 2,
             "enableMinimumPerTransactionFee": True,
             **value
         }
@@ -151,7 +154,6 @@ class BacktestParameters(BaseModel):
             if name in result and not 0 <= result[name] <= 1:
                 raise ValueError(f"config[{name!r}] 必须位于 0 到 1 之间")
         for name, allowed in {
-            "matchingMode": {1, 2, 3},
             "callbackForSnapshot": {0, 1, 2},
             "outputQueuePosition": {0, 1, 2},
         }.items():
