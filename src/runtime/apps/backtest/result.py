@@ -59,9 +59,7 @@ class BacktestResult(SessionResult):
             erase!(
                 coreBacktestContext,
                 [
-                    "engine",
-                    "coreBacktestUnfilteredFactorData",
-                    "coreBacktestFilteredFactorData"
+                    "engine"
                 ]
             )
             coreBacktestContext

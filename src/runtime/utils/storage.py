@@ -83,7 +83,11 @@ class ObjectStorage:
             aws_access_key_id=settings["OBJECT_STORAGE_ACCESS_KEY_ID"],
             aws_secret_access_key=settings["OBJECT_STORAGE_SECRET_ACCESS_KEY"],
             region_name=ObjectStorageSettings.REGION,
-            config=Config(s3={"addressing_style": addressing_style}),
+            config=Config(
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+                s3={"addressing_style": addressing_style},
+            ),
         )
         return cls(
             client,

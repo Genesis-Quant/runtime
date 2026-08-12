@@ -1,25 +1,26 @@
 module backtest
 
 def getParams() {
+    /* 返回 run_backtest 上传的只读策略参数字典。 */
     return objByName("coreBacktestParams")
 }
 
 def getHistoryData(context, msg, filter=true) {
     /*
-    返回严格早于当前 onBar 消息日期的 DSL 数据。
+    返回严格早于当前 onSnapshot 消息日期的 DSL 数据。
 
     filter=true 读取 filters 后的数据，false 读取 filters 前的数据。
-    两张结果表由 run_backtest 写入回测 context；msg 只用于确定当前回调
-    日期。
+    两张结果表由 run_backtest 在当前 DolphinDB 会话中生成；msg 只用于确定
+    当前回调日期。合成快照字段使用 timestamp。
     */
-    source = context[
+    source = objByName(
         iif(
             filter,
-            "coreBacktestFilteredFactorData",
-            "coreBacktestUnfilteredFactorData"
+            "coreBacktestFilteredData",
+            "coreBacktestComputedData"
         )
-    ]
-    current_date = date(msg.tradeTime[0])
+    )
+    current_date = date(msg.timestamp[0])
     return select *
     from source
     where date(time) < current_date
@@ -35,20 +36,83 @@ def getLastData(context, msg, filter=true) {
     where time == last_time
 }
 
-def build_backtest_message(market_data, adj) {
+def order_target(mutable context, msg, stockCode, targetAmount, orderLabel="order_target") {
     /*
-    从完整股票范围的未筛选行情构造 Backtest 插件日频消息。
+    将指定证券的多头持仓调整到目标股数。
 
-    msg 仅包含插件所需的行情字段，不包含策略 DSL 因子和派生列。
-    原始因子 vol、up_limit、down_limit 和 pre_close 会在 select 时转换为
-    插件列名。Tushare 的 vol 单位为手，转换为 Backtest 默认使用的股/份时
-    乘以 100。up_limit 或 down_limit 缺失时，根据 pre_close 按 10% 涨跌幅
-    计算，并使用当日 high/low 保护实际价格边界；其他必需行情字段缺失的行
-    会被删除。code 和 time 会转换为 symbol 和 tradeTime。adj 为 hfq 或 qfq
-    时使用 adj_factor 复权价格。
+    targetAmount 是精确目标股数，允许卖出不足一手的剩余持仓。买单使用
+    卖一价，卖单使用买一价，确保限价单能够参与盘口撮合。
+    */
+    messageIndex = find(symbol(string(msg.symbol)), stockCode)
+    if (messageIndex >= msg.rows()) throw "股票不在当前快照中"
+    if (isNull(targetAmount) || targetAmount < 0) throw "targetAmount 必须是非负数"
+    normalizedTargetAmount = long(targetAmount)
+    if (double(normalizedTargetAmount) != double(targetAmount)) throw "targetAmount 必须是整数"
+
+    currentPosition = Backtest::getPosition(context.engine, msg.symbol[messageIndex])
+    currentAmount = long(nullFill(currentPosition.longPosition.sum(), 0))
+    difference = normalizedTargetAmount - currentAmount
+    quantity = long(abs(difference))
+    if (quantity == 0) return NULL
+
+    if (difference > 0) {
+        orderPrice = double(msg.offerPrice[0][messageIndex])
+        direction = 1
+    } else {
+        orderPrice = double(msg.bidPrice[0][messageIndex])
+        direction = 3
+    }
+    if (isNull(orderPrice) || orderPrice <= 0) throw "快照一档价格无效"
+    return Backtest::submitOrder(
+        context.engine,
+        (msg.symbol[messageIndex], msg.timestamp[0], 5, orderPrice, quantity, direction),
+        orderLabel
+    )
+}
+
+def order_target_value(mutable context, msg, stockCode, targetValue, orderLabel="order_target_value") {
+    /* 使用当前快照 lastPrice 将目标市值换算成目标股数并下单。 */
+    messageIndex = find(symbol(string(msg.symbol)), stockCode)
+    if (messageIndex >= msg.rows()) throw "股票不在当前快照中"
+    if (isNull(targetValue) || targetValue < 0) throw "targetValue 必须是非负数"
+    lotSize = 100l
+    lastPrice = double(msg.lastPrice[messageIndex])
+    if (isNull(lastPrice) || lastPrice <= 0) throw "快照 lastPrice 无效"
+
+    currentPosition = Backtest::getPosition(context.engine, msg.symbol[messageIndex])
+    currentAmount = long(nullFill(currentPosition.longPosition.sum(), 0))
+    difference = double(targetValue) / lastPrice - currentAmount
+    adjustment = long(floor(abs(difference) / lotSize)) * long(lotSize)
+    targetAmount = iif(
+        targetValue == 0,
+        long(0),
+        iif(difference < 0, currentAmount - adjustment, currentAmount + adjustment)
+    )
+    return order_target(
+        context,
+        msg,
+        stockCode,
+        targetAmount,
+        orderLabel
+    )
+}
+
+def build_backtest_message(market_data, adj, synthetic_spread=0.0) {
+    /*
+    从完整股票范围的未筛选日线构造开盘、收盘单档合成快照。
+
+    每个交易日生成 09:30 和 15:00 两条快照，盘口只有一档，买卖价格分别
+    使用当日 open 和 close。盘口数量使用 LONG 最大值表示无限流动性，盘口
+    撮合比例固定为 100%，不使用当天结束后才能确定的成交量。
+    adj 为 hfq 或 qfq 时使用
+    adj_factor 复权价格。synthetic_spread 表示合成买卖盘口的完整相对价差，
+    买一和卖一分别位于 lastPrice 的下方和上方一半价差处。
     */
     if (!isNull(adj) && !(adj in ["hfq", "qfq"])) {
         throw "adj 只能是 hfq、qfq 或 NULL"
+    }
+    if (isNull(synthetic_spread) || synthetic_spread < 0 || synthetic_spread >= 1) {
+        throw "synthetic_spread 必须位于 [0, 1)"
     }
     adjustment = take(1.0, market_data.rows())
     if (!isNull(adj)) {
@@ -62,14 +126,13 @@ def build_backtest_message(market_data, adj) {
         }
     }
 
-    message = select
+    daily = select
         code,
         time,
         open,
         low,
         high,
         close,
-        long(round(vol * 100, 0)) as volume,
         double(
             iif(
                 isNull(up_limit),
@@ -96,33 +159,56 @@ def build_backtest_message(market_data, adj) {
     from market_data
 
     for (column in `open`low`high`close`upLimitPrice`downLimitPrice`prevClosePrice) {
-        values = double(message[column])
+        values = double(daily[column])
         if (!isNull(adj)) values = values * adjustment
-        replaceColumn!(message, column, values)
+        replaceColumn!(daily, column, values)
     }
-    valid_rows = take(true, message.rows())
-    for (column in `open`low`high`close`volume`upLimitPrice`downLimitPrice`prevClosePrice) {
-        valid_rows = valid_rows && !isNull(message[column])
+    valid_rows = take(true, daily.rows())
+    for (column in `open`low`high`close`upLimitPrice`downLimitPrice`prevClosePrice) {
+        valid_rows = valid_rows && !isNull(daily[column])
     }
-    message = message[valid_rows]
-    rename!(message, `code`time, `symbol`tradeTime)
-    replaceColumn!(
-        message,
-        `symbol,
-        symbol(
-            strReplace(
-                strReplace(string(message.symbol), ".SZ", ".XSHE"),
-                ".SH",
-                ".XSHG"
-            )
-        )
+    daily = daily[valid_rows]
+    if (daily.rows() == 0) throw "无法从日线构造合成快照"
+
+    open_snapshot = select
+        code,
+        temporalAdd(temporalAdd(timestamp(time), 9, "h"), 30, "m") as timestamp,
+        open as lastPrice,
+        upLimitPrice,
+        downLimitPrice,
+        prevClosePrice
+    from daily
+    close_snapshot = select
+        code,
+        temporalAdd(timestamp(time), 15, "h") as timestamp,
+        close as lastPrice,
+        upLimitPrice,
+        downLimitPrice,
+        prevClosePrice
+    from daily
+    levels = unionAll(open_snapshot, close_snapshot)
+    levels.sortBy!(`timestamp`code)
+    ends = int(1..levels.rows())
+    unlimited_quantity = take(9223372036854775807l, levels.rows())
+    codes = string(levels.code)
+    if (any(!(endsWith(codes, ".XSHE") || endsWith(codes, ".XSHG")))) {
+        throw "回测证券代码必须使用 XSHG/XSHE 格式"
+    }
+    message = table(
+        symbol(codes) as symbol,
+        symbol(iif(endsWith(codes, ".XSHE"), "XSHE", "XSHG")) as symbolSource,
+        levels.timestamp as timestamp,
+        double(levels.lastPrice) as lastPrice,
+        double(levels.upLimitPrice) as upLimitPrice,
+        double(levels.downLimitPrice) as downLimitPrice,
+        unlimited_quantity as totalBidQty,
+        unlimited_quantity as totalOfferQty,
+        arrayVector(ends, round(double(levels.lastPrice) * (1.0 - synthetic_spread / 2.0), 3)) as bidPrice,
+        arrayVector(ends, unlimited_quantity) as bidQty,
+        arrayVector(ends, round(double(levels.lastPrice) * (1.0 + synthetic_spread / 2.0), 3)) as offerPrice,
+        arrayVector(ends, unlimited_quantity) as offerQty,
+        double(levels.prevClosePrice) as prevClosePrice
     )
-    replaceColumn!(
-        message,
-        `tradeTime,
-        temporalAdd(timestamp(message.tradeTime), 15, "h")
-    )
-    message.sortBy!(`tradeTime`symbol)
     return message
 }
 
@@ -145,19 +231,24 @@ def noop_message_callback(mutable context, message, indicator) {
     return NULL
 }
 
-def run_backtest(name, mutable config, message, unfiltered_factor_data, filtered_factor_data, initialize_callback, before_trading_callback, on_bar_callback, on_snapshot_callback, on_order_callback, on_trade_callback, after_trading_callback, finalize_callback) {
+def run_backtest(name, mutable config, message, initialize_callback, before_trading_callback, on_bar_callback, on_snapshot_callback, on_order_callback, on_trade_callback, after_trading_callback, finalize_callback) {
     /*
     使用给定配置、完整消息表和全部生命周期回调创建并运行 Backtest 引擎。
 
     函数先规范插件配置并为缺失的生命周期回调填入空函数，随后创建引擎、
-    追加行情消息并发送结束标记。onBar 使用插件原始回调时点；策略通过
+    追加行情消息并发送结束标记。合成快照按同一时间戳整批触发 onSnapshot；策略通过
     getLastData 或 getHistoryData 显式读取当前消息日期以前的数据。
-    unfiltered_factor_data 和 filtered_factor_data 分别是 filters 前、
-    filters 后的 DSL 因子结果表。
     */
     if (message.rows() == 0) {
         throw "DSL 构造的回测 msg 表为空"
     }
+    config["dataType"] = 1
+    config["matchingMode"] = 1
+    config["frequency"] = 0
+    config["callbackForSnapshot"] = 0
+    config["msgAsPiecesOnSnapshot"] = true
+    config["matchingRatio"] = 0.0
+    config["orderBookMatchingRatio"] = 1.0
     int_config_names = [
         "dataType",
         "matchingMode",
@@ -217,11 +308,6 @@ def run_backtest(name, mutable config, message, unfiltered_factor_data, filtered
         after_trading,
         finalize
     )
-    strategy_context = Backtest::getContextDict(engine)
-    strategy_context["coreBacktestUnfilteredFactorData"] =
-        unfiltered_factor_data
-    strategy_context["coreBacktestFilteredFactorData"] =
-        filtered_factor_data
     try {
         Backtest::appendQuotationMsg(engine, message)
         Backtest::appendEndMarker(engine)

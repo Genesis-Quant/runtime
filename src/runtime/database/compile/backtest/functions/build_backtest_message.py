@@ -1,24 +1,26 @@
-"""定义把未筛选行情转换为 Backtest 日频消息。"""
+"""定义把日线行情转换为 Backtest 单档合成快照。"""
 
 from runtime.database.compile import DolphinDBFunction
 
 BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
     module="backtest",
     definition="""
-    def build_backtest_message(market_data, adj) {
+    def build_backtest_message(market_data, adj, synthetic_spread=0.0) {
         /*
-        从完整股票范围的未筛选行情构造 Backtest 插件日频消息。
+        从完整股票范围的未筛选日线构造开盘、收盘单档合成快照。
 
-        msg 仅包含插件所需的行情字段，不包含策略 DSL 因子和派生列。
-        原始因子 vol、up_limit、down_limit 和 pre_close 会在 select 时转换为
-        插件列名。Tushare 的 vol 单位为手，转换为 Backtest 默认使用的股/份时
-        乘以 100。up_limit 或 down_limit 缺失时，根据 pre_close 按 10% 涨跌幅
-        计算，并使用当日 high/low 保护实际价格边界；其他必需行情字段缺失的行
-        会被删除。code 和 time 会转换为 symbol 和 tradeTime。adj 为 hfq 或 qfq
-        时使用 adj_factor 复权价格。
+        每个交易日生成 09:30 和 15:00 两条快照，盘口只有一档，买卖价格分别
+        使用当日 open 和 close。盘口数量使用 LONG 最大值表示无限流动性，盘口
+        撮合比例固定为 100%，不使用当天结束后才能确定的成交量。
+        adj 为 hfq 或 qfq 时使用
+        adj_factor 复权价格。synthetic_spread 表示合成买卖盘口的完整相对价差，
+        买一和卖一分别位于 lastPrice 的下方和上方一半价差处。
         */
         if (!isNull(adj) && !(adj in ["hfq", "qfq"])) {
             throw "adj 只能是 hfq、qfq 或 NULL"
+        }
+        if (isNull(synthetic_spread) || synthetic_spread < 0 || synthetic_spread >= 1) {
+            throw "synthetic_spread 必须位于 [0, 1)"
         }
         adjustment = take(1.0, market_data.rows())
         if (!isNull(adj)) {
@@ -32,14 +34,13 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
             }
         }
 
-        message = select
+        daily = select
             code,
             time,
             open,
             low,
             high,
             close,
-            long(round(vol * 100, 0)) as volume,
             double(
                 iif(
                     isNull(up_limit),
@@ -66,33 +67,56 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
         from market_data
 
         for (column in `open`low`high`close`upLimitPrice`downLimitPrice`prevClosePrice) {
-            values = double(message[column])
+            values = double(daily[column])
             if (!isNull(adj)) values = values * adjustment
-            replaceColumn!(message, column, values)
+            replaceColumn!(daily, column, values)
         }
-        valid_rows = take(true, message.rows())
-        for (column in `open`low`high`close`volume`upLimitPrice`downLimitPrice`prevClosePrice) {
-            valid_rows = valid_rows && !isNull(message[column])
+        valid_rows = take(true, daily.rows())
+        for (column in `open`low`high`close`upLimitPrice`downLimitPrice`prevClosePrice) {
+            valid_rows = valid_rows && !isNull(daily[column])
         }
-        message = message[valid_rows]
-        rename!(message, `code`time, `symbol`tradeTime)
-        replaceColumn!(
-            message,
-            `symbol,
-            symbol(
-                strReplace(
-                    strReplace(string(message.symbol), ".SZ", ".XSHE"),
-                    ".SH",
-                    ".XSHG"
-                )
-            )
+        daily = daily[valid_rows]
+        if (daily.rows() == 0) throw "无法从日线构造合成快照"
+
+        open_snapshot = select
+            code,
+            temporalAdd(temporalAdd(timestamp(time), 9, "h"), 30, "m") as timestamp,
+            open as lastPrice,
+            upLimitPrice,
+            downLimitPrice,
+            prevClosePrice
+        from daily
+        close_snapshot = select
+            code,
+            temporalAdd(timestamp(time), 15, "h") as timestamp,
+            close as lastPrice,
+            upLimitPrice,
+            downLimitPrice,
+            prevClosePrice
+        from daily
+        levels = unionAll(open_snapshot, close_snapshot)
+        levels.sortBy!(`timestamp`code)
+        ends = int(1..levels.rows())
+        unlimited_quantity = take(9223372036854775807l, levels.rows())
+        codes = string(levels.code)
+        if (any(!(endsWith(codes, ".XSHE") || endsWith(codes, ".XSHG")))) {
+            throw "回测证券代码必须使用 XSHG/XSHE 格式"
+        }
+        message = table(
+            symbol(codes) as symbol,
+            symbol(iif(endsWith(codes, ".XSHE"), "XSHE", "XSHG")) as symbolSource,
+            levels.timestamp as timestamp,
+            double(levels.lastPrice) as lastPrice,
+            double(levels.upLimitPrice) as upLimitPrice,
+            double(levels.downLimitPrice) as downLimitPrice,
+            unlimited_quantity as totalBidQty,
+            unlimited_quantity as totalOfferQty,
+            arrayVector(ends, round(double(levels.lastPrice) * (1.0 - synthetic_spread / 2.0), 3)) as bidPrice,
+            arrayVector(ends, unlimited_quantity) as bidQty,
+            arrayVector(ends, round(double(levels.lastPrice) * (1.0 + synthetic_spread / 2.0), 3)) as offerPrice,
+            arrayVector(ends, unlimited_quantity) as offerQty,
+            double(levels.prevClosePrice) as prevClosePrice
         )
-        replaceColumn!(
-            message,
-            `tradeTime,
-            temporalAdd(timestamp(message.tradeTime), 15, "h")
-        )
-        message.sortBy!(`tradeTime`symbol)
         return message
     }
     """,

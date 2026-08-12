@@ -8,20 +8,20 @@ GET_HISTORY_DATA = DolphinDBFunction(
     definition="""
     def getHistoryData(context, msg, filter=true) {
         /*
-        返回严格早于当前 onBar 消息日期的 DSL 数据。
+        返回严格早于当前 onSnapshot 消息日期的 DSL 数据。
 
         filter=true 读取 filters 后的数据，false 读取 filters 前的数据。
-        两张结果表由 run_backtest 写入回测 context；msg 只用于确定当前回调
-        日期。
+        两张结果表由 run_backtest 在当前 DolphinDB 会话中生成；msg 只用于确定
+        当前回调日期。合成快照字段使用 timestamp。
         */
-        source = context[
+        source = objByName(
             iif(
                 filter,
-                "coreBacktestFilteredFactorData",
-                "coreBacktestUnfilteredFactorData"
+                "coreBacktestFilteredData",
+                "coreBacktestComputedData"
             )
-        ]
-        current_date = date(msg.tradeTime[0])
+        )
+        current_date = date(msg.timestamp[0])
         return select *
         from source
         where date(time) < current_date

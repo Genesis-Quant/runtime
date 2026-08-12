@@ -12,19 +12,24 @@ from .lifecycle import (
 RUN_BACKTEST = DolphinDBFunction(
     module="backtest",
     definition="""
-    def run_backtest(name, mutable config, message, unfiltered_factor_data, filtered_factor_data, initialize_callback, before_trading_callback, on_bar_callback, on_snapshot_callback, on_order_callback, on_trade_callback, after_trading_callback, finalize_callback) {
+    def run_backtest(name, mutable config, message, initialize_callback, before_trading_callback, on_bar_callback, on_snapshot_callback, on_order_callback, on_trade_callback, after_trading_callback, finalize_callback) {
         /*
         使用给定配置、完整消息表和全部生命周期回调创建并运行 Backtest 引擎。
 
         函数先规范插件配置并为缺失的生命周期回调填入空函数，随后创建引擎、
-        追加行情消息并发送结束标记。onBar 使用插件原始回调时点；策略通过
+        追加行情消息并发送结束标记。合成快照按同一时间戳整批触发 onSnapshot；策略通过
         getLastData 或 getHistoryData 显式读取当前消息日期以前的数据。
-        unfiltered_factor_data 和 filtered_factor_data 分别是 filters 前、
-        filters 后的 DSL 因子结果表。
         */
         if (message.rows() == 0) {
             throw "DSL 构造的回测 msg 表为空"
         }
+        config["dataType"] = 1
+        config["matchingMode"] = 1
+        config["frequency"] = 0
+        config["callbackForSnapshot"] = 0
+        config["msgAsPiecesOnSnapshot"] = true
+        config["matchingRatio"] = 0.0
+        config["orderBookMatchingRatio"] = 1.0
         int_config_names = [
             "dataType",
             "matchingMode",
@@ -84,11 +89,6 @@ RUN_BACKTEST = DolphinDBFunction(
             after_trading,
             finalize
         )
-        strategy_context = Backtest::getContextDict(engine)
-        strategy_context["coreBacktestUnfilteredFactorData"] =
-            unfiltered_factor_data
-        strategy_context["coreBacktestFilteredFactorData"] =
-            filtered_factor_data
         try {
             Backtest::appendQuotationMsg(engine, message)
             Backtest::appendEndMarker(engine)
