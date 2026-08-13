@@ -66,26 +66,44 @@ FACTOR_PREPROCESS = DolphinDBFunction(
                 continue
             }
 
-            rowIds = crossSection[`factor_preprocess_row_id]
-            marketValue = double(crossSection[mktmvColSym])
-            marketValue = iif(marketValue < 1, 1.0, marketValue)
-            mv = factorZScore(log(marketValue))
-            industryValues = string(crossSection[industryColSym])
-            industries = sort(distinct(industryValues))
-
-            x = matrix(mv)
-            if (size(industries) > 1) {
-                for (i in 1 .. (size(industries) - 1)) {
-                    x = x join
-                        matrix(double(industryValues == industries[i]))
-                }
-            }
-
             for (factorCol in factorColNames) {
                 factorColSym = symbol([string(factorCol)])[0]
+                rawFactor = double(crossSection[factorColSym])
+                rawMarketValue = double(crossSection[mktmvColSym])
+                rawIndustry = string(crossSection[industryColSym])
+                validMask = isValid(rawFactor) &&
+                    isValid(rawMarketValue) &&
+                    isValid(rawIndustry)
+                if (sum(validMask) == 0) {
+                    continue
+                }
+                rowIds = crossSection[`factor_preprocess_row_id][validMask]
+                marketValue = rawMarketValue[validMask]
+                marketValue = iif(marketValue < 1, 1.0, marketValue)
+                mv = factorZScore(log(marketValue))
+                industryValues = rawIndustry[validMask]
                 y = factorZScore(
-                    factorClipMad(double(crossSection[factorColSym]))
+                    factorClipMad(rawFactor[validMask])
                 )
+                regressionMask = isValid(y) && isValid(mv)
+                if (sum(regressionMask) == 0) {
+                    continue
+                }
+                rowIds = rowIds[regressionMask]
+                y = y[regressionMask]
+                mv = mv[regressionMask]
+                industryValues = industryValues[regressionMask]
+                industries = sort(distinct(industryValues))
+                x = matrix(mv)
+                if (size(industries) > 1) {
+                    for (i in 1 .. (size(industries) - 1)) {
+                        x = x join
+                            matrix(double(industryValues == industries[i]))
+                    }
+                }
+                if (size(y) <= cols(x)) {
+                    continue
+                }
                 beta = ols(y, x, true, 0)
                 fitted = beta[0] + beta[1] * mv
                 if (size(industries) > 1) {

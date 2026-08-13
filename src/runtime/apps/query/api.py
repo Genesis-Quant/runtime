@@ -1,8 +1,7 @@
 """在 DolphinDB 内完成统一因子查询、填充和 DSL 计算。"""
 
 import json
-import threading
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any
 
 import numpy as np
@@ -15,11 +14,6 @@ from runtime.utils import (
     IS_ST_FACTOR,
     TIME_COLUMN,
     WEIGHT_PREFIX,
-    DateLike,
-    RateLimiter,
-    Retry,
-    get_codes,
-    get_pro,
     logger,
     normalize_date_range,
     normalize_str_list,
@@ -36,93 +30,38 @@ COMPUTED_REF = "coreQueryComputedData"
 FILTERED_REF = "coreQueryFilteredData"
 DATA_REF = "coreQueryData"
 
-trading_calendar_cache = pd.DatetimeIndex([])
-trading_calendar_cache_start: pd.Timestamp | None = None
-trading_calendar_cache_end: pd.Timestamp | None = None
-trading_calendar_cache_date: date | None = None
-trading_calendar_lock = threading.Lock()
-trading_calendar_retry = Retry(
-    max_retries=5,
-    retry_interval=2,
-    limiter=RateLimiter(0),
-)
-
-
-def get_trading_dates(
-        start_date: DateLike,
-        end_date: DateLike,
-) -> pd.DatetimeIndex:
-    """返回查询区间内的上交所开放日，同一天复用缓存。"""
-    global trading_calendar_cache
-    global trading_calendar_cache_start
-    global trading_calendar_cache_end
-    global trading_calendar_cache_date
-
-    start, end = normalize_date_range(start_date, end_date)
-    current_date = date.today()
-
-    with trading_calendar_lock:
-        cache_current = trading_calendar_cache_date == current_date
-        cache_covers_range = (
-            cache_current
-            and trading_calendar_cache_start is not None
-            and trading_calendar_cache_end is not None
-            and trading_calendar_cache_start <= start
-            and trading_calendar_cache_end >= end
+def load_market_axis(
+        session: Any,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+) -> tuple[list[str], pd.DatetimeIndex]:
+    """从业务因子表的收盘价记录读取查询股票域和真实交易日。"""
+    session.upload({"coreAxisStart": start, "coreAxisEnd": end + timedelta(days=1)})
+    logger.info("session.run: 从业务因子表读取股票域")
+    codes = [
+        str(code)
+        for code in session.run(f"""
+            exec distinct string(code)
+            from {CORE_TABLE}
+            where factor = `close,
+                  time >= coreAxisStart,
+                  time < coreAxisEnd
+        """)
+    ]
+    logger.info("session.run: 从业务因子表读取交易日")
+    dates = pd.DatetimeIndex(session.run(f"""
+        exec distinct date(time)
+        from {CORE_TABLE}
+        where factor = `close,
+              time >= coreAxisStart,
+              time < coreAxisEnd
+        order by date(time)
+    """))
+    if not codes or dates.empty:
+        raise ValueError(
+            f"业务因子表在 {start:%Y-%m-%d} 至 {end:%Y-%m-%d} 没有收盘价数据"
         )
-        if not cache_covers_range:
-            request_start = (
-                min(start, trading_calendar_cache_start)
-                if cache_current and trading_calendar_cache_start is not None
-                else start
-            )
-            request_end = (
-                max(end, trading_calendar_cache_end)
-                if cache_current and trading_calendar_cache_end is not None
-                else end
-            )
-
-            def request_calendar() -> pd.DatetimeIndex:
-                response = get_pro().trade_cal(
-                    exchange="SSE",
-                    start_date=request_start.strftime("%Y%m%d"),
-                    end_date=request_end.strftime("%Y%m%d"),
-                    fields="cal_date,is_open",
-                )
-                if response is None:
-                    raise RuntimeError("trade_cal 返回 None")
-                if not isinstance(response, pd.DataFrame):
-                    raise TypeError("trade_cal 返回值必须是 DataFrame")
-                if response.empty:
-                    raise ValueError("trade_cal 返回空数据")
-                required = {"cal_date", "is_open"}
-                if missing := required - set(response.columns):
-                    raise ValueError(f"trade_cal 返回结果缺少列：{sorted(missing)}")
-                is_open = pd.to_numeric(response["is_open"], errors="coerce")
-                if is_open.isna().any():
-                    raise ValueError("trade_cal 返回了无效 is_open")
-                dates = pd.to_datetime(
-                    response.loc[is_open.eq(1), "cal_date"],
-                    format="%Y%m%d",
-                    errors="coerce",
-                )
-                if dates.isna().any():
-                    raise ValueError("trade_cal 返回了无效 cal_date")
-                return pd.DatetimeIndex(dates.drop_duplicates().sort_values())
-
-            trading_calendar_cache = trading_calendar_retry(
-                request_calendar,
-                context=f"trade_cal[{request_start:%Y-%m-%d}~{request_end:%Y-%m-%d}]",
-            )
-            trading_calendar_cache_start = request_start
-            trading_calendar_cache_end = request_end
-            trading_calendar_cache_date = current_date
-
-        selected = trading_calendar_cache[
-            (trading_calendar_cache >= start)
-            & (trading_calendar_cache <= end)
-        ]
-        return selected.copy()
+    return codes, dates
 
 
 def validate_factor_query(request: FactorQuery | dict[str, Any]) -> FactorQuery:
@@ -154,9 +93,9 @@ def build_query_table(
     source_factors = query.source_factors()
     if unknown := set(source_factors) - set(available_factors()):
         raise ValueError(f"查询包含 Worker 未声明的字段：{sorted(unknown)}")
-    codes = query.codes or list(get_codes())
     output_columns = [TIME_COLUMN, CODE_COLUMN, *query.factors, *query.derivatives]
-    dates = get_trading_dates(calculation_start, output_end)
+    market_codes, dates = load_market_axis(session, calculation_start, output_end)
+    codes = query.codes or market_codes
     definitions = {name: derivative.model_dump(mode="json") for name, derivative in query.derivatives.items()}
 
     session.upload({

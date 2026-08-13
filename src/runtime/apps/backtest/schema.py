@@ -57,8 +57,8 @@ class BacktestParameters(BaseModel):
     config: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "用户可配置的资金、费用和输出选项。startDate、endDate、strategyGroup、"
-            "dataType、msgAsTable、matchingMode 由 Runtime 固定，禁止传入。"
+            "用户可配置的资金、费用、syntheticSpread 和输出选项。日期、策略类型、"
+            "快照 dataType/matchingMode、回调模式及两种撮合比例由 Runtime 固定，禁止传入。"
         ),
     )
 
@@ -99,7 +99,13 @@ class BacktestParameters(BaseModel):
         description="在生命周期回调注册前原样执行的 DolphinDB 脚本。",
     )
 
-    callbacks: dict[CallbackName, str]
+    callbacks: dict[CallbackName, str] = Field(
+        ...,
+        description=(
+            "必须且只能包含 initialize、beforeTrading、onBar、onSnapshot、onOrder、"
+            "onTrade、afterTrading、finalize；值为同名完整 DolphinDB def。"
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_dataset_query_contract(self) -> "BacktestParameters":
