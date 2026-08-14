@@ -104,6 +104,16 @@ class BacktestParametersTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     BacktestParameters.model_validate(payload)
 
+    def test_benchmark_config_is_forbidden(self) -> None:
+        payload = parameters()
+        payload["config"] = {"benchmark": "000300.SH"}
+
+        with self.assertRaisesRegex(
+            ValidationError,
+            r"当前回测不支持 config\['benchmark'\]",
+        ):
+            BacktestParameters.model_validate(payload)
+
     def test_packaged_backtest_example_matches_the_model(self) -> None:
         example = json.loads((Path(__file__).parents[1] / "examples" / "backtest.json").read_text(encoding="utf-8"))
 

@@ -57,8 +57,8 @@ class BacktestParameters(BaseModel):
     config: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "用户可配置的资金、费用、syntheticSpread 和输出选项。日期、策略类型、"
-            "快照 dataType/matchingMode、回调模式及两种撮合比例由 Runtime 固定，禁止传入。"
+            "用户可配置的资金、费用、syntheticSpread 和输出选项。当前不支持 benchmark；"
+            "日期、策略类型、快照 dataType/matchingMode、回调模式及两种撮合比例由 Runtime 固定。"
         ),
     )
 
@@ -132,6 +132,8 @@ class BacktestParameters(BaseModel):
             value = {}
         if not isinstance(value, dict):
             raise ValueError("config 必须是 dict[str, Any]")
+        if "benchmark" in value:
+            raise ValueError("当前回测不支持 config['benchmark']")
         if reserved := set(value) & {
             "startDate", "endDate", "strategyGroup", "dataType", "msgAsTable",
             "matchingMode", "frequency", "callbackForSnapshot",
