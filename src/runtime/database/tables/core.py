@@ -125,7 +125,7 @@ def ensure_factor_partitions(
     """补建缺失的 factor VALUE 分区并返回新增分区。"""
     factors = normalize_factors(values)
     owns_session = session is None
-    current = create_session() if owns_session else session
+    current = create_session(role="worker") if owns_session else session
     try:
         ensure_core_table(current, factors)
 
@@ -191,7 +191,7 @@ class CoreTableWriter:
 
     def open(self) -> Any:
         """补建 factor 分区，返回整个更新过程复用的写入器。"""
-        password = DolphinSettings.validate()
+        username, password = DolphinSettings.credentials("worker")
         if self.closed:
             raise RuntimeError("CoreTableWriter 已关闭")
         if self.appender is not None:
@@ -203,10 +203,12 @@ class CoreTableWriter:
             DolphinSettings.HOST,
             DolphinSettings.PORT,
             threadNum=self.thread_count,
-            userid=DolphinSettings.USERNAME,
+            userid=username,
             password=password,
-            reConnect=True,
+            highAvailability=DolphinSettings.HIGH_AVAILABILITY,
+            reConnect=not DolphinSettings.HIGH_AVAILABILITY,
             show_output=False,
+            usePublicName=DolphinSettings.USE_PUBLIC_NAME,
         )
         try:
             appender = dolphindb.PartitionedTableAppender(

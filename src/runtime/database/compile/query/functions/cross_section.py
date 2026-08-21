@@ -1942,7 +1942,7 @@ CS_UNARY_VAR = DolphinDBFunction(
         >>> cs_unary_var(col, 1)
         [7.8, 7.8, 7.8, 7.8, 7.8]
         */
-        value = iif(int(ddof) == 0, covarp(col, col), covar(col, col))
+        value = iif(int(ddof) == 0, varp(col), var(col))
         return broadcast_like(value, col)
     }
     """,

@@ -197,7 +197,7 @@ def append_stock_dividends(
         return 0
 
     owns_session = session is None
-    current_session = create_session() if owns_session else session
+    current_session = create_session(role="worker") if owns_session else session
     try:
         ensure_stock_dividend_table(current_session)
         current_session.upload({"coreDividendRows": result})

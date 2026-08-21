@@ -2,6 +2,7 @@
 
 import os
 import warnings
+from typing import Literal
 
 from dotenv import load_dotenv
 
@@ -34,18 +35,38 @@ class DolphinSettings:
 
     HOST = os.getenv("DOLPHIN_HOST", "127.0.0.1")
     PORT = int(os.getenv("DOLPHIN_PORT", "8848"))
-    USERNAME = os.getenv("DOLPHIN_USERNAME", "admin")
-    PASSWORD = os.getenv("DOLPHIN_PASSWORD")
+    HIGH_AVAILABILITY_SITES = tuple(
+        site.strip()
+        for site in os.getenv("DOLPHIN_HIGH_AVAILABILITY_SITES", "").split(",")
+        if site.strip()
+    )
+    HIGH_AVAILABILITY = bool(HIGH_AVAILABILITY_SITES)
+    USE_PUBLIC_NAME = boolean_environment("DOLPHIN_USE_PUBLIC_NAME")
+    RUNTIME_USERNAME = os.getenv("DOLPHIN_RUNTIME_USERNAME")
+    RUNTIME_PASSWORD = os.getenv("DOLPHIN_RUNTIME_PASSWORD")
+    WORKER_USERNAME = os.getenv("DOLPHIN_WORKER_USERNAME")
+    WORKER_PASSWORD = os.getenv("DOLPHIN_WORKER_PASSWORD")
 
     DATABASE = os.getenv("DOLPHIN_CORE_DATABASE", "dfs://CoreData")
     TABLE = os.getenv("DOLPHIN_CORE_TABLE", "coreData")
     DIVIDEND_TABLE = os.getenv("DOLPHIN_DIVIDEND_TABLE", "stockDividend")
 
     @classmethod
-    def validate(cls) -> str:
-        if not cls.PASSWORD:
-            raise RuntimeError("缺少 DolphinDB 配置：DOLPHIN_PASSWORD")
-        return cls.PASSWORD
+    def credentials(cls, role: Literal["runtime", "worker"]) -> tuple[str, str]:
+        """返回业务运行或增量更新使用的独立账号。"""
+        if role == "runtime":
+            username = cls.RUNTIME_USERNAME
+            password = cls.RUNTIME_PASSWORD
+            names = "DOLPHIN_RUNTIME_USERNAME、DOLPHIN_RUNTIME_PASSWORD"
+        elif role == "worker":
+            username = cls.WORKER_USERNAME
+            password = cls.WORKER_PASSWORD
+            names = "DOLPHIN_WORKER_USERNAME、DOLPHIN_WORKER_PASSWORD"
+        else:
+            raise ValueError(f"未知 DolphinDB 账号角色：{role}")
+        if not username or not password:
+            raise RuntimeError(f"缺少 DolphinDB 配置：{names}")
+        return username, password
 
 
 class ObjectStorageSettings:

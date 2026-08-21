@@ -29,7 +29,7 @@ class WideTableWriter:
         if self.session is not None:
             return self.session
 
-        session = create_session()
+        session = create_session(role="worker")
         try:
             self.worker.ensure_table(session)
         except Exception:
@@ -151,7 +151,7 @@ class WideWorker(StockWorker, ABC):
         logger.debug(
             f"{self} 查询 {len(self.codes):,} 只股票的最近数据日"
         )
-        session = create_session()
+        session = create_session(role="worker")
         try:
             self.ensure_table(session)
             session.upload(

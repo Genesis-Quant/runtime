@@ -11,12 +11,31 @@ uv add arena-runtime
 项目要求 Python 3.12，并需要可访问的 DolphinDB 服务。使用数据更新 Worker 或
 查询全市场代码时，还需要在环境变量或 `.env` 中配置 `TUSHARE_TOKEN`。
 
+DolphinDB 单节点使用 `DOLPHIN_HOST` 和 `DOLPHIN_PORT`。集群连接额外设置逗号
+分隔的 `DOLPHIN_HIGH_AVAILABILITY_SITES`。内网模式下 Runtime 使用 Python API 的 Session
+高可用；通过公网地址访问集群时，服务端需为数据/计算节点配置 `publicName`，并设置
+`DOLPHIN_USE_PUBLIC_NAME=true`。由于 Python API 的 Session 不支持 `usePublicName`，普通
+Session 会按配置的公网入口依次尝试建立初始连接，写入连接池则通过 `publicName` 使用
+集群高可用，避免把服务端内网 site 与公网入口错误比较。候选节点只应包含数据节点和
+计算节点，不包含 controller 或 agent。
+
+业务执行与增量更新必须使用不同账号。`DOLPHIN_RUNTIME_USERNAME` 和
+`DOLPHIN_RUNTIME_PASSWORD` 用于查询、因子分析、回测、参数调优及 MCP，只需数据库读取和
+脚本执行权限；`DOLPHIN_WORKER_USERNAME` 和 `DOLPHIN_WORKER_PASSWORD` 仅用于 Worker
+读取增量水位、初始化库表、补充分区及写入数据。
+
 ## Python API
 
-查询、因子分析和回测函数从顶层包直接导出：
+查询、因子分析、回测、回测参数调优和敏感性分析函数从顶层包直接导出：
 
 ```python
-from runtime import analyze_factors, execute_query, run_backtest
+from runtime import (
+    analyze_backtest_sensitivity,
+    analyze_factors,
+    execute_query,
+    optimize_backtest,
+    run_backtest,
+)
 
 with execute_query(query_request) as query_result:
     factor_data = query_result.data
@@ -39,6 +58,12 @@ with run_backtest(
 ) as backtest_result:
     summary = backtest_result.return_summary
     portfolios = backtest_result.daily_portfolios
+
+with optimize_backtest(**optimization_request) as optimization_result:
+    random_search_paths = optimization_result.table("random_search")
+
+with analyze_backtest_sensitivity(**sensitivity_request) as sensitivity_result:
+    case_metrics = sensitivity_result.results
 ```
 
 也可以从对应应用包显式导入：
@@ -47,21 +72,28 @@ with run_backtest(
 from runtime.apps.query import FactorQuery, execute_query
 from runtime.apps.factor import FactorAnalysisParameters, analyze_factors
 from runtime.apps.backtest import BacktestParameters, run_backtest
+from runtime.apps.optimization import OptimizationParameters, optimize_backtest
+from runtime.apps.sensitivity import SensitivityParameters, analyze_backtest_sensitivity
 ```
 
-`execute_query`、`analyze_factors` 和 `run_backtest` 分别返回查询、因子分析和
-回测结果对象。
+`execute_query`、`analyze_factors`、`run_backtest`、`optimize_backtest` 和
+`analyze_backtest_sensitivity` 分别返回查询、因子分析、回测、参数调优和敏感性分析结果对象。
 结果保存在各自的 DolphinDB session 中；访问数据成员时才会执行对应 DOS
-代码并下载结果。三种结果都提供 `session` 属性、`download()`
+代码并下载结果。五种结果都提供 `session` 属性、`download()`
 和 `close()`，退出
 `with` 时会自动关闭 session。API 成功返回后，即使 session 是调用方传入的，
 也由结果对象接管其关闭操作。
+
+Runtime 自行创建 Session 时，Query 的总使用时间上限为 5 分钟，Backtest（含提交前回调编译）
+为 1 小时，参数调优为 6 小时；MCP DolphinScript 测试由 Backend 限制为 10 分钟。
+截止时间从连接成功开始计算，到期会主动关闭底层连接。调用方显式传入 Session 时，其生命周期和
+超时仍由调用方负责。
 
 `run_backtest` 的 `adj` 默认为 `None`；传入 `"qfq"` 或 `"hfq"` 时会查询
 `adj_factor`，并对回测消息中的价格字段执行前复权或后复权。
 `source_ref` 和 `message_ref` 是当前 DolphinDB session 中的查询结果变量名：
 变量已存在时直接复用，不存在时查询并把结果保存到该变量。回测默认使用
-`coreBacktestSource` 和 `coreBacktestMessage`。
+`coreBacktestSourceData` 和 `coreBacktestMessage`。
 
 ## 命令行
 
@@ -69,9 +101,12 @@ from runtime.apps.backtest import BacktestParameters, run_backtest
 
 ```powershell
 core-manage --help
+core-manage database compile --upload --output-dir output
 core-manage apps query --input-file query.json --output-dir output/query --output data --cloud false
 core-manage apps factor --input-file factor.json --output-dir output/factor --output processed_data information_coefficient group_returns --cloud false
 core-manage apps backtest --input-file backtest.json --output-dir output/backtest --output daily_portfolios return_summary --cloud false
+core-manage apps optimization --input-file optimization.json --output-dir output/optimization --cloud false
+core-manage apps sensitivity --input-file sensitivity.json --output-dir output/sensitivity --cloud false
 core-manage apps backtest --input-file backtest.json --output-dir jobs/backtest-1 --output daily_portfolios --cloud true
 core-manage workers --list-workers
 core-manage workers daily adj-factor --start-date 2025-01-01
@@ -111,6 +146,35 @@ with analyze_factors(
 被访问、下载或计算。
 输入文件必须是 UTF-8 JSON 对象，只包含应用的非敏感运行参数。输出目录、
 输出项和存储方式均由命令行参数指定。
+
+`database compile --upload` 会先重新生成 `common`、`query`、`factor` 和 `backtest`
+四个 DOS 模块，再使用增量更新账号逐一连接 `DOLPHIN_HOST:DOLPHIN_PORT` 及
+`DOLPHIN_HIGH_AVAILABILITY_SITES` 中的全部节点，写入各节点的 `moduleDir`，回读校验完整
+内容并执行 `use` 验证模块可以导入。任一节点失败时命令失败，Backend 启动也会停止，避免集群
+同时运行不同版本的模块。
+
+`apps optimization` 不接收 `--output`：它会为请求中每个 `algorithms`
+条目保存同名 Parquet，例如 `random_search.parquet`。输入是独立、扁平的
+`OptimizationParameters`：直接包含回测使用的 `dataset_query`、`callbacks`、`params`
+等字段，并增加调优字段。`parameter_space` 只能选择 `params` 中已经定义的数值参数；
+每个值都是有限候选列表。`start_date` 是第一段样本外区间的起点，
+`end_date` 是最后一段样本外区间的终点，`lookback_period` 和 `holding_period`
+支持 `D/W/M/Y`，例如 `6M` 和 `2W`。`repetitions` 控制每种算法的随机初始点次数，
+`evaluation_budget` 控制每个训练窗口最多评价多少个候选组合。
+
+参数调优只创建一个 DolphinDB session。Runtime 先把最早训练日到最后持有日作为
+完整区间执行一次 `codes_query` 和 `dataset_query`，随后只生成一次
+`coreBacktestComputedData`、`coreBacktestFilteredData`、`coreBacktestData` 和
+`coreBacktestMessage`。每次训练或样本外回测仅从同一个消息表截取当前窗口，替换
+`coreBacktestParams` 并创建独立引擎，不会重新查询因子或重新合成快照。训练目标固定为
+`sharpeRatio`；每个算法的 Parquet 包含全部重复、滚动窗口、随机初始参数、最终参数、
+训练 Sharpe、窗口净值和拼接后的 `path_net_value`。每个样本外窗口由独立引擎运行，
+窗口净值按收益率首尾拼接，不跨窗口继承持仓。
+
+`apps sensitivity` 同样不接收 `--output`。它在一个 session 中只准备一次完整区间数据和消息表，
+随后依次执行 `cases` 中的手续费或策略参数组合，并保存一份 `results.parquet`。每行记录一个组合的
+参数、手续费、成功或失败状态、错误和指标；即使全部组合失败也会保留该文件，调用方必须按行检查
+`status`，不能只依据工作流成功状态判断每个组合是否有效。
 
 查询输入文件示例：
 

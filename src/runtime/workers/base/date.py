@@ -153,7 +153,7 @@ class DateWorker(BaseWorker, ABC):
         """返回当前 Worker 对应因子最近有数据的自然日。"""
         started = time.perf_counter()
         logger.debug(f"{self} 查询最近数据日")
-        session = create_session()
+        session = create_session(role="worker")
         try:
             session.upload(
                 {"dateWorkerFactors": np.asarray(self.factors, dtype=str)}

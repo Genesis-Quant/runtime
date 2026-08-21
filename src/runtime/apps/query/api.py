@@ -29,15 +29,20 @@ SOURCE_REF = "coreQuerySourceData"
 COMPUTED_REF = "coreQueryComputedData"
 FILTERED_REF = "coreQueryFilteredData"
 DATA_REF = "coreQueryData"
+QUERY_SESSION_MAX_TIME = 5 * 60
+
 
 def load_market_axis(
         session: Any,
         start: pd.Timestamp,
         end: pd.Timestamp,
+        *,
+        log_progress: bool = True,
 ) -> tuple[list[str], pd.DatetimeIndex]:
     """从业务因子表的收盘价记录读取查询股票域和真实交易日。"""
     session.upload({"coreAxisStart": start, "coreAxisEnd": end + timedelta(days=1)})
-    logger.info("session.run: 从业务因子表读取股票域")
+    if log_progress:
+        logger.info("session.run: 从业务因子表读取股票域")
     codes = [
         str(code)
         for code in session.run(f"""
@@ -48,7 +53,8 @@ def load_market_axis(
                   time < coreAxisEnd
         """)
     ]
-    logger.info("session.run: 从业务因子表读取交易日")
+    if log_progress:
+        logger.info("session.run: 从业务因子表读取交易日")
     dates = pd.DatetimeIndex(session.run(f"""
         exec distinct date(time)
         from {CORE_TABLE}
@@ -81,6 +87,7 @@ def build_query_table(
         computed_ref: str = COMPUTED_REF,
         filtered_ref: str = FILTERED_REF,
         data_ref: str = DATA_REF,
+        log_progress: bool = True,
 ) -> list[str]:
     validate_dolphindb_references({
         "source_ref": source_ref,
@@ -94,7 +101,12 @@ def build_query_table(
     if unknown := set(source_factors) - set(available_factors()):
         raise ValueError(f"查询包含 Worker 未声明的字段：{sorted(unknown)}")
     output_columns = [TIME_COLUMN, CODE_COLUMN, *query.factors, *query.derivatives]
-    market_codes, dates = load_market_axis(session, calculation_start, output_end)
+    market_codes, dates = load_market_axis(
+        session,
+        calculation_start,
+        output_end,
+        log_progress=log_progress,
+    )
     codes = query.codes or market_codes
     definitions = {name: derivative.model_dump(mode="json") for name, derivative in query.derivatives.items()}
 
@@ -113,11 +125,13 @@ def build_query_table(
         "coreOutputEnd": output_end + timedelta(days=1),
     })
 
-    logger.info("session.run: 加载 query 模块")
+    if log_progress:
+        logger.info("session.run: 加载 query 模块")
     session.run("use query")
 
-    if not has_session_variable(session, source_ref):
-        logger.info(f"session.run: 查询基础因子表 {source_ref}")
+    if not has_session_variable(session, source_ref, log_progress=log_progress):
+        if log_progress:
+            logger.info(f"session.run: 查询基础因子表 {source_ref}")
         session.run(f"""
             {source_ref} = build_factor_source(
                 {CORE_TABLE},
@@ -132,7 +146,8 @@ def build_query_table(
         for factor in source_factors:
             name = json.dumps(factor, ensure_ascii=False)
             if factor == IS_ST_FACTOR:
-                logger.info(f"session.run: 填充 {source_ref}.{factor}")
+                if log_progress:
+                    logger.info(f"session.run: 填充 {source_ref}.{factor}")
                 session.run(f"""
                     {source_ref} = fill_null_column(
                         {source_ref},
@@ -141,7 +156,8 @@ def build_query_table(
                     )
                 """)
             elif factor.startswith(WEIGHT_PREFIX):
-                logger.info(f"session.run: 填充并前向填充 {source_ref}.{factor}")
+                if log_progress:
+                    logger.info(f"session.run: 填充并前向填充 {source_ref}.{factor}")
                 session.run(f"""
                     {source_ref} = fill_observed_group_null_column(
                         {source_ref},
@@ -157,7 +173,8 @@ def build_query_table(
                     )
                 """)
             elif factor in FINANCIAL_FACTORS:
-                logger.info(f"session.run: 前向填充 {source_ref}.{factor}")
+                if log_progress:
+                    logger.info(f"session.run: 前向填充 {source_ref}.{factor}")
                 session.run(f"""
                     {source_ref} = forward_fill_column(
                         {source_ref},
@@ -167,7 +184,8 @@ def build_query_table(
                     )
                 """)
 
-        logger.info(f"session.run: 整理基础因子表 {source_ref}")
+        if log_progress:
+            logger.info(f"session.run: 整理基础因子表 {source_ref}")
         session.run(f"""
             {source_ref} = finalize_factor_source(
                 {source_ref},
@@ -175,7 +193,8 @@ def build_query_table(
             )
         """)
 
-    logger.info(f"session.run: 计算 {computed_ref} 并生成 {filtered_ref}")
+    if log_progress:
+        logger.info(f"session.run: 计算 {computed_ref} 并生成 {filtered_ref}")
     session.run(f"""
         {computed_ref} = compute_factors(
             {source_ref},
@@ -188,7 +207,8 @@ def build_query_table(
         )
     """)
 
-    logger.info(f"session.run: 投影 {filtered_ref} 生成 {data_ref}")
+    if log_progress:
+        logger.info(f"session.run: 投影 {filtered_ref} 生成 {data_ref}")
     session.run(f"""
         {data_ref} = project_factor_output(
             {filtered_ref},
@@ -209,11 +229,21 @@ def execute_codes_query(
         computed_ref: str,
         filtered_ref: str,
         data_ref: str,
+        log_progress: bool = True,
 ) -> list[str]:
     """执行第一阶段查询，并返回结果中去重后的股票代码。"""
     query = validate_factor_query(request)
-    build_query_table(query, session=session, source_ref=source_ref, computed_ref=computed_ref, filtered_ref=filtered_ref, data_ref=data_ref)
-    logger.info(f"session.run: 从 {data_ref} 提取去重股票代码")
+    build_query_table(
+        query,
+        session=session,
+        source_ref=source_ref,
+        computed_ref=computed_ref,
+        filtered_ref=filtered_ref,
+        data_ref=data_ref,
+        log_progress=log_progress,
+    )
+    if log_progress:
+        logger.info(f"session.run: 从 {data_ref} 提取去重股票代码")
     selected_codes = session.run(f"exec distinct {CODE_COLUMN} from {data_ref} where not isNull({CODE_COLUMN}) order by {CODE_COLUMN}")
     if not isinstance(selected_codes, np.ndarray):
         raise TypeError(f"codes_query 必须返回一维代码向量，实际为 {type(selected_codes).__name__}")
@@ -225,7 +255,8 @@ def execute_codes_query(
     unsupported = [code for code in codes if not code.endswith((".SH", ".SZ"))]
     if unsupported:
         raise ValueError(f"codes_query 只能返回 .SH 和 .SZ 股票代码：{unsupported[:10]}")
-    logger.info(f"codes_query 选出 {len(codes):,} 只股票")
+    if log_progress:
+        logger.info(f"codes_query 选出 {len(codes):,} 只股票")
     return codes
 
 
@@ -237,7 +268,11 @@ def execute_query(
     """在服务端生成查询结果，并把当前会话移交给惰性结果对象。"""
     query = validate_factor_query(request)
     owns_session = session is None
-    current_session = create_session() if owns_session else session
+    current_session = (
+        create_session(max_time=QUERY_SESSION_MAX_TIME)
+        if owns_session
+        else session
+    )
     redirect_session_output(current_session)
 
     try:

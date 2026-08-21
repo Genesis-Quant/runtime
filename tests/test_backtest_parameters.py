@@ -1,13 +1,17 @@
 import json
 import unittest
 from copy import deepcopy
+from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 from pydantic import ValidationError
 
 from runtime import BacktestParameters
 from runtime.apps import BacktestParameters as AppsBacktestParameters
 from runtime.apps.backtest import BacktestParameters as BacktestAppParameters
+from runtime.apps.optimization.api import build_walk_forward_windows
+from runtime.apps.optimization.schema import OptimizationSettings
 
 
 CALLBACKS = {
@@ -90,6 +94,36 @@ class BacktestParametersTests(unittest.TestCase):
         result = BacktestParameters.model_validate(payload)
 
         self.assertEqual(list(result.callbacks), list(CALLBACKS))
+
+    def test_optimization_seed_must_be_nonnegative(self) -> None:
+        with self.assertRaises(ValidationError):
+            OptimizationSettings.model_validate({
+                "parameter_space": {"window": [10, 20]},
+                "algorithms": ["random_search"],
+                "start_date": "2026-01-01",
+                "end_date": "2026-12-31",
+                "lookback_period": "6M",
+                "holding_period": "2W",
+                "seed": -1,
+            })
+
+    def test_monthly_holding_windows_keep_the_original_anchor(self) -> None:
+        windows = build_walk_forward_windows(SimpleNamespace(
+            start_date="2026-01-31",
+            end_date="2026-04-30",
+            lookback_period="1M",
+            holding_period="1M",
+        ))
+
+        self.assertEqual(
+            [(window.holding_start, window.holding_end) for window in windows],
+            [
+                (date(2026, 1, 31), date(2026, 2, 27)),
+                (date(2026, 2, 28), date(2026, 3, 30)),
+                (date(2026, 3, 31), date(2026, 4, 29)),
+                (date(2026, 4, 30), date(2026, 4, 30)),
+            ],
+        )
 
     def test_runtime_only_parameters_are_not_part_of_input_json(self) -> None:
         for name, value in {

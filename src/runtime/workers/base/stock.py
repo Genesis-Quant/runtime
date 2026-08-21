@@ -94,7 +94,7 @@ class StockWorker(BaseWorker, ABC):
         logger.debug(
             f"{self} 查询 {len(self.codes):,} 只股票的最近数据日"
         )
-        session = create_session()
+        session = create_session(role="worker")
         try:
             session.upload(
                 {

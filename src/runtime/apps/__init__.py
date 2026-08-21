@@ -6,13 +6,19 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .backtest.schema import BacktestParameters
     from .factor.schema import FactorAnalysisParameters
+    from .optimization.schema import OptimizationAlgorithm, OptimizationParameters
     from .query.schema import Derivative, FactorQuery
+    from .sensitivity.schema import SensitivityAnalysisType, SensitivityParameters
 
 LAZY_EXPORTS = {
     "BacktestParameters": ("runtime.apps.backtest.schema", "BacktestParameters"),
     "Derivative": ("runtime.apps.query.schema", "Derivative"),
     "FactorAnalysisParameters": ("runtime.apps.factor.schema", "FactorAnalysisParameters"),
     "FactorQuery": ("runtime.apps.query.schema", "FactorQuery"),
+    "OptimizationAlgorithm": ("runtime.apps.optimization.schema", "OptimizationAlgorithm"),
+    "OptimizationParameters": ("runtime.apps.optimization.schema", "OptimizationParameters"),
+    "SensitivityAnalysisType": ("runtime.apps.sensitivity.schema", "SensitivityAnalysisType"),
+    "SensitivityParameters": ("runtime.apps.sensitivity.schema", "SensitivityParameters"),
 }
 
 __all__ = [
@@ -20,6 +26,10 @@ __all__ = [
     "Derivative",
     "FactorAnalysisParameters",
     "FactorQuery",
+    "OptimizationAlgorithm",
+    "OptimizationParameters",
+    "SensitivityAnalysisType",
+    "SensitivityParameters",
 ]
 
 
