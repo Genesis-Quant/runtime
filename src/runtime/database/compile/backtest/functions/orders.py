@@ -2,6 +2,9 @@
 
 from runtime.database.compile import DolphinDBFunction
 
+from .data import CAN_TRADE
+from .portfolio import GET_AVAILABLE_CASH, GET_POSITIONS, GET_TOTAL_EQUITY
+
 
 ORDER_TARGET = DolphinDBFunction(
     module="backtest",
@@ -73,4 +76,161 @@ ORDER_TARGET_VALUE = DolphinDBFunction(
     }
     """,
     dependencies=(ORDER_TARGET,),
+)
+
+ORDER_TARGET_PERCENT = DolphinDBFunction(
+    module="backtest",
+    definition="""
+    def order_target_percent(mutable context, msg, stockCode, targetPercent, orderLabel="order_target_percent") {
+        /* 将指定证券调整到当前组合总权益的目标比例。 */
+        normalizedPercent = double(targetPercent)
+        if (
+            isNull(normalizedPercent) ||
+            isNanInf(normalizedPercent) ||
+            normalizedPercent < 0 ||
+            normalizedPercent > 1
+        ) {
+            throw "targetPercent 必须是 [0, 1] 内的有限数值"
+        }
+        return order_target_value(
+            context,
+            msg,
+            stockCode,
+            get_total_equity(context) * normalizedPercent,
+            orderLabel
+        )
+    }
+    """,
+    dependencies=(ORDER_TARGET_VALUE, GET_TOTAL_EQUITY),
+)
+
+ORDER_TARGET_PORTFOLIO = DolphinDBFunction(
+    module="backtest",
+    definition="""
+    def order_target_portfolio(mutable context, msg, targetWeights, orderLabel="order_target_portfolio") {
+        /*
+        按目标权重字典批量调整股票组合，未出现在字典中的现有持仓目标为零。
+
+        函数先提交减仓，再按实时可用现金提交加仓；当前快照不可交易的证券会被
+        跳过。存在延迟或未成交订单时，应在后续快照再次调用以继续向目标收敛。
+        */
+        if (form(targetWeights) != form(dict(STRING, ANY))) {
+            throw "targetWeights 必须是代码到权重的字典"
+        }
+        targetCodes = string(targetWeights.keys())
+        weights = double(targetWeights.values())
+        if (countNanInf(weights, true) > 0 || any(weights < 0)) {
+            throw "targetWeights 的权重必须是非负有限数值"
+        }
+        if (sum(weights) > 1.0 + 1e-10) {
+            throw "targetWeights 的权重总和不能超过 1"
+        }
+        for (stockCode in targetCodes) {
+            if (!endsWith(stockCode, ".XSHG") && !endsWith(stockCode, ".XSHE")) {
+                throw "targetWeights 代码必须使用 XSHG/XSHE 格式"
+            }
+        }
+
+        positions = get_positions(context)
+        allCodes = array(STRING, 0)
+        allCodes.append!(targetCodes)
+        if (positions.rows() > 0) {
+            allCodes.append!(string(positions.symbol))
+        }
+        allCodes = distinct(allCodes)
+        totalEquity = get_total_equity(context)
+        orderIds = array(LONG, 0)
+        config = Backtest::getConfig(context.engine)
+        commission = double(config["commission"])
+        minimumFeeEnabled = bool(
+            config["enableMinimumPerTransactionFee"]
+        )
+
+        // 先处理清仓和减仓，避免用尚未释放的资金计算后续买单。
+        for (stockCode in allCodes) {
+            if (!can_trade(msg, stockCode, 3)) continue
+            currentPosition = Backtest::getPosition(
+                context.engine,
+                stockCode
+            )
+            currentAmount = long(nullFill(
+                currentPosition.longPosition.sum(),
+                0
+            ))
+            if (currentAmount <= 0) continue
+            messageIndex = find(string(msg.symbol), stockCode)
+            lastPrice = double(msg.lastPrice[messageIndex])
+            targetWeight = iif(
+                stockCode in targetCodes,
+                double(targetWeights[stockCode]),
+                0.0
+            )
+            targetValue = totalEquity * targetWeight
+            if (targetValue >= double(currentAmount) * lastPrice) continue
+            orderId = order_target_value(
+                context,
+                msg,
+                stockCode,
+                targetValue,
+                orderLabel
+            )
+            if (!isNull(orderId)) orderIds.append!(long(orderId))
+        }
+
+        // 卖单在当前盘口成交后重新读取现金；资金不足时只提交可负担的整手数量。
+        for (stockCode in targetCodes) {
+            if (!can_trade(msg, stockCode, 1)) continue
+            messageIndex = find(string(msg.symbol), stockCode)
+            lastPrice = double(msg.lastPrice[messageIndex])
+            offerPrice = double(msg.offerPrice[0][messageIndex])
+            currentPosition = Backtest::getPosition(
+                context.engine,
+                stockCode
+            )
+            currentAmount = long(nullFill(
+                currentPosition.longPosition.sum(),
+                0
+            ))
+            targetAmount = long(floor(
+                totalEquity * double(targetWeights[stockCode]) /
+                lastPrice /
+                100.0
+            )) * 100l
+            requiredAmount = targetAmount - currentAmount
+            if (requiredAmount <= 0) continue
+
+            availableCash = get_available_cash(context)
+            cashValueLimit = availableCash / (1.0 + commission)
+            if (minimumFeeEnabled) {
+                cashValueLimit = min(
+                    cashValueLimit,
+                    max(availableCash - 5.0, 0.0)
+                )
+            }
+            affordableAmount = long(floor(
+                cashValueLimit /
+                offerPrice /
+                100.0
+            )) * 100l
+            submittedAmount = min(requiredAmount, affordableAmount)
+            if (submittedAmount <= 0) continue
+            orderId = order_target(
+                context,
+                msg,
+                stockCode,
+                currentAmount + submittedAmount,
+                orderLabel
+            )
+            if (!isNull(orderId)) orderIds.append!(long(orderId))
+        }
+        return orderIds
+    }
+    """,
+    dependencies=(
+        CAN_TRADE,
+        GET_AVAILABLE_CASH,
+        GET_POSITIONS,
+        GET_TOTAL_EQUITY,
+        ORDER_TARGET_VALUE,
+    ),
 )

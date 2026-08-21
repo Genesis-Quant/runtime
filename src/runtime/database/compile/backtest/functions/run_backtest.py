@@ -8,6 +8,13 @@ from .lifecycle import (
     NOOP_EVENT_CALLBACK,
     NOOP_MESSAGE_CALLBACK,
 )
+from .scheduler import (
+    AFTER_TRADING_WITH_SCHEDULER,
+    BEFORE_TRADING_WITH_SCHEDULER,
+    FINALIZE_WITH_SCHEDULER,
+    INITIALIZE_WITH_SCHEDULER,
+    ON_SNAPSHOT_WITH_SCHEDULER,
+)
 
 RUN_BACKTEST = DolphinDBFunction(
     module="backtest",
@@ -76,6 +83,29 @@ RUN_BACKTEST = DolphinDBFunction(
             finalize_callback,
             noop_context_callback
         )
+        replay_dates = exec distinct date(timestamp)
+        from message
+        order by date(timestamp)
+        initialize = initialize_with_scheduler{
+            ,
+            initialize,
+            replay_dates
+        }
+        before_trading = before_trading_with_scheduler{
+            ,
+            before_trading
+        }
+        on_snapshot = on_snapshot_with_scheduler{
+            ,
+            ,
+            ,
+            on_snapshot
+        }
+        after_trading = after_trading_with_scheduler{
+            ,
+            after_trading
+        }
+        finalize = finalize_with_scheduler{, finalize}
         engine = Backtest::createBacktestEngine(
             name,
             config,
@@ -104,5 +134,10 @@ RUN_BACKTEST = DolphinDBFunction(
         NOOP_CONTEXT_CALLBACK,
         NOOP_EVENT_CALLBACK,
         NOOP_MESSAGE_CALLBACK,
+        AFTER_TRADING_WITH_SCHEDULER,
+        BEFORE_TRADING_WITH_SCHEDULER,
+        FINALIZE_WITH_SCHEDULER,
+        INITIALIZE_WITH_SCHEDULER,
+        ON_SNAPSHOT_WITH_SCHEDULER,
     ),
 )

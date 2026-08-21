@@ -5,6 +5,97 @@ def getParams() {
     return objByName("coreBacktestParams")
 }
 
+def get_trading_days(startDate, endDate, exchange="XSHG") {
+    /* 返回闭区间内指定交易所的交易日。 */
+    normalizedExchange = upper(string(exchange))
+    if (!(normalizedExchange in ["XSHG", "XSHE"])) {
+        throw "exchange 只能是 XSHG 或 XSHE"
+    }
+    normalizedStart = date(startDate)
+    normalizedEnd = date(endDate)
+    if (isNull(normalizedStart) || isNull(normalizedEnd)) {
+        throw "startDate 和 endDate 不能为空"
+    }
+    if (normalizedStart > normalizedEnd) {
+        throw "startDate 不能晚于 endDate"
+    }
+    return getMarketCalendar(
+        normalizedExchange,
+        normalizedStart,
+        normalizedEnd
+    )
+}
+
+def is_trading_day(targetDate, exchange="XSHG") {
+    /* 判断日期是否为指定交易所的交易日。 */
+    normalizedDate = date(targetDate)
+    if (isNull(normalizedDate)) throw "targetDate 不能为空"
+    return size(get_trading_days(
+        normalizedDate,
+        normalizedDate,
+        exchange
+    )) == 1
+}
+
+def shift_trading_day(targetDate, offset, exchange="XSHG") {
+    /* 按交易所日历偏移日期；offset 可以为正、负或零。 */
+    normalizedExchange = upper(string(exchange))
+    if (!(normalizedExchange in ["XSHG", "XSHE"])) {
+        throw "exchange 只能是 XSHG 或 XSHE"
+    }
+    normalizedDate = date(targetDate)
+    if (isNull(normalizedDate)) throw "targetDate 不能为空"
+    normalizedOffset = int(offset)
+    if (isNull(offset) || double(normalizedOffset) != double(offset)) {
+        throw "offset 必须是整数"
+    }
+    if (normalizedOffset == 0) {
+        if (!is_trading_day(normalizedDate, normalizedExchange)) {
+            throw "offset 为 0 时 targetDate 必须是交易日"
+        }
+        return normalizedDate
+    }
+    return temporalAdd(
+        normalizedDate,
+        normalizedOffset,
+        normalizedExchange
+    )
+}
+
+def previous_trading_day(targetDate, count=1, exchange="XSHG") {
+    /* 返回 targetDate 之前第 count 个交易日。 */
+    normalizedCount = int(count)
+    if (
+        isNull(count) ||
+        double(normalizedCount) != double(count) ||
+        normalizedCount <= 0
+    ) {
+        throw "count 必须是正整数"
+    }
+    return shift_trading_day(
+        date(targetDate),
+        -normalizedCount,
+        exchange
+    )
+}
+
+def next_trading_day(targetDate, count=1, exchange="XSHG") {
+    /* 返回 targetDate 之后第 count 个交易日。 */
+    normalizedCount = int(count)
+    if (
+        isNull(count) ||
+        double(normalizedCount) != double(count) ||
+        normalizedCount <= 0
+    ) {
+        throw "count 必须是正整数"
+    }
+    return shift_trading_day(
+        date(targetDate),
+        normalizedCount,
+        exchange
+    )
+}
+
 def getHistoryData(context, msg, filter=true) {
     /*
     返回严格早于当前 onSnapshot 消息日期的 DSL 数据。
@@ -34,6 +125,170 @@ def getLastData(context, msg, filter=true) {
     return select *
     from history
     where time == last_time
+}
+
+def history(context, msg, count, codes=NULL, fields=NULL, filter=true) {
+    /*
+    返回当前消息日期以前最近 count 个实际截面的 DSL 数据。
+
+    time 和 code 始终保留；fields 只控制其余数据列。count 按不同 time
+    截面计数，不按自然日或单证券行数计数。
+    */
+    normalizedCount = int(count)
+    if (
+        isNull(count) ||
+        double(normalizedCount) != double(count) ||
+        normalizedCount <= 0
+    ) {
+        throw "count 必须是正整数"
+    }
+    source = objByName(
+        iif(
+            filter,
+            "coreBacktestFilteredData",
+            "coreBacktestComputedData"
+        )
+    )
+    currentDate = date(msg.timestamp[0])
+    if (!all(isNull(codes))) {
+        requestedCodes = string(codes)
+        selectedTimes = exec time
+        from (
+            select distinct time
+            from source
+            where date(time) < currentDate,
+                string(code) in requestedCodes
+        )
+        order by time desc
+        limit normalizedCount
+        result = select *
+        from source
+        where time in selectedTimes,
+            string(code) in requestedCodes
+    } else {
+        selectedTimes = exec time
+        from (
+            select distinct time
+            from source
+            where date(time) < currentDate
+        )
+        order by time desc
+        limit normalizedCount
+        result = select *
+        from source
+        where time in selectedTimes
+    }
+    if (result.rows() > 0) {
+        result.sortBy!(`time`code)
+    }
+
+    if (all(isNull(fields))) return result
+    requestedFields = array(STRING, 0)
+    for (field in string(fields)) {
+        if (
+            !(field in ["time", "code"]) &&
+            !(field in requestedFields)
+        ) requestedFields.append!(field)
+    }
+    outputColumns = array(STRING, 0)
+    outputColumns.append!(["time", "code"])
+    outputColumns.append!(requestedFields)
+    missingColumns = outputColumns[
+        !(outputColumns in columnNames(result))
+    ]
+    if (size(missingColumns) > 0) {
+        throw "fields 包含不存在的列：" + concat(missingColumns, ",")
+    }
+    return table(result[symbol(outputColumns)])
+}
+
+def current_snapshot(msg, codes=NULL) {
+    /* 返回当前 message 中指定证券的快照；codes 为空时返回完整快照。 */
+    if (all(isNull(codes))) return msg
+    return msg[string(msg.symbol) in string(codes)]
+}
+
+def can_trade(msg, stockCode, direction=0) {
+    /*
+    根据当前快照判断是否存在有效可撮合盘口。
+
+    direction=0 只检查证券和最新价；1 检查买入盘口；3 检查卖出盘口。
+    账户资金、可卖持仓和插件风控不属于本函数范围。
+    */
+    normalizedDirection = int(direction)
+    if (!(normalizedDirection in [0, 1, 3])) {
+        throw "direction 只能是 0、1 或 3"
+    }
+    messageIndex = find(string(msg.symbol), string(stockCode))
+    if (messageIndex >= msg.rows()) return false
+
+    lastPrice = double(msg.lastPrice[messageIndex])
+    if (isNull(lastPrice) || lastPrice <= 0) return false
+    if (normalizedDirection == 0) return true
+
+    if (normalizedDirection == 1) {
+        offerPrice = double(msg.offerPrice[0][messageIndex])
+        offerQuantity = long(msg.offerQty[0][messageIndex])
+        upLimitPrice = double(msg.upLimitPrice[messageIndex])
+        return !isNull(offerPrice) && offerPrice > 0 &&
+            !isNull(offerQuantity) && offerQuantity > 0 &&
+            !isNull(upLimitPrice) && offerPrice <= upLimitPrice
+    }
+
+    bidPrice = double(msg.bidPrice[0][messageIndex])
+    bidQuantity = long(msg.bidQty[0][messageIndex])
+    downLimitPrice = double(msg.downLimitPrice[messageIndex])
+    return !isNull(bidPrice) && bidPrice > 0 &&
+        !isNull(bidQuantity) && bidQuantity > 0 &&
+        !isNull(downLimitPrice) && bidPrice >= downLimitPrice
+}
+
+def get_portfolio(context) {
+    /* 返回股票账户当前权益字典。 */
+    return Backtest::getTotalPortfolios(context.engine)
+}
+
+def get_total_equity(context) {
+    /* 返回股票账户当前总权益。 */
+    portfolio = get_portfolio(context)
+    if (!("totalEquity" in portfolio.keys())) {
+        throw "当前账户权益缺少 totalEquity"
+    }
+    totalEquities = double(portfolio["totalEquity"])
+    if (size(totalEquities) != 1) {
+        throw "当前股票账户 totalEquity 数量必须为 1"
+    }
+    totalEquity = first(totalEquities)
+    if (isNull(totalEquity) || totalEquity < 0) {
+        throw "当前账户 totalEquity 无效"
+    }
+    return totalEquity
+}
+
+def get_positions(context) {
+    /* 返回股票账户全部当前持仓表。 */
+    return Backtest::getPosition(context.engine)
+}
+
+def get_position(context, stockCode) {
+    /* 返回指定证券的当前持仓字典。 */
+    return Backtest::getPosition(
+        context.engine,
+        string(stockCode)
+    )
+}
+
+def get_available_cash(context) {
+    /* 返回股票账户当前可用现金。 */
+    return double(Backtest::getAvailableCash(
+        context.engine,
+        "stock"
+    ))
+}
+
+def get_open_orders(context) {
+    /* 返回当前全部未成交订单。 */
+    return Backtest::getOpenOrders(context.engine)
 }
 
 def order_target(mutable context, msg, stockCode, targetAmount, orderLabel="order_target") {
@@ -94,6 +349,229 @@ def order_target_value(mutable context, msg, stockCode, targetValue, orderLabel=
         stockCode,
         targetAmount,
         orderLabel
+    )
+}
+
+def order_target_percent(mutable context, msg, stockCode, targetPercent, orderLabel="order_target_percent") {
+    /* 将指定证券调整到当前组合总权益的目标比例。 */
+    normalizedPercent = double(targetPercent)
+    if (
+        isNull(normalizedPercent) ||
+        isNanInf(normalizedPercent) ||
+        normalizedPercent < 0 ||
+        normalizedPercent > 1
+    ) {
+        throw "targetPercent 必须是 [0, 1] 内的有限数值"
+    }
+    return order_target_value(
+        context,
+        msg,
+        stockCode,
+        get_total_equity(context) * normalizedPercent,
+        orderLabel
+    )
+}
+
+def order_target_portfolio(mutable context, msg, targetWeights, orderLabel="order_target_portfolio") {
+    /*
+    按目标权重字典批量调整股票组合，未出现在字典中的现有持仓目标为零。
+
+    函数先提交减仓，再按实时可用现金提交加仓；当前快照不可交易的证券会被
+    跳过。存在延迟或未成交订单时，应在后续快照再次调用以继续向目标收敛。
+    */
+    if (form(targetWeights) != form(dict(STRING, ANY))) {
+        throw "targetWeights 必须是代码到权重的字典"
+    }
+    targetCodes = string(targetWeights.keys())
+    weights = double(targetWeights.values())
+    if (countNanInf(weights, true) > 0 || any(weights < 0)) {
+        throw "targetWeights 的权重必须是非负有限数值"
+    }
+    if (sum(weights) > 1.0 + 1e-10) {
+        throw "targetWeights 的权重总和不能超过 1"
+    }
+    for (stockCode in targetCodes) {
+        if (!endsWith(stockCode, ".XSHG") && !endsWith(stockCode, ".XSHE")) {
+            throw "targetWeights 代码必须使用 XSHG/XSHE 格式"
+        }
+    }
+
+    positions = get_positions(context)
+    allCodes = array(STRING, 0)
+    allCodes.append!(targetCodes)
+    if (positions.rows() > 0) {
+        allCodes.append!(string(positions.symbol))
+    }
+    allCodes = distinct(allCodes)
+    totalEquity = get_total_equity(context)
+    orderIds = array(LONG, 0)
+    config = Backtest::getConfig(context.engine)
+    commission = double(config["commission"])
+    minimumFeeEnabled = bool(
+        config["enableMinimumPerTransactionFee"]
+    )
+
+    // 先处理清仓和减仓，避免用尚未释放的资金计算后续买单。
+    for (stockCode in allCodes) {
+        if (!can_trade(msg, stockCode, 3)) continue
+        currentPosition = Backtest::getPosition(
+            context.engine,
+            stockCode
+        )
+        currentAmount = long(nullFill(
+            currentPosition.longPosition.sum(),
+            0
+        ))
+        if (currentAmount <= 0) continue
+        messageIndex = find(string(msg.symbol), stockCode)
+        lastPrice = double(msg.lastPrice[messageIndex])
+        targetWeight = iif(
+            stockCode in targetCodes,
+            double(targetWeights[stockCode]),
+            0.0
+        )
+        targetValue = totalEquity * targetWeight
+        if (targetValue >= double(currentAmount) * lastPrice) continue
+        orderId = order_target_value(
+            context,
+            msg,
+            stockCode,
+            targetValue,
+            orderLabel
+        )
+        if (!isNull(orderId)) orderIds.append!(long(orderId))
+    }
+
+    // 卖单在当前盘口成交后重新读取现金；资金不足时只提交可负担的整手数量。
+    for (stockCode in targetCodes) {
+        if (!can_trade(msg, stockCode, 1)) continue
+        messageIndex = find(string(msg.symbol), stockCode)
+        lastPrice = double(msg.lastPrice[messageIndex])
+        offerPrice = double(msg.offerPrice[0][messageIndex])
+        currentPosition = Backtest::getPosition(
+            context.engine,
+            stockCode
+        )
+        currentAmount = long(nullFill(
+            currentPosition.longPosition.sum(),
+            0
+        ))
+        targetAmount = long(floor(
+            totalEquity * double(targetWeights[stockCode]) /
+            lastPrice /
+            100.0
+        )) * 100l
+        requiredAmount = targetAmount - currentAmount
+        if (requiredAmount <= 0) continue
+
+        availableCash = get_available_cash(context)
+        cashValueLimit = availableCash / (1.0 + commission)
+        if (minimumFeeEnabled) {
+            cashValueLimit = min(
+                cashValueLimit,
+                max(availableCash - 5.0, 0.0)
+            )
+        }
+        affordableAmount = long(floor(
+            cashValueLimit /
+            offerPrice /
+            100.0
+        )) * 100l
+        submittedAmount = min(requiredAmount, affordableAmount)
+        if (submittedAmount <= 0) continue
+        orderId = order_target(
+            context,
+            msg,
+            stockCode,
+            currentAmount + submittedAmount,
+            orderLabel
+        )
+        if (!isNull(orderId)) orderIds.append!(long(orderId))
+    }
+    return orderIds
+}
+
+def register_schedule(mutable context, callback, frequency, tradingDay, phase) {
+    if (!("arenaScheduler" in context.keys())) {
+        throw "run_daily/run_weekly/run_monthly 只能在 initialize 中注册"
+    }
+    scheduler = context["arenaScheduler"]
+    if (!bool(scheduler["registrationOpen"])) {
+        throw "run_daily/run_weekly/run_monthly 只能在 initialize 中注册"
+    }
+    normalizedFrequency = lower(string(frequency))
+    normalizedPhase = lower(string(phase))
+    if (!(normalizedFrequency in ["daily", "weekly", "monthly"])) {
+        throw "frequency 只能是 daily、weekly 或 monthly"
+    }
+    if (!(
+        normalizedPhase in [
+            "before_trading",
+            "open",
+            "after_trading"
+        ]
+    )) {
+        throw "phase 只能是 before_trading、open 或 after_trading"
+    }
+    normalizedTradingDay = int(tradingDay)
+    if (
+        isNull(tradingDay) ||
+        double(normalizedTradingDay) != double(tradingDay)
+    ) {
+        throw "tradingDay 必须是整数"
+    }
+    if (
+        normalizedFrequency != "daily" &&
+        normalizedTradingDay == 0
+    ) {
+        throw "周/月调度的 tradingDay 不能为 0"
+    }
+    callbacks = scheduler["callbacks"]
+    frequencies = scheduler["frequencies"]
+    tradingDays = scheduler["tradingDays"]
+    phases = scheduler["phases"]
+    callbacks.append!(callback)
+    frequencies.append!(normalizedFrequency)
+    tradingDays.append!(normalizedTradingDay)
+    phases.append!(normalizedPhase)
+    scheduler["callbacks"] = callbacks
+    scheduler["frequencies"] = frequencies
+    scheduler["tradingDays"] = tradingDays
+    scheduler["phases"] = phases
+    context["arenaScheduler"] = scheduler
+    return size(callbacks) - 1
+}
+
+def run_daily(mutable context, callback, phase="open") {
+    /* 在每个回放交易日的指定阶段运行 callback。 */
+    return register_schedule(
+        context,
+        callback,
+        "daily",
+        0,
+        phase
+    )
+}
+
+def run_weekly(mutable context, callback, tradingDay=1, phase="open") {
+    /* 在每周第 tradingDay 个交易日运行 callback；负数表示倒数。 */
+    return register_schedule(
+        context,
+        callback,
+        "weekly",
+        tradingDay,
+        phase
+    )
+}
+
+def run_monthly(mutable context, callback, tradingDay=1, phase="open") {
+    /* 在每月第 tradingDay 个交易日运行 callback；负数表示倒数。 */
+    return register_schedule(
+        context,
+        callback,
+        "monthly",
+        tradingDay,
+        phase
     )
 }
 
@@ -232,6 +710,137 @@ def noop_message_callback(mutable context, message, indicator) {
     return NULL
 }
 
+def schedule_matches_date(currentDate, frequency, tradingDay) {
+    if (frequency == "daily") return true
+    if (frequency == "weekly") {
+        periodStart = weekBegin(currentDate)
+        periodEnd = weekEnd(currentDate)
+    } else {
+        periodStart = monthBegin(currentDate)
+        periodEnd = monthEnd(currentDate)
+    }
+    periodTradingDays = get_trading_days(
+        periodStart,
+        periodEnd,
+        "XSHG"
+    )
+    selectedIndex = iif(
+        tradingDay > 0,
+        tradingDay - 1,
+        size(periodTradingDays) + tradingDay
+    )
+    return selectedIndex >= 0 &&
+        selectedIndex < size(periodTradingDays) &&
+        periodTradingDays[selectedIndex] == currentDate
+}
+
+def dispatch_schedules(mutable context, currentDate, phase, message, indicator) {
+    scheduler = context["arenaScheduler"]
+    callbacks = scheduler["callbacks"]
+    frequencies = scheduler["frequencies"]
+    tradingDays = scheduler["tradingDays"]
+    phases = scheduler["phases"]
+    if (size(callbacks) == 0) return NULL
+    for (index in 0..(size(callbacks) - 1)) {
+        if (phases[index] != phase) continue
+        if (!schedule_matches_date(
+            currentDate,
+            frequencies[index],
+            tradingDays[index]
+        )) continue
+        call(
+            callbacks[index],
+            context,
+            message,
+            indicator
+        )
+    }
+    return NULL
+}
+
+def after_trading_with_scheduler(mutable context, callback) {
+    result = call(callback, context)
+    scheduler = context["arenaScheduler"]
+    currentIndex = int(scheduler["dateIndex"])
+    replayDates = scheduler["replayDates"]
+    if (currentIndex >= 0 && currentIndex < size(replayDates)) {
+        dispatch_schedules(
+            context,
+            replayDates[currentIndex],
+            "after_trading",
+            NULL,
+            NULL
+        )
+    }
+    return result
+}
+
+def before_trading_with_scheduler(mutable context, callback) {
+    scheduler = context["arenaScheduler"]
+    currentIndex = int(scheduler["dateIndex"]) + 1
+    replayDates = scheduler["replayDates"]
+    if (currentIndex >= size(replayDates)) {
+        throw "调度日期与 Backtest beforeTrading 回调数量不一致"
+    }
+    scheduler["dateIndex"] = currentIndex
+    context["arenaScheduler"] = scheduler
+    result = call(callback, context)
+    dispatch_schedules(
+        context,
+        replayDates[currentIndex],
+        "before_trading",
+        NULL,
+        NULL
+    )
+    return result
+}
+
+def cleanup_scheduler_context(mutable context) {
+    erase!(context, "arenaScheduler")
+    return NULL
+}
+
+def finalize_with_scheduler(mutable context, callback) {
+    cleanup_scheduler_context(context)
+    return call(callback, context)
+}
+
+def initialize_scheduler_context(mutable context, replayDates) {
+    scheduler = dict(STRING, ANY)
+    scheduler["callbacks"] = array(ANY, 0)
+    scheduler["frequencies"] = array(STRING, 0)
+    scheduler["tradingDays"] = array(INT, 0)
+    scheduler["phases"] = array(STRING, 0)
+    scheduler["replayDates"] = date(replayDates)
+    scheduler["dateIndex"] = -1
+    scheduler["registrationOpen"] = true
+    context["arenaScheduler"] = scheduler
+    return NULL
+}
+
+def initialize_with_scheduler(mutable context, callback, replayDates) {
+    initialize_scheduler_context(context, replayDates)
+    result = call(callback, context)
+    scheduler = context["arenaScheduler"]
+    scheduler["registrationOpen"] = false
+    context["arenaScheduler"] = scheduler
+    return result
+}
+
+def on_snapshot_with_scheduler(mutable context, message, indicator, callback) {
+    currentTime = time(message.timestamp[0])
+    if (currentTime == 09:30:00) {
+        dispatch_schedules(
+            context,
+            date(message.timestamp[0]),
+            "open",
+            message,
+            indicator
+        )
+    }
+    return call(callback, context, message, indicator)
+}
+
 def run_backtest(name, mutable config, message, initialize_callback, before_trading_callback, on_bar_callback, on_snapshot_callback, on_order_callback, on_trade_callback, after_trading_callback, finalize_callback) {
     /*
     使用给定配置、完整消息表和全部生命周期回调创建并运行 Backtest 引擎。
@@ -296,6 +905,29 @@ def run_backtest(name, mutable config, message, initialize_callback, before_trad
         finalize_callback,
         noop_context_callback
     )
+    replay_dates = exec distinct date(timestamp)
+    from message
+    order by date(timestamp)
+    initialize = initialize_with_scheduler{
+        ,
+        initialize,
+        replay_dates
+    }
+    before_trading = before_trading_with_scheduler{
+        ,
+        before_trading
+    }
+    on_snapshot = on_snapshot_with_scheduler{
+        ,
+        ,
+        ,
+        on_snapshot
+    }
+    after_trading = after_trading_with_scheduler{
+        ,
+        after_trading
+    }
+    finalize = finalize_with_scheduler{, finalize}
     engine = Backtest::createBacktestEngine(
         name,
         config,
