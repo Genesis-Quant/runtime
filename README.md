@@ -45,6 +45,7 @@ with analyze_factors(
     query_request,
     factor_columns=["close"],
     return_columns=["pct_chg"],
+    return_specs={"pct_chg": {"kind": "simple", "periods": 1}},
     n_groups=5,
 ) as factor_result:
     processed = factor_result.processed_data
@@ -132,6 +133,7 @@ with analyze_factors(
     manually_preprocessed_query,
     factor_columns=["close_processed"],
     return_columns=["pct_chg"],
+    return_specs={"pct_chg": {"kind": "simple", "periods": 1}},
     n_groups=5,
     preprocess=False,
 ) as factor_result:

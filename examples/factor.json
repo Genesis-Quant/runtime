@@ -37,6 +37,16 @@
     "pct_chg",
     "pct_chg_hfq"
   ],
+  "return_specs": {
+    "pct_chg": {
+      "kind": "simple",
+      "periods": 1
+    },
+    "pct_chg_hfq": {
+      "kind": "simple",
+      "periods": 1
+    }
+  },
   "n_groups": 5,
   "preprocess": true
 }

@@ -732,7 +732,8 @@ CS_GROUPED_ZSCORE = DolphinDBFunction(
         [-0.859338, -0.50128, -0.50128, 0.214834, 1.64706]
         */
         scale = iif(int(ddof) == 0, stdp(col), std(col))
-        return iif(isNull(scale) || scale == 0, NULL, (col - avg(col)) / scale)
+        if (isNull(scale) || scale == 0) return take(double(NULL), size(col))
+        return (col - avg(col)) / scale
     }
     """
 )
@@ -1205,7 +1206,8 @@ CS_UNARY_NORMALIZE_L1 = DolphinDBFunction(
         [0.25, NULL, 0.75]
         */
         denominator = sum(abs(col))
-        return iif(isNull(denominator) || denominator == 0, NULL, col / denominator)
+        if (isNull(denominator) || denominator == 0) return take(double(NULL), size(col))
+        return col / denominator
     }
     """
 )
@@ -1247,7 +1249,8 @@ CS_UNARY_NORMALIZE_L2 = DolphinDBFunction(
         [false, true, false]
         */
         denominator = sqrt(sum(col * col))
-        return iif(isNull(denominator) || denominator == 0, NULL, col / denominator)
+        if (isNull(denominator) || denominator == 0) return take(double(NULL), size(col))
+        return col / denominator
     }
     """
 )
@@ -1289,7 +1292,8 @@ CS_UNARY_NORMALIZE_SUM = DolphinDBFunction(
         [0.25, NULL, 0.75]
         */
         denominator = sum(col)
-        return iif(isNull(denominator) || denominator == 0, NULL, col / denominator)
+        if (isNull(denominator) || denominator == 0) return take(double(NULL), size(col))
+        return col / denominator
     }
     """
 )
@@ -1667,7 +1671,8 @@ CS_UNARY_ROBUST_ZSCORE = DolphinDBFunction(
         */
         center = med(col)
         deviation = mad(col, true) * scale
-        return iif(isNull(deviation) || deviation == 0, NULL, (col - center) / deviation)
+        if (isNull(deviation) || deviation == 0) return take(double(NULL), size(col))
+        return (col - center) / deviation
     }
     """
 )
@@ -2098,7 +2103,8 @@ CS_UNARY_ZSCORE = DolphinDBFunction(
         [-0.859338, -0.50128, -0.50128, 0.214834, 1.64706]
         */
         scale = iif(int(ddof) == 0, stdp(col), std(col))
-        return iif(isNull(scale) || scale == 0, NULL, (col - avg(col)) / scale)
+        if (isNull(scale) || scale == 0) return take(double(NULL), size(col))
+        return (col - avg(col)) / scale
     }
     """
 )
