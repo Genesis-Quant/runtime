@@ -5,6 +5,12 @@ from typing import Any
 import pandas as pd
 
 from runtime.utils import SessionResult
+from runtime.utils.result import ResultUnavailableError
+
+DAILY_TRADING_STATISTICS_UNAVAILABLE_MARKERS = (
+    "Not support getDailyTradingStatistics interface",
+    "The function 'getDailyTradingStatistics' is not defined",
+)
 
 
 class BacktestResult(SessionResult):
@@ -42,7 +48,21 @@ class BacktestResult(SessionResult):
     @property
     def daily_trading_statistics(self) -> pd.DataFrame:
         """访问时生成并下载每日交易统计。"""
-        return self.download("Backtest::getDailyTradingStatistics(coreBacktestEngine)")
+        try:
+            return self.download(
+                "Backtest::getDailyTradingStatistics(coreBacktestEngine)"
+            )
+        except RuntimeError as error:
+            message = str(error)
+            if not any(
+                marker in message
+                for marker in DAILY_TRADING_STATISTICS_UNAVAILABLE_MARKERS
+            ):
+                raise
+            raise ResultUnavailableError(
+                "daily_trading_statistics",
+                "当前 DolphinDB Backtest 插件不支持每日交易统计接口",
+            ) from error
 
     @property
     def engine_stat(self) -> pd.DataFrame:

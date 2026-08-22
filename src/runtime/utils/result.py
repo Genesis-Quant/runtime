@@ -3,6 +3,15 @@
 from typing import Any, Self
 
 
+class ResultUnavailableError(RuntimeError):
+    """表示当前运行环境明确不支持某个可选结果。"""
+
+    def __init__(self, result_name: str, reason: str) -> None:
+        super().__init__(reason)
+        self.result_name = result_name
+        self.reason = reason
+
+
 class SessionResult:
     """持有一个会话，并执行任意 DolphinDB 脚本下载结果。"""
 
@@ -47,3 +56,6 @@ class SessionResult:
         """退出上下文时关闭 DolphinDB 会话。"""
         self.close()
         return False
+
+
+__all__ = ["ResultUnavailableError", "SessionResult"]

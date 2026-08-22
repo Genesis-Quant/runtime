@@ -9,7 +9,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from runtime.config import ArenaSettings
-from runtime.utils.result import SessionResult
+from runtime.utils.logging import logger
+from runtime.utils.result import ResultUnavailableError, SessionResult
 from runtime.utils.storage import (
     ObjectStorage,
     ObjectStorageConfigurationError,
@@ -196,13 +197,22 @@ def save_app_outputs(
         if storage is not None:
             stack.enter_context(storage)
         result = stack.enter_context(result_factory())
-        return [
-            write_parquet(
-                getattr(result, output_name),
-                output_filenames[output_name],
-                output_target=output_target,
-                storage=storage,
+        outputs: list[str] = []
+        for output_name in arguments.output:
+            try:
+                data = getattr(result, output_name)
+            except ResultUnavailableError as error:
+                if error.result_name != output_name:
+                    raise
+                logger.warning(f"未生成结果 {output_name}：{error.reason}")
+                continue
+            outputs.append(
+                write_parquet(
+                    data,
+                    output_filenames[output_name],
+                    output_target=output_target,
+                    storage=storage,
+                )
             )
-            for output_name in arguments.output
-        ]
+        return outputs
 
