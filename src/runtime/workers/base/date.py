@@ -1,9 +1,8 @@
 """定义逐自然日更新的抽象 Worker。"""
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import timedelta
 
 import numpy as np
 import pandas as pd
@@ -116,13 +115,21 @@ class DateWorker(BaseWorker, ABC):
         )
         return self.normalize_result(result)
 
+    @property
+    def incremental_scope_codes(self) -> Sequence[str] | None:
+        """返回增量基线查询需要限制的代码范围。"""
+        return None
+
     def pending_dates(self) -> pd.DatetimeIndex:
-        """返回最新回执之后到当前日期之间的全部自然日。"""
+        """返回最近完整数据日起到截止日期之间的全部自然日。"""
         last_date = None if self.overwrite else self.get_last_date()
         start_date = (
             self.start_date
             if last_date is None
-            else normalize_date(last_date, "last_date") + timedelta(days=1)
+            else max(
+                self.start_date,
+                normalize_date(last_date, "last_date"),
+            )
         )
         end_date = self.end_date
 
@@ -150,43 +157,91 @@ class DateWorker(BaseWorker, ABC):
         return dates
 
     def get_last_date(self) -> pd.Timestamp | None:
-        """返回当前 Worker 对应因子最近有数据的自然日。"""
+        """返回当前 Worker 全部因子均有数据的最近自然日。
+
+        增量计划会从该日重新抓取，避免上一次分批写入中断时把只写入
+        部分数据的最后一天误认为已经完成。
+        """
         started = time.perf_counter()
         logger.debug(f"{self} 查询最近数据日")
         session = create_session(role="worker")
         try:
-            session.upload(
-                {"dateWorkerFactors": np.asarray(self.factors, dtype=str)}
-            )
+            upload_values = {
+                "dateWorkerFactors": np.asarray(self.factors, dtype=str),
+            }
+            scope_codes = self.incremental_scope_codes
+            scope_clause = ""
+            if scope_codes is not None:
+                normalized_codes = tuple(
+                    dict.fromkeys(
+                        str(code).strip()
+                        for code in scope_codes
+                        if str(code).strip()
+                    )
+                )
+                if not normalized_codes:
+                    raise RuntimeError(f"{self} 增量基线代码范围为空")
+                upload_values["dateWorkerCodes"] = np.asarray(
+                    normalized_codes,
+                    dtype=str,
+                )
+                scope_clause = (
+                    f"and {CODE_COLUMN} in symbol(dateWorkerCodes)"
+                )
+            session.upload(upload_values)
             result = session.run(
                 f"""
-                select max({TIME_COLUMN}) as {TIME_COLUMN}
+                select {FACTOR_COLUMN}, max({TIME_COLUMN}) as {TIME_COLUMN}
                 from {CORE_TABLE}
                 where {FACTOR_COLUMN} in symbol(dateWorkerFactors)
+                  {scope_clause}
+                group by {FACTOR_COLUMN}
                 """
             )
         finally:
             session.close()
-        if result is None or result.empty or TIME_COLUMN not in result.columns:
+        required_columns = {FACTOR_COLUMN, TIME_COLUMN}
+        if (
+                result is None
+                or result.empty
+                or not required_columns.issubset(result.columns)
+        ):
             elapsed = time.perf_counter() - started
             logger.info(
                 f"{self} 增量基线：因子={len(self.factors):,}，"
                 f"最近数据日=无，查询耗时={elapsed:.2f}秒"
             )
             return None
-        value = result.iloc[0][TIME_COLUMN]
-        if pd.isna(value):
+
+        factor_dates = {
+            str(row[FACTOR_COLUMN]): normalize_date(
+                row[TIME_COLUMN],
+                TIME_COLUMN,
+            )
+            for _, row in result.iterrows()
+            if not pd.isna(row[TIME_COLUMN])
+        }
+        missing_factors = set(self.factors) - factor_dates.keys()
+        if missing_factors:
             elapsed = time.perf_counter() - started
             logger.info(
                 f"{self} 增量基线：因子={len(self.factors):,}，"
-                f"最近数据日=无，查询耗时={elapsed:.2f}秒"
+                f"缺失因子={sorted(missing_factors)}，最近完整数据日=无，"
+                f"查询耗时={elapsed:.2f}秒"
             )
             return None
-        latest = normalize_date(value, TIME_COLUMN)
+
+        latest = min(factor_dates.values())
         elapsed = time.perf_counter() - started
+        scope_text = (
+            f"，代码范围={len(normalized_codes):,}"
+            if scope_codes is not None
+            else ""
+        )
         logger.info(
             f"{self} 增量基线：因子={len(self.factors):,}，"
-            f"最近数据日={latest:%Y-%m-%d}，"
+            f"最近完整数据日={latest:%Y-%m-%d}{scope_text}，"
+            "将重放该自然日，"
             f"查询耗时={elapsed:.2f}秒"
         )
         return latest

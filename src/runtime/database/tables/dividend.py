@@ -10,6 +10,7 @@ from runtime.config import DolphinSettings
 from runtime.utils import logger
 
 from ..session import create_session
+from .core import grant_runtime_table_read
 
 STOCK_DIVIDEND_COLUMNS = (
     "symbol",
@@ -67,7 +68,7 @@ STOCK_DIVIDEND_TABLE = (
 
 
 def ensure_stock_dividend_table(session: Any) -> None:
-    """在 CoreData 中创建股票分红维度表，已存在时不做处理。"""
+    """确保股票分红维度表存在并向业务运行账号授予只读权限。"""
     session.upload(
         {
             "coreDividendDatabaseName": DolphinSettings.DATABASE,
@@ -119,6 +120,7 @@ def ensure_stock_dividend_table(session: Any) -> None:
         }
         """
     )
+    grant_runtime_table_read(session, DolphinSettings.DIVIDEND_TABLE)
 
 
 def normalize_stock_dividends(data: pd.DataFrame) -> pd.DataFrame:

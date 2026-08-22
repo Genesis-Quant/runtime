@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from runtime.utils import CODE_COLUMN, TIME_COLUMN, normalize_date
+from runtime.utils import CODE_COLUMN, TIME_COLUMN, get_codes, normalize_date
 from runtime.utils.ts_api import pro, ts
 
 from .base import DateWorker, StockWorker
@@ -49,6 +49,11 @@ class StockDailyWorker(DateWorker):
     @property
     def factors(self) -> tuple[str, ...]:
         return STOCK_DAILY_FACTORS
+
+    @property
+    def incremental_scope_codes(self) -> tuple[str, ...]:
+        """只使用股票代码计算增量基线，排除基金日线。"""
+        return get_codes()
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场未复权日行情。"""
@@ -97,6 +102,11 @@ class StockAdjFactorWorker(DateWorker):
     @property
     def factors(self) -> tuple[str, ...]:
         return STOCK_ADJ_FACTOR_FACTORS
+
+    @property
+    def incremental_scope_codes(self) -> tuple[str, ...]:
+        """只使用股票代码计算增量基线，排除基金复权因子。"""
+        return get_codes()
 
     def fetch_one(self, current_date: pd.Timestamp) -> pd.DataFrame:
         """获取一个自然日的全市场复权因子。"""

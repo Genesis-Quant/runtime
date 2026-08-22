@@ -46,8 +46,20 @@ CORE_TABLE = (
 )
 
 
+def grant_runtime_table_read(session: Any, table_name: str) -> None:
+    """由 Worker 表所有者向业务运行账号授予指定表的只读权限。"""
+    runtime_username = DolphinSettings.RUNTIME_USERNAME
+    if not runtime_username:
+        raise RuntimeError("缺少 DolphinDB 配置：DOLPHIN_RUNTIME_USERNAME")
+    table_path = f"{DolphinSettings.DATABASE}/{table_name}"
+    session.run(
+        f"grant({ddb_string(runtime_username)}, TABLE_READ, "
+        f"{ddb_string(table_path)})"
+    )
+
+
 def ensure_core_table(session: Any, factors: list[str]) -> None:
-    """统一因子库表缺失时，使用已有会话完成初始化。"""
+    """确保统一因子表存在并向业务运行账号授予只读权限。"""
     if session.run(
         f"existsDatabase({ddb_string(DolphinSettings.DATABASE)})"
     ) and session.run(
@@ -55,6 +67,7 @@ def ensure_core_table(session: Any, factors: list[str]) -> None:
         f"{ddb_string(DolphinSettings.DATABASE)}, "
         f"{ddb_string(DolphinSettings.TABLE)})"
     ):
+        grant_runtime_table_read(session, DolphinSettings.TABLE)
         return
 
     logger.info(
@@ -115,6 +128,7 @@ def ensure_core_table(session: Any, factors: list[str]) -> None:
         """
     )
     logger.success(str(result))
+    grant_runtime_table_read(session, DolphinSettings.TABLE)
 
 
 def ensure_factor_partitions(
