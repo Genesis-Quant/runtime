@@ -64,7 +64,7 @@ class BacktestParameters(BaseModel):
 
     params: dict[str, Any] = Field(
         default_factory=dict,
-        description="传给策略的简单参数字典，可在回调中通过 getParams() 读取。",
+        description="传给策略的简单参数字典，可在回调中通过 getParams() 或 getParam(key) 读取。",
     )
 
     codes_query: FactorQuery | None = Field(

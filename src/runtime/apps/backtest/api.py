@@ -42,8 +42,12 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestAdj",
     "coreBacktestSyntheticSpread",
     "coreBacktestParams",
+    "coreBacktestAvailableTradeDates",
+    "coreBacktestTradeDates",
     "coreBacktestRunMessage",
     "getParams",
+    "getParam",
+    "getTradeDates",
     "coreBacktestEngine",
     "coreLoadedPlugins",
     "coreBacktestComputedData",
@@ -183,6 +187,13 @@ def prepare_backtest_session(
                 coreBacktestSyntheticSpread
             )
         """)
+    if log_progress:
+        logger.info(f"session.run: 缓存回测交易日期 {message_ref}")
+    session.run(f"""
+        coreBacktestAvailableTradeDates = exec distinct date(timestamp)
+        from {message_ref}
+        order by date(timestamp)
+    """)
     return parameters.model_copy(update={"dataset_query": dataset_query})
 
 
@@ -250,6 +261,11 @@ def execute_prepared_backtest(
         logger.info(f"session.run: 创建并运行回测引擎 {engine_name}")
     session.run(f"""
         {message_statement}
+
+        coreBacktestTradeDates = coreBacktestAvailableTradeDates[
+            coreBacktestAvailableTradeDates >= date(coreBacktestStartDate) &&
+            coreBacktestAvailableTradeDates <= date(coreBacktestEndDate)
+        ]
 
         coreBacktestEngine = backtest::run_backtest(
             coreBacktestName,
