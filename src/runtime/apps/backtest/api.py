@@ -77,7 +77,8 @@ def load_backtest_environment(session: Any, *, log_progress: bool = True) -> Non
         """
     )
     if log_progress:
-        logger.info("session.run: 加载 backtest 模块")
+        logger.info("session.run: 加载 factor 和 backtest 模块")
+    session.run("use factor")
     session.run("use backtest")
 
 

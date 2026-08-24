@@ -4,14 +4,17 @@ from copy import deepcopy
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock, call
 
 from pydantic import ValidationError
 
 from runtime import BacktestParameters
 from runtime.apps import BacktestParameters as AppsBacktestParameters
 from runtime.apps.backtest import BacktestParameters as BacktestAppParameters
+from runtime.apps.backtest.api import load_backtest_environment
 from runtime.apps.optimization.api import build_walk_forward_windows
 from runtime.apps.optimization.schema import OptimizationSettings
+from runtime.database.compile.backtest.scripts import build_script
 
 
 CALLBACKS = {
@@ -44,6 +47,19 @@ def parameters() -> dict:
 
 
 class BacktestParametersTests(unittest.TestCase):
+    def test_backtest_module_imports_factor_module(self) -> None:
+        self.assertIn("\n\nuse factor\n", build_script())
+
+    def test_backtest_session_loads_factor_before_backtest(self) -> None:
+        session = Mock()
+
+        load_backtest_environment(session, log_progress=False)
+
+        self.assertEqual(
+            session.run.call_args_list[-2:],
+            [call("use factor"), call("use backtest")],
+        )
+
     def test_public_packages_export_the_same_model(self) -> None:
         self.assertIs(AppsBacktestParameters, BacktestParameters)
         self.assertIs(BacktestAppParameters, BacktestParameters)
