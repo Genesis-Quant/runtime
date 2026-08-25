@@ -23,6 +23,11 @@ def getParam(key) {
     return parameters[parameterKey]
 }
 
+def getIndustry() {
+    /* 返回与 Factor 研究同源、使用 XSHG/XSHE 代码的行业字典。 */
+    return objByName("coreBacktestCodeToIndustry")
+}
+
 def getTradeDates() {
     /* 返回当前回测实际回放的有序交易日期。 */
     return date(objByName("coreBacktestTradeDates"))

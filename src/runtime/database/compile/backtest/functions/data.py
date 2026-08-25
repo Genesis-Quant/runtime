@@ -3,6 +3,17 @@
 from runtime.database.compile import DolphinDBFunction
 
 
+GET_INDUSTRY = DolphinDBFunction(
+    module="backtest",
+    definition="""
+    def getIndustry() {
+        /* 返回与 Factor 研究同源、使用 XSHG/XSHE 代码的行业字典。 */
+        return objByName("coreBacktestCodeToIndustry")
+    }
+    """,
+)
+
+
 GET_TRADE_DATES = DolphinDBFunction(
     module="backtest",
     definition="""

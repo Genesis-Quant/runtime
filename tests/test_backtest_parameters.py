@@ -4,14 +4,14 @@ from copy import deepcopy
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, call
+from unittest.mock import Mock, call, patch
 
 from pydantic import ValidationError
 
 from runtime import BacktestParameters
 from runtime.apps import BacktestParameters as AppsBacktestParameters
 from runtime.apps.backtest import BacktestParameters as BacktestAppParameters
-from runtime.apps.backtest.api import load_backtest_environment
+from runtime.apps.backtest.api import backtest_industry_mapping, load_backtest_environment
 from runtime.apps.optimization.api import build_walk_forward_windows
 from runtime.apps.optimization.schema import OptimizationSettings
 from runtime.database.compile.backtest.scripts import build_script
@@ -48,7 +48,33 @@ def parameters() -> dict:
 
 class BacktestParametersTests(unittest.TestCase):
     def test_backtest_module_imports_factor_module(self) -> None:
-        self.assertIn("\n\nuse factor\n", build_script())
+        script = build_script()
+
+        self.assertIn("\n\nuse factor\n", script)
+        self.assertIn("def getIndustry()", script)
+
+    def test_backtest_industry_mapping_uses_canonical_symbols(self) -> None:
+        with patch(
+            "runtime.apps.backtest.api.get_stock_metadata",
+            return_value=(
+                (),
+                None,
+                {
+                    "000001.SZ": "金融",
+                    "600000.SH": "金融",
+                    "430001.BJ": "工业",
+                },
+            ),
+        ):
+            result = backtest_industry_mapping()
+
+        self.assertEqual(
+            result,
+            {
+                "000001.XSHE": "金融",
+                "600000.XSHG": "金融",
+            },
+        )
 
     def test_backtest_session_loads_factor_before_backtest(self) -> None:
         session = Mock()

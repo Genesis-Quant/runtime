@@ -8,6 +8,7 @@ import numpy as np
 from runtime.database import create_session
 from runtime.database.session import has_session_variable, redirect_session_output
 from runtime.utils import (
+    get_stock_metadata,
     logger,
     normalize_date_range,
     normalize_str,
@@ -42,11 +43,13 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestAdj",
     "coreBacktestSyntheticSpread",
     "coreBacktestParams",
+    "coreBacktestCodeToIndustry",
     "coreBacktestAvailableTradeDates",
     "coreBacktestTradeDates",
     "coreBacktestRunMessage",
     "getParams",
     "getParam",
+    "getIndustry",
     "getTradeDates",
     "coreBacktestEngine",
     "coreLoadedPlugins",
@@ -59,6 +62,17 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestCodesData",
 })
 BACKTEST_SESSION_MAX_TIME = 60 * 60
+
+
+def backtest_industry_mapping() -> dict[str, str]:
+    """Return Factor research industries keyed by Backtest canonical symbols."""
+    result: dict[str, str] = {}
+    for code, industry in get_stock_metadata()[2].items():
+        if code.endswith(".SZ"):
+            result[f"{code[:-3]}.XSHE"] = industry
+        elif code.endswith(".SH"):
+            result[f"{code[:-3]}.XSHG"] = industry
+    return result
 
 
 def load_backtest_environment(session: Any, *, log_progress: bool = True) -> None:
@@ -168,6 +182,7 @@ def prepare_backtest_session(
         "coreBacktestRiskFreeRate": parameters.risk_free_rate,
         "coreBacktestAdj": parameters.adj or "",
         "coreBacktestSyntheticSpread": synthetic_spread,
+        "coreBacktestCodeToIndustry": backtest_industry_mapping(),
     })
     load_backtest_environment(session, log_progress=log_progress)
     if parameters.utils:

@@ -9810,7 +9810,8 @@ def cs_grouped_zscore(col, ddof) {
     [-0.859338, -0.50128, -0.50128, 0.214834, 1.64706]
     */
     scale = iif(int(ddof) == 0, stdp(col), std(col))
-    return iif(isNull(scale) || scale == 0, NULL, (col - avg(col)) / scale)
+    if (isNull(scale) || scale == 0) return take(double(NULL), size(col))
+    return (col - avg(col)) / scale
 }
 
 def cs_unary_bottom_n(col, n) {
@@ -10221,7 +10222,8 @@ def cs_unary_normalize_l1(col) {
     [0.25, NULL, 0.75]
     */
     denominator = sum(abs(col))
-    return iif(isNull(denominator) || denominator == 0, NULL, col / denominator)
+    if (isNull(denominator) || denominator == 0) return take(double(NULL), size(col))
+    return col / denominator
 }
 
 def cs_unary_normalize_l2(col) {
@@ -10258,7 +10260,8 @@ def cs_unary_normalize_l2(col) {
     [false, true, false]
     */
     denominator = sqrt(sum(col * col))
-    return iif(isNull(denominator) || denominator == 0, NULL, col / denominator)
+    if (isNull(denominator) || denominator == 0) return take(double(NULL), size(col))
+    return col / denominator
 }
 
 def cs_unary_normalize_sum(col) {
@@ -10295,7 +10298,8 @@ def cs_unary_normalize_sum(col) {
     [0.25, NULL, 0.75]
     */
     denominator = sum(col)
-    return iif(isNull(denominator) || denominator == 0, NULL, col / denominator)
+    if (isNull(denominator) || denominator == 0) return take(double(NULL), size(col))
+    return col / denominator
 }
 
 def cs_unary_qcut(col, q) {
@@ -10634,7 +10638,8 @@ def cs_unary_robust_zscore(col, scale) {
     */
     center = med(col)
     deviation = mad(col, true) * scale
-    return iif(isNull(deviation) || deviation == 0, NULL, (col - center) / deviation)
+    if (isNull(deviation) || deviation == 0) return take(double(NULL), size(col))
+    return (col - center) / deviation
 }
 
 def cs_unary_skew(col) {
@@ -11016,7 +11021,8 @@ def cs_unary_zscore(col, ddof) {
     [-0.859338, -0.50128, -0.50128, 0.214834, 1.64706]
     */
     scale = iif(int(ddof) == 0, stdp(col), std(col))
-    return iif(isNull(scale) || scale == 0, NULL, (col - avg(col)) / scale)
+    if (isNull(scale) || scale == 0) return take(double(NULL), size(col))
+    return (col - avg(col)) / scale
 }
 
 def normalize_on(on, n) {

@@ -30,6 +30,9 @@ FACTOR_PREPROCESS = DolphinDBFunction(
             symbol([timeCol, codeCol, mktmvCol, industryCol])
         )
         factorCheckColumns(rawFactorTable, symbol(factorColNames))
+        if (size(rawFactorTable) == 0) {
+            throw "factorPreprocess 输入表为空；请检查 dataset_query.filters 和股票池条件"
+        }
         for (factorCol in factorColNames) {
             groupColName = string(factorCol) + "_group"
             if (groupColName in rawFactorTable.columnNames()) {

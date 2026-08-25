@@ -31,7 +31,12 @@ if TYPE_CHECKING:
     from .result import SessionResult
     from .retry import Retry
     from .throttle import RateLimiter
-    from .ts_api import get_codes, get_pro, get_stock_metadata
+    from .ts_api import (
+        get_codes,
+        get_pro,
+        get_stock_metadata,
+        initialize_stock_metadata,
+    )
 
 LAZY_EXPORTS = {
     "logger": ("runtime.utils.logging", "logger"),
@@ -42,6 +47,10 @@ LAZY_EXPORTS = {
     "get_codes": ("runtime.utils.ts_api", "get_codes"),
     "get_pro": ("runtime.utils.ts_api", "get_pro"),
     "get_stock_metadata": ("runtime.utils.ts_api", "get_stock_metadata"),
+    "initialize_stock_metadata": (
+        "runtime.utils.ts_api",
+        "initialize_stock_metadata",
+    ),
     "pro": ("runtime.utils.ts_api", "pro"),
     "ts": ("runtime.utils.ts_api", "ts"),
     "CODES": ("runtime.utils.ts_api", "CODES"),
@@ -64,6 +73,7 @@ __all__ = [
     "get_codes",
     "get_pro",
     "get_stock_metadata",
+    "initialize_stock_metadata",
     "index_weight_factor",
     "logger",
     "normalize_date",

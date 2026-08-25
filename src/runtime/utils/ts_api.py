@@ -1,4 +1,4 @@
-"""初始化项目唯一的 Tushare 模块和股票元数据。"""
+"""初始化项目唯一的 Tushare 模块和进程内股票元数据。"""
 
 from functools import cache
 from typing import Any
@@ -123,6 +123,9 @@ INDUSTRY_TO_SECTOR = {
     "房产服务": "房地产",
 }
 
+StockMetadata = tuple[tuple[str, ...], pd.DataFrame, dict[str, str]]
+_stock_metadata: StockMetadata | None = None
+
 
 @cache
 def get_pro() -> Any:
@@ -136,10 +139,8 @@ def get_pro() -> Any:
     return client
 
 
-@cache
-def get_stock_metadata(
-) -> tuple[tuple[str, ...], pd.DataFrame, dict[str, str]]:
-    """按需加载并缓存全市场股票代码和行业映射。"""
+def load_stock_metadata() -> StockMetadata:
+    """从 Tushare 加载全市场股票代码和行业映射。"""
     client = get_pro()
     stock_frames: list[pd.DataFrame] = []
     for status in ("L", "D", "P"):
@@ -191,6 +192,19 @@ def get_stock_metadata(
     )
     logger.success(f"Tushare Pro 初始化完成，共加载 {len(codes):,} 只股票")
     return codes, stock_industries, code_to_industry
+
+
+def initialize_stock_metadata() -> StockMetadata:
+    """在当前 Python 进程中初始化一次股票元数据。"""
+    global _stock_metadata
+    if _stock_metadata is None:
+        _stock_metadata = load_stock_metadata()
+    return _stock_metadata
+
+
+def get_stock_metadata() -> StockMetadata:
+    """返回当前 Python 进程复用的股票元数据。"""
+    return initialize_stock_metadata()
 
 
 def get_codes() -> tuple[str, ...]:
