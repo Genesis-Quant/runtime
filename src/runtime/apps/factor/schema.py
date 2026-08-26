@@ -42,7 +42,10 @@ class FactorAnalysisParameters(BaseModel):
 
     dataset_query: FactorQuery = Field(
         ...,
-        description="第二阶段因子 DSL；保留自身 filters，以第一阶段候选代码生成动态股票池。",
+        description=(
+            "因子数据 DSL；codes_query 非空时使用第一阶段候选代码，"
+            "codes_query 为空且 codes=[] 时查询全市场。"
+        ),
     )
 
     factor_columns: list[str] = Field(

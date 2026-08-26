@@ -5,16 +5,10 @@ from typing import Any
 import pandas as pd
 
 from runtime.utils import SessionResult
-from runtime.utils.result import ResultUnavailableError
-
-DAILY_TRADING_STATISTICS_UNAVAILABLE_MARKERS = (
-    "Not support getDailyTradingStatistics interface",
-    "The function 'getDailyTradingStatistics' is not defined",
-)
 
 
 class BacktestResult(SessionResult):
-    """按需生成并下载已结束回测的标准输出。"""
+    """按需下载标准结果，并提供仅限直接 Python 调用的派生与诊断属性。"""
 
     @property
     def trade_details(self) -> pd.DataFrame:
@@ -33,7 +27,7 @@ class BacktestResult(SessionResult):
 
     @property
     def return_summary(self) -> pd.DataFrame:
-        """访问时生成并下载收益汇总。"""
+        """按需计算收益汇总；它不属于 Workspace 或 CLI 标准输出。"""
         return self.download(
             """
             backtest::standardize_return_summary(
@@ -48,25 +42,13 @@ class BacktestResult(SessionResult):
     @property
     def daily_trading_statistics(self) -> pd.DataFrame:
         """访问时生成并下载每日交易统计。"""
-        try:
-            return self.download(
-                "Backtest::getDailyTradingStatistics(coreBacktestEngine)"
-            )
-        except RuntimeError as error:
-            message = str(error)
-            if not any(
-                marker in message
-                for marker in DAILY_TRADING_STATISTICS_UNAVAILABLE_MARKERS
-            ):
-                raise
-            raise ResultUnavailableError(
-                "daily_trading_statistics",
-                "当前 DolphinDB Backtest 插件不支持每日交易统计接口",
-            ) from error
+        return self.download(
+            "Backtest::getDailyTradingStatistics(coreBacktestEngine)"
+        )
 
     @property
     def engine_stat(self) -> pd.DataFrame:
-        """访问时生成并下载回测引擎统计。"""
+        """按需读取引擎诊断；它不属于 Workspace 或 CLI 标准输出。"""
         return self.download("Backtest::getBacktestEngineStat(coreBacktestEngine)")
 
     @property

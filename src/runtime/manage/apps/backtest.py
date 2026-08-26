@@ -12,9 +12,7 @@ OUTPUT_FILENAMES = {
     "trade_details": "trade_details.parquet",
     "daily_positions": "daily_positions.parquet",
     "daily_portfolios": "daily_portfolios.parquet",
-    "return_summary": "return_summary.parquet",
     "daily_trading_statistics": "daily_trading_statistics.parquet",
-    "engine_stat": "engine_stat.parquet",
 }
 
 

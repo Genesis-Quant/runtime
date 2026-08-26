@@ -57,8 +57,8 @@ with run_backtest(
     callbacks,
     adj="qfq",
 ) as backtest_result:
-    summary = backtest_result.return_summary
     portfolios = backtest_result.daily_portfolios
+    trades = backtest_result.trade_details
 
 with optimize_backtest(**optimization_request) as optimization_result:
     random_search_paths = optimization_result.table("random_search")
@@ -105,7 +105,7 @@ core-manage --help
 core-manage database compile --upload --output-dir output
 core-manage apps query --input-file query.json --output-dir output/query --output data --cloud false
 core-manage apps factor --input-file factor.json --output-dir output/factor --output processed_data information_coefficient group_returns --cloud false
-core-manage apps backtest --input-file backtest.json --output-dir output/backtest --output daily_portfolios return_summary --cloud false
+core-manage apps backtest --input-file backtest.json --output-dir output/backtest --output trade_details daily_positions daily_portfolios daily_trading_statistics --cloud false
 core-manage apps optimization --input-file optimization.json --output-dir output/optimization --cloud false
 core-manage apps sensitivity --input-file sensitivity.json --output-dir output/sensitivity --cloud false
 core-manage apps backtest --input-file backtest.json --output-dir jobs/backtest-1 --output daily_portfolios --cloud true
@@ -231,8 +231,9 @@ with analyze_factors(
 }
 ```
 
-回测可选输出为 `trade_details`、`daily_positions`、`daily_portfolios`、
-`return_summary`、`daily_trading_statistics` 和 `engine_stat`。`utils` 是在生命周期回调
+回测 Workspace 与命令行标准输出只有 `trade_details`、`daily_positions`、`daily_portfolios` 和
+`daily_trading_statistics`。直接使用 Python `BacktestResult` 时仍可按需读取 `return_summary`、
+`engine_stat` 和 `context`，它们是派生或诊断属性，不属于工作流产物契约。`utils` 是在生命周期回调
 注册前原样执行的 DolphinDB 脚本，不限制脚本内容。`callbacks` 必须完整提供上述 8 个
 固定生命周期回调且定义不能为空。`codes_query` 为空时，`dataset_query.codes` 必须提供
 至少一个股票代码。日线会转换为每天 09:30 和 15:00 的单档合成快照，盘口数量使用
