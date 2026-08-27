@@ -1,4 +1,4 @@
-"""定义逐股票更新单个接口的抽象 Worker。"""
+"""定义逐代码更新单个接口的抽象 Worker。"""
 
 import time
 from abc import ABC, abstractmethod
@@ -31,11 +31,11 @@ MAX_FAILURE_SAMPLES = 10
 
 
 class StockWorker(BaseWorker, ABC):
-    """按股票并发调用单个固定数据接口。"""
+    """按证券代码并发调用单个固定数据接口。"""
 
     @abstractmethod
     def __str__(self) -> str:
-        """返回用于日志输出的按股票 Worker 标识。"""
+        """返回用于日志输出的按代码 Worker 标识。"""
         return "<StockWorker>"
 
     def __init__(
@@ -51,7 +51,7 @@ class StockWorker(BaseWorker, ABC):
             batch_size: int = 800_000,
             overwrite: bool = False,
     ) -> None:
-        """初始化按股票更新范围、股票池、并发和写入配置。"""
+        """初始化按代码更新范围、代码池、并发和写入配置。"""
         if codes is None:
             codes = get_codes()
         super().__init__(
@@ -81,7 +81,7 @@ class StockWorker(BaseWorker, ABC):
             raise ValueError("codes 不能为空")
         self.codes = tuple(normalized_codes)
         logger.debug(
-            f"{self} 初始化：股票={len(self.codes):,}，"
+            f"{self} 初始化：代码={len(self.codes):,}，"
             f"{self.start_date:%Y-%m-%d} 至 {self.end_date:%Y-%m-%d}，"
             f"threads={self.threads}，throttle={self.throttle}，"
             f"max_retries={self.retry.max_retries}，"
@@ -89,10 +89,10 @@ class StockWorker(BaseWorker, ABC):
         )
 
     def get_last_dates(self) -> dict[str, pd.Timestamp]:
-        """返回已有数据中每只股票的最近日期，无记录的股票不在字典中。"""
+        """返回已有数据中每个代码的最近日期，无记录的代码不在字典中。"""
         started = time.perf_counter()
         logger.debug(
-            f"{self} 查询 {len(self.codes):,} 只股票的最近数据日"
+            f"{self} 查询 {len(self.codes):,} 个代码的最近数据日"
         )
         session = create_session(role="worker")
         try:
@@ -146,7 +146,7 @@ class StockWorker(BaseWorker, ABC):
             start_date: pd.Timestamp,
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
-        """把单只股票的接口宽表转换并规范为可直接写入的四列长表。"""
+        """把单个代码的接口宽表转换并规范为可直接写入的四列长表。"""
         if not isinstance(data, pd.DataFrame):
             raise TypeError(f"{self}[{code}] 返回值不是 DataFrame")
         if data.empty:
@@ -181,7 +181,7 @@ class StockWorker(BaseWorker, ABC):
             start_date: pd.Timestamp,
             end_date: pd.Timestamp,
     ) -> pd.DataFrame:
-        """返回一只股票已规范的四列长表，空结果返回 ``self.EMPTY``。
+        """返回一个代码已规范的四列长表，空结果返回 ``self.EMPTY``。
 
         实现应把接口宽表交给 :meth:`melt` 并直接返回其结果，不得返回
         ``None``、接口原始宽表，或在 ``melt`` 之后再次清洗。
@@ -191,7 +191,7 @@ class StockWorker(BaseWorker, ABC):
         raise NotImplementedError
 
     def fetch_all(self) -> Iterable[pd.DataFrame]:
-        """按股票增量区间并发获取并生成可直接写入的四列长表。"""
+        """按代码增量区间并发获取并生成可直接写入的四列长表。"""
         started = time.perf_counter()
         self.paginator.reset()
         last_dates = {} if self.overwrite else self.get_last_dates()
@@ -299,7 +299,7 @@ class StockWorker(BaseWorker, ABC):
                     else ""
                 )
                 logger.error(
-                    f"{self} 共 {failure_count:,} 只股票获取失败，"
+                    f"{self} 共 {failure_count:,} 个代码获取失败，"
                     f"已输出 {len(failure_samples):,} 条失败样例"
                     f"{omitted_text}"
                 )
@@ -310,7 +310,7 @@ class StockWorker(BaseWorker, ABC):
                     else ""
                 )
                 raise RuntimeError(
-                    f"{self} 更新失败，共 {failure_count:,} 只股票；"
+                    f"{self} 更新失败，共 {failure_count:,} 个代码；"
                     f"失败样例：{samples}{omitted}"
                 )
             status = "完成"

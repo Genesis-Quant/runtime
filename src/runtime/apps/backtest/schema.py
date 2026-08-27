@@ -6,6 +6,7 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from runtime.config import INDEX_CODES
 from runtime.utils import normalize_dolphindb_functions
 
 from ..query.schema import FactorQuery
@@ -49,6 +50,15 @@ BACKTEST_BOOLEAN_CONFIGS = frozenset({
 })
 
 
+def backtest_symbol(code: str) -> str:
+    """把 Tushare 沪深证券代码转换为 Backtest 插件代码。"""
+    if code.endswith(".SZ"):
+        return f"{code[:-3]}.XSHE"
+    if code.endswith(".SH"):
+        return f"{code[:-3]}.XSHG"
+    raise ValueError(f"回测证券代码必须以 .SZ 或 .SH 结尾：{code!r}")
+
+
 class BacktestParameters(BaseModel):
     """保存 Python 回测入口完成解析和规范化后的参数。"""
 
@@ -57,7 +67,8 @@ class BacktestParameters(BaseModel):
     config: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "用户可配置的资金、费用、syntheticSpread 和输出选项。当前不支持 benchmark；"
+            "用户可配置的资金、费用、syntheticSpread、benchmark 和输出选项；"
+            "benchmark 必须是 INDEX_CODES 中配置的指数代码。"
             "日期、策略类型、快照 dataType/matchingMode、回调模式及两种撮合比例由 Runtime 固定。"
         ),
     )
@@ -132,8 +143,6 @@ class BacktestParameters(BaseModel):
             value = {}
         if not isinstance(value, dict):
             raise ValueError("config 必须是 dict[str, Any]")
-        if "benchmark" in value:
-            raise ValueError("当前回测不支持 config['benchmark']")
         if reserved := set(value) & {
             "startDate", "endDate", "strategyGroup", "dataType", "msgAsTable",
             "matchingMode", "frequency", "callbackForSnapshot",
@@ -148,6 +157,18 @@ class BacktestParameters(BaseModel):
             "enableMinimumPerTransactionFee": True,
             **value
         }
+        if "benchmark" in result:
+            benchmark = result["benchmark"]
+            if not isinstance(benchmark, str) or not benchmark.strip():
+                raise ValueError("config['benchmark'] 必须是非空指数代码")
+            benchmark = benchmark.strip()
+            if benchmark not in INDEX_CODES:
+                raise ValueError(
+                    "config['benchmark'] 必须是 INDEX_CODES 中配置的指数代码："
+                    f"{list(INDEX_CODES)}"
+                )
+            backtest_symbol(benchmark)
+            result["benchmark"] = benchmark
         for name in ("cash", "commission", "tax", "syntheticSpread"):
             if name not in result:
                 continue
@@ -191,4 +212,10 @@ class BacktestParameters(BaseModel):
             parameter_counts=CALLBACK_PARAMETER_COUNTS,
         )
 
-__all__ = ["CallbackName", "Adj", "BacktestParameters", "CALLBACK_PARAMETER_COUNTS"]
+__all__ = [
+    "Adj",
+    "BacktestParameters",
+    "CALLBACK_PARAMETER_COUNTS",
+    "CallbackName",
+    "backtest_symbol",
+]

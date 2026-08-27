@@ -180,13 +180,37 @@ class BacktestParametersTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     BacktestParameters.model_validate(payload)
 
-    def test_benchmark_config_is_forbidden(self) -> None:
+    def test_benchmark_config_accepts_configured_index(self) -> None:
         payload = parameters()
-        payload["config"] = {"benchmark": "000300.SH"}
+        payload["config"] = {"benchmark": " 000300.SH "}
+
+        result = BacktestParameters.model_validate(payload)
+
+        self.assertEqual(result.config["benchmark"], "000300.SH")
+
+    def test_benchmark_config_rejects_unconfigured_index(self) -> None:
+        payload = parameters()
+        payload["config"] = {"benchmark": "000001.SH"}
 
         with self.assertRaisesRegex(
             ValidationError,
-            r"当前回测不支持 config\['benchmark'\]",
+            r"config\['benchmark'\] 必须是 INDEX_CODES 中配置的指数代码",
+        ):
+            BacktestParameters.model_validate(payload)
+
+    def test_benchmark_config_rejects_unsupported_exchange(self) -> None:
+        payload = parameters()
+        payload["config"] = {"benchmark": "000300.CSI"}
+
+        with (
+            patch(
+                "runtime.apps.backtest.schema.INDEX_CODES",
+                ("000300.CSI",),
+            ),
+            self.assertRaisesRegex(
+                ValidationError,
+                "回测证券代码必须以 .SZ 或 .SH 结尾",
+            ),
         ):
             BacktestParameters.model_validate(payload)
 

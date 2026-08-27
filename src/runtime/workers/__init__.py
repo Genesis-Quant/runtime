@@ -5,6 +5,7 @@ from runtime.utils import index_weight_factor
 
 from .base import BaseWorker, DateWorker, StockWorker, WideWorker
 from .fund_daily import FUND_ADJ_FACTORS, FUND_DAILY_FACTORS, FundAdjFactorWorker, FundDailyWorker
+from .index_daily import INDEX_DAILY_FACTORS, IndexDailyWorker
 from .index_weight import IndexWeightWorker
 from .stock_daily import (
     STOCK_ADJ_FACTOR_FACTORS,
@@ -32,6 +33,7 @@ from .stock_st import STOCK_ST_FACTORS
 AVAILABLE_FACTORS = tuple(sorted({
     *FUND_ADJ_FACTORS,
     *FUND_DAILY_FACTORS,
+    *INDEX_DAILY_FACTORS,
     *STOCK_ADJ_FACTOR_FACTORS,
     *STOCK_DAILY_BASIC_FACTORS,
     *STOCK_DAILY_FACTORS,
@@ -53,6 +55,7 @@ __all__ = [
     "DateWorker",
     "FundAdjFactorWorker",
     "FundDailyWorker",
+    "IndexDailyWorker",
     "IndexWeightWorker",
     "StockAdjFactorWorker",
     "StockBalanceSheetWorker",

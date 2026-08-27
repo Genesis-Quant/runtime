@@ -16,11 +16,13 @@ WORKER_ORDER = (
     "cashflow",
     "fina-indicator",
     "dividend",
+    "index-daily",
     "index-weight",
 )
 
 WORKER_DESCRIPTIONS = {
     "daily": "全市场未复权日行情",
+    "index-daily": "配置指数未复权日行情",
     "fund-daily": "指定场内基金池未复权日线",
     "fund-adj-factor": "指定场内基金池复权因子",
     "limit": "全市场每日涨跌停价格",
@@ -39,6 +41,9 @@ WORKER_DESCRIPTIONS = {
 WORKER_ALIASES = {
     "stock-daily": "daily",
     "stockdailyworker": "daily",
+    "index": "index-daily",
+    "indexdaily": "index-daily",
+    "indexdailyworker": "index-daily",
     "fund": "fund-daily",
     "funddailyworker": "fund-daily",
     "fund-adj": "fund-adj-factor",

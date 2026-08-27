@@ -16,9 +16,15 @@ from runtime.utils import (
 )
 
 from ..query import api as query_api
-from ..query.schema import QUERY_RESERVED_REFERENCES
+from ..query.schema import FactorQuery, QUERY_RESERVED_REFERENCES
 from .result import BacktestResult
-from .schema import CALLBACK_PARAMETER_COUNTS, Adj, BacktestParameters, CallbackName
+from .schema import (
+    CALLBACK_PARAMETER_COUNTS,
+    Adj,
+    BacktestParameters,
+    CallbackName,
+    backtest_symbol,
+)
 
 CODES_SOURCE_REF = "coreBacktestCodesSourceData"
 CODES_COMPUTED_REF = "coreBacktestCodesComputedData"
@@ -31,6 +37,11 @@ COMPUTED_REF = "coreBacktestComputedData"
 FILTERED_REF = "coreBacktestFilteredData"
 DATA_REF = "coreBacktestData"
 MESSAGE_REF = "coreBacktestMessage"
+BENCHMARK_SOURCE_REF = "coreBacktestBenchmarkSourceData"
+BENCHMARK_COMPUTED_REF = "coreBacktestBenchmarkComputedData"
+BENCHMARK_FILTERED_REF = "coreBacktestBenchmarkFilteredData"
+BENCHMARK_DATA_REF = "coreBacktestBenchmarkData"
+BENCHMARK_MESSAGE_REF = "coreBacktestBenchmarkMessage"
 DAILY_MESSAGE_FACTORS = ("open", "low", "high", "close", "up_limit", "down_limit", "pre_close")
 BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestName",
@@ -42,6 +53,7 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestRiskFreeRate",
     "coreBacktestAdj",
     "coreBacktestSyntheticSpread",
+    "coreBacktestBenchmark",
     "coreBacktestParams",
     "coreBacktestCodeToIndustry",
     "coreBacktestAvailableTradeDates",
@@ -56,6 +68,11 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestComputedData",
     "coreBacktestFilteredData",
     "coreBacktestData",
+    "coreBacktestBenchmarkSourceData",
+    "coreBacktestBenchmarkComputedData",
+    "coreBacktestBenchmarkFilteredData",
+    "coreBacktestBenchmarkData",
+    "coreBacktestBenchmarkMessage",
     "coreBacktestCodesSourceData",
     "coreBacktestCodesComputedData",
     "coreBacktestCodesFilteredData",
@@ -135,6 +152,7 @@ def prepare_backtest_session(
     if parameters.adj is not None and "adj_factor" not in execution_factors:
         execution_factors.append("adj_factor")
     dataset_query = parameters.dataset_query.model_copy(update={"factors": execution_factors})
+    benchmark = parameters.config.get("benchmark")
     synthetic_spread = parameters.config.get("syntheticSpread", 0.0)
     message_exists = has_session_variable(
         session,
@@ -172,6 +190,33 @@ def prepare_backtest_session(
             replaceColumn!({FILTERED_REF}, `code, symbol(strReplace(strReplace(string({FILTERED_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
             replaceColumn!({DATA_REF}, `code, symbol(strReplace(strReplace(string({DATA_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
         """)
+        if benchmark is not None:
+            benchmark_query = FactorQuery(
+                start_date=dataset_query.start_date,
+                end_date=dataset_query.end_date,
+                lookback="P0D",
+                codes=[benchmark],
+                factors=list(DAILY_MESSAGE_FACTORS),
+                derivatives={},
+                filters=[],
+            )
+            query_api.build_query_table(
+                benchmark_query,
+                session=session,
+                source_ref=BENCHMARK_SOURCE_REF,
+                computed_ref=BENCHMARK_COMPUTED_REF,
+                filtered_ref=BENCHMARK_FILTERED_REF,
+                data_ref=BENCHMARK_DATA_REF,
+                log_progress=log_progress,
+            )
+            if log_progress:
+                logger.info("session.run: 统一基准指数代码为 XSHG/XSHE 格式")
+            session.run(f"""
+                replaceColumn!({BENCHMARK_SOURCE_REF}, `code, symbol(strReplace(strReplace(string({BENCHMARK_SOURCE_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
+                replaceColumn!({BENCHMARK_COMPUTED_REF}, `code, symbol(strReplace(strReplace(string({BENCHMARK_COMPUTED_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
+                replaceColumn!({BENCHMARK_FILTERED_REF}, `code, symbol(strReplace(strReplace(string({BENCHMARK_FILTERED_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
+                replaceColumn!({BENCHMARK_DATA_REF}, `code, symbol(strReplace(strReplace(string({BENCHMARK_DATA_REF}.code), ".SZ", ".XSHE"), ".SH", ".XSHG")))
+            """)
     else:
         if log_progress:
             logger.info(f"复用回测数据和消息表 {message_ref}")
@@ -182,6 +227,7 @@ def prepare_backtest_session(
         "coreBacktestRiskFreeRate": parameters.risk_free_rate,
         "coreBacktestAdj": parameters.adj or "",
         "coreBacktestSyntheticSpread": synthetic_spread,
+        "coreBacktestBenchmark": backtest_symbol(benchmark) if benchmark is not None else "",
         "coreBacktestCodeToIndustry": backtest_industry_mapping(),
     })
     load_backtest_environment(session, log_progress=log_progress)
@@ -196,13 +242,38 @@ def prepare_backtest_session(
     if not message_exists:
         if log_progress:
             logger.info(f"session.run: 生成回测消息表 {message_ref}")
-        session.run(f"""
-            {message_ref} = backtest::build_backtest_message(
-                {DATA_REF},
-                coreBacktestAdj,
-                coreBacktestSyntheticSpread
-            )
-        """)
+        if benchmark is None:
+            session.run(f"""
+                {message_ref} = backtest::build_backtest_message(
+                    {DATA_REF},
+                    coreBacktestAdj,
+                    coreBacktestSyntheticSpread
+                )
+            """)
+        else:
+            session.run(f"""
+                {message_ref} = backtest::build_backtest_message(
+                    {DATA_REF},
+                    coreBacktestAdj,
+                    coreBacktestSyntheticSpread
+                )
+                {message_ref} = select *
+                from {message_ref}
+                where string(symbol) != coreBacktestBenchmark
+                if ({message_ref}.rows() == 0) {{
+                    throw "排除基准指数后回测行情为空"
+                }}
+                {BENCHMARK_MESSAGE_REF} = backtest::build_backtest_message(
+                    {BENCHMARK_DATA_REF},
+                    NULL,
+                    0.0
+                )
+                {message_ref} = unionAll(
+                    {message_ref},
+                    {BENCHMARK_MESSAGE_REF}
+                )
+                {message_ref}.sortBy!(`timestamp`symbol)
+            """)
     if log_progress:
         logger.info(f"session.run: 缓存回测交易日期 {message_ref}")
     session.run(f"""
@@ -238,6 +309,8 @@ def execute_prepared_backtest(
     engine_name = normalize_str(name, "name") if name is not None else f"coreBacktest_{uuid4().hex}"
     backtest_config = dict(parameters.config)
     backtest_config.pop("syntheticSpread", None)
+    if benchmark := backtest_config.get("benchmark"):
+        backtest_config["benchmark"] = backtest_symbol(benchmark)
     backtest_config.update({
         "startDate": output_start.to_datetime64().astype("datetime64[D]"),
         "endDate": output_end.to_datetime64().astype("datetime64[D]"),

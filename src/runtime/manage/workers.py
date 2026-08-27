@@ -48,6 +48,8 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
             "示例：\n"
             "  core-manage workers daily adj-factor\n"
             "  python manage.py workers income --codes 000001.SZ,600000.SH\n"
+            "  python manage.py workers index-daily "
+            "--index-code 000300.SH --dry-run\n"
             "  python manage.py workers index-weight "
             "--index-code 000300.SH --dry-run\n"
             "  python manage.py workers all "
@@ -78,7 +80,10 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         "--index-code",
         action="append",
         metavar="CODE[,CODE...]",
-        help="index-weight 的指数代码，默认使用配置文件中的 INDEX_CODES",
+        help=(
+            "index-daily、index-weight 的指数代码，"
+            "默认使用配置文件中的 INDEX_CODES"
+        ),
     )
     parser.add_argument("--threads", type=positive_int, help="并发线程数")
     parser.add_argument(
@@ -202,6 +207,7 @@ def create_workers(
     from runtime.workers import (
         FundAdjFactorWorker,
         FundDailyWorker,
+        IndexDailyWorker,
         IndexWeightWorker,
         StockAdjFactorWorker,
         StockBalanceSheetWorker,
@@ -251,6 +257,12 @@ def create_workers(
     for name in names:
         if name in date_types:
             workers.append(date_types[name](**date_arguments))
+        elif name == "index-daily":
+            if not index_codes:
+                raise ValueError(
+                    "没有可用指数代码，请配置 INDEX_CODES 或传入 --index-code"
+                )
+            workers.append(IndexDailyWorker(codes=index_codes, **common))
         elif name in stock_types:
             workers.append(stock_types[name](**stock_arguments))
         elif name == "index-weight":
@@ -296,8 +308,11 @@ def validate_arguments(
     selected = set(names)
     if arguments.codes and not selected.intersection(STOCK_WORKERS):
         parser.error("--codes 仅适用于按代码 Worker")
-    if arguments.index_code and "index-weight" not in selected:
-        parser.error("--index-code 仅适用于 index-weight")
+    if (
+            arguments.index_code
+            and not selected.intersection({"index-daily", "index-weight"})
+    ):
+        parser.error("--index-code 仅适用于 index-daily、index-weight")
     if (
             arguments.chunk_size is not None
             and not selected.intersection(DATE_WORKERS)
