@@ -258,11 +258,33 @@ def factorInformationCoefficient(
 }
 
 def factorWeightedReturn(weight, ret) {
-    totalWeight = sum(weight)
+    valid = !isNull(weight) && !isNull(ret)
+    validWeight = weight[valid]
+    validReturn = ret[valid]
+    totalWeight = sum(validWeight)
     if (!isValid(totalWeight) || totalWeight <= 0) {
         return double(NULL)
     }
-    return sum(weight * ret) \ totalWeight
+    return sum(validWeight * validReturn) \ totalWeight
+}
+
+def factorExtremeWeightedReturn(
+    factorValue,
+    weight,
+    ret,
+    nSelect,
+    ascending) {
+    selected = !isNull(factorValue) && (
+        rank(
+            factorValue,
+            ascending,
+            ,
+            true,
+            `first,
+            false
+        ) < int(nSelect)
+    )
+    return factorWeightedReturn(weight[selected], ret[selected])
 }
 
 def factorGroupReturns(
@@ -270,11 +292,15 @@ def factorGroupReturns(
     returnCols,
     factorCols,
     nGroups,
+    nSelect,
     timeCol="time",
     codeCol="code",
     mktmvCol="mktmv") {
     if (nGroups < 2) {
         throw "nGroups must be at least 2"
+    }
+    if (nSelect < 1) {
+        throw "nSelect must be at least 1"
     }
     returnColNames = factorStringVector(returnCols)
     factorColNames = factorStringVector(factorCols)
@@ -296,6 +322,7 @@ def factorGroupReturns(
     timeSym = symbol([timeCol])[0]
     mktmvSym = symbol([mktmvCol])[0]
     for (factorCol in factorColNames) {
+        factorSym = symbol([string(factorCol)])[0]
         groupCol = string(factorCol) + "_group"
         factorCheckColumns(
             processedFactorTable,
@@ -304,6 +331,46 @@ def factorGroupReturns(
         groupSym = symbol([groupCol])[0]
         for (retCol in returnColNames) {
             retSym = symbol([string(retCol)])[0]
+            extremes = sql(
+                [
+                    sqlCol(timeSym, , `time),
+                    sqlColAlias(
+                        makeCall(
+                            factorExtremeWeightedReturn,
+                            sqlCol(factorSym),
+                            sqlCol(mktmvSym),
+                            sqlCol(retSym),
+                            nSelect,
+                            true
+                        ),
+                        `bottom_ret
+                    ),
+                    sqlColAlias(
+                        makeCall(
+                            factorExtremeWeightedReturn,
+                            sqlCol(factorSym),
+                            sqlCol(mktmvSym),
+                            sqlCol(retSym),
+                            nSelect,
+                            false
+                        ),
+                        `top_ret
+                    )
+                ],
+                processedFactorTable,
+                ,
+                [sqlCol(timeSym)]
+            ).eval()
+            bottomRows =
+                <select time, bottom_ret as ret from extremes>.eval()
+            result = lj(result, bottomRows, `time)
+            result.rename!(
+                `ret,
+                symbol([
+                    string(factorCol) + "_" +
+                    string(retCol) + "_bottom"
+                ])[0]
+            )
             for (groupId in 0 .. (nGroups - 1)) {
                 weighted = sql(
                     [
@@ -331,6 +398,16 @@ def factorGroupReturns(
                     ])[0]
                 )
             }
+            topRows =
+                <select time, top_ret as ret from extremes>.eval()
+            result = lj(result, topRows, `time)
+            result.rename!(
+                `ret,
+                symbol([
+                    string(factorCol) + "_" +
+                    string(retCol) + "_top"
+                ])[0]
+            )
         }
     }
     return result

@@ -4,6 +4,7 @@ from runtime.database.compile import DolphinDBFunction
 
 from .helpers import (
     FACTOR_CHECK_COLUMNS,
+    FACTOR_EXTREME_WEIGHTED_RETURN,
     FACTOR_STRING_VECTOR,
     FACTOR_WEIGHTED_RETURN,
 )
@@ -96,11 +97,15 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
         returnCols,
         factorCols,
         nGroups,
+        nSelect,
         timeCol="time",
         codeCol="code",
         mktmvCol="mktmv") {
         if (nGroups < 2) {
             throw "nGroups must be at least 2"
+        }
+        if (nSelect < 1) {
+            throw "nSelect must be at least 1"
         }
         returnColNames = factorStringVector(returnCols)
         factorColNames = factorStringVector(factorCols)
@@ -122,6 +127,7 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
         timeSym = symbol([timeCol])[0]
         mktmvSym = symbol([mktmvCol])[0]
         for (factorCol in factorColNames) {
+            factorSym = symbol([string(factorCol)])[0]
             groupCol = string(factorCol) + "_group"
             factorCheckColumns(
                 processedFactorTable,
@@ -130,6 +136,46 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
             groupSym = symbol([groupCol])[0]
             for (retCol in returnColNames) {
                 retSym = symbol([string(retCol)])[0]
+                extremes = sql(
+                    [
+                        sqlCol(timeSym, , `time),
+                        sqlColAlias(
+                            makeCall(
+                                factorExtremeWeightedReturn,
+                                sqlCol(factorSym),
+                                sqlCol(mktmvSym),
+                                sqlCol(retSym),
+                                nSelect,
+                                true
+                            ),
+                            `bottom_ret
+                        ),
+                        sqlColAlias(
+                            makeCall(
+                                factorExtremeWeightedReturn,
+                                sqlCol(factorSym),
+                                sqlCol(mktmvSym),
+                                sqlCol(retSym),
+                                nSelect,
+                                false
+                            ),
+                            `top_ret
+                        )
+                    ],
+                    processedFactorTable,
+                    ,
+                    [sqlCol(timeSym)]
+                ).eval()
+                bottomRows =
+                    <select time, bottom_ret as ret from extremes>.eval()
+                result = lj(result, bottomRows, `time)
+                result.rename!(
+                    `ret,
+                    symbol([
+                        string(factorCol) + "_" +
+                        string(retCol) + "_bottom"
+                    ])[0]
+                )
                 for (groupId in 0 .. (nGroups - 1)) {
                     weighted = sql(
                         [
@@ -157,6 +203,16 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
                         ])[0]
                     )
                 }
+                topRows =
+                    <select time, top_ret as ret from extremes>.eval()
+                result = lj(result, topRows, `time)
+                result.rename!(
+                    `ret,
+                    symbol([
+                        string(factorCol) + "_" +
+                        string(retCol) + "_top"
+                    ])[0]
+                )
             }
         }
         return result
@@ -166,6 +222,7 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
         FACTOR_STRING_VECTOR,
         FACTOR_CHECK_COLUMNS,
         FACTOR_WEIGHTED_RETURN,
+        FACTOR_EXTREME_WEIGHTED_RETURN,
     ),
 )
 

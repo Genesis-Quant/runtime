@@ -48,5 +48,6 @@
     }
   },
   "n_groups": 5,
+  "n_select": 10,
   "preprocess": true
 }

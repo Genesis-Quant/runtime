@@ -72,6 +72,14 @@ class FactorAnalysisParameters(BaseModel):
         description="按每日因子值划分的等数量组数。",
     )
 
+    n_select: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "每日按因子值额外选择最小和最大的 N 支股票，作为分组收益曲线的首尾端。"
+        ),
+    )
+
     preprocess: bool = Field(
         default=True,
         description="是否执行内置 MAD 去极值、标准化、市值与行业中性化及分组。"

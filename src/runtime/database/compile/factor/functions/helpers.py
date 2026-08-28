@@ -63,12 +63,41 @@ FACTOR_WEIGHTED_RETURN = DolphinDBFunction(
     module="factor",
     definition=r"""
     def factorWeightedReturn(weight, ret) {
-        totalWeight = sum(weight)
+        valid = !isNull(weight) && !isNull(ret)
+        validWeight = weight[valid]
+        validReturn = ret[valid]
+        totalWeight = sum(validWeight)
         if (!isValid(totalWeight) || totalWeight <= 0) {
             return double(NULL)
         }
-        return sum(weight * ret) \ totalWeight
+        return sum(validWeight * validReturn) \ totalWeight
     }
     """,
+)
+
+
+FACTOR_EXTREME_WEIGHTED_RETURN = DolphinDBFunction(
+    module="factor",
+    definition=r"""
+    def factorExtremeWeightedReturn(
+        factorValue,
+        weight,
+        ret,
+        nSelect,
+        ascending) {
+        selected = !isNull(factorValue) && (
+            rank(
+                factorValue,
+                ascending,
+                ,
+                true,
+                `first,
+                false
+            ) < int(nSelect)
+        )
+        return factorWeightedReturn(weight[selected], ret[selected])
+    }
+    """,
+    dependencies=(FACTOR_WEIGHTED_RETURN,),
 )
 

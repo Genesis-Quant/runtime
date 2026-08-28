@@ -53,6 +53,7 @@ class FactorAnalysisResult(SessionResult):
                 coreFactorReturnColumns,
                 coreFactorColumns,
                 coreFactorGroupCount,
+                coreFactorSelectionCount,
                 "time",
                 "code",
                 coreFactorMarketValueColumn

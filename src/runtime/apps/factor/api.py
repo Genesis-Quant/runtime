@@ -33,6 +33,7 @@ def analyze_factors(
         session: Any | None = None,
         codes_query: dict[str, Any] | None = None,
         n_groups: int = 5,
+        n_select: int = 10,
         preprocess: bool = True,
         market_value_column: str = "circ_mv",
 ) -> FactorAnalysisResult:
@@ -44,6 +45,7 @@ def analyze_factors(
         "return_columns": return_columns,
         "return_specs": return_specs,
         "n_groups": n_groups,
+        "n_select": n_select,
         "preprocess": preprocess,
         "market_value_column": market_value_column,
     })
@@ -77,6 +79,7 @@ def analyze_factors(
             "coreFactorColumns": np.asarray(parameters.factor_columns, dtype=str),
             "coreFactorReturnColumns": np.asarray(parameters.return_columns, dtype=str),
             "coreFactorGroupCount": parameters.n_groups,
+            "coreFactorSelectionCount": parameters.n_select,
             "coreFactorMarketValueColumn": parameters.market_value_column,
         }
 
