@@ -110,23 +110,6 @@ def build_query_table(
     codes = query.codes or market_codes
     definitions = {name: derivative.model_dump(mode="json") for name, derivative in query.derivatives.items()}
 
-    if log_progress:
-        logger.info(
-            "DSL 执行摘要："
-            + json.dumps(
-                {
-                    "code_scope": "all_market" if not query.codes else "explicit_codes",
-                    "candidate_codes": len(codes),
-                    "source_factors": len(source_factors),
-                    "named_derivatives": len(query.derivatives),
-                    "filters": len(query.filters),
-                    "output_columns": len(output_columns),
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-        )
-
     session.upload({
         "coreQueryStart": calculation_start,
         "coreQueryEnd": output_end + timedelta(days=1),
@@ -238,27 +221,6 @@ def build_query_table(
     return output_columns
 
 
-def log_query_output_profile(session: Any, data_ref: str, *, label: str = "查询输出") -> None:
-    """把结果规模写入任务日志，不下载结果表。"""
-    validate_dolphindb_references(
-        {"data_ref": data_ref},
-        reserved=QUERY_RESERVED_REFERENCES,
-    )
-    rows = int(session.run(f"{data_ref}.rows()"))
-    code_count = int(session.run(
-        f"exec count(distinct {CODE_COLUMN}) from {data_ref} "
-        f"where not isNull({CODE_COLUMN})"
-    ))
-    logger.info(
-        f"{label}摘要："
-        + json.dumps(
-            {"rows": rows, "effective_codes": code_count},
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-    )
-
-
 def execute_codes_query(
         request: FactorQuery | dict[str, Any],
         *,
@@ -315,7 +277,6 @@ def execute_query(
 
     try:
         build_query_table(query, session=current_session)
-        log_query_output_profile(current_session, DATA_REF)
         logger.success("因子查询已在 DolphinDB 会话中生成")
         return QueryResult(
             session=current_session,

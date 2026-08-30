@@ -48,7 +48,7 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         epilog=(
             "示例：\n"
             "  core-manage apps query --input-file query.json --output-dir output/query --output data --cloud false\n"
-            "  core-manage apps factor --input-file factor.json --output-dir output/factor --output processed_data information_coefficient group_returns diagnostics --cloud false\n"
+            "  core-manage apps factor --input-file factor.json --output-dir output/factor --output processed_data information_coefficient --cloud false\n"
             "  core-manage apps backtest --input-file backtest.json --output-dir output/backtest --output trade_details daily_positions daily_portfolios daily_trading_statistics --cloud false\n"
             "  core-manage apps optimization --input-file optimization.json --output-dir output/optimization --cloud false\n"
             "  core-manage apps sensitivity --input-file sensitivity.json --output-dir output/sensitivity --cloud false"

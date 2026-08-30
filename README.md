@@ -51,7 +51,6 @@ with analyze_factors(
     processed = factor_result.processed_data
     information_coefficient = factor_result.information_coefficient
     group_returns = factor_result.group_returns
-    diagnostics = factor_result.diagnostics
 
 with run_backtest(
     dataset_query,
@@ -105,7 +104,7 @@ Runtime 自行创建 Session 时，Query 的总使用时间上限为 5 分钟，
 core-manage --help
 core-manage database compile --upload --output-dir output
 core-manage apps query --input-file query.json --output-dir output/query --output data --cloud false
-core-manage apps factor --input-file factor.json --output-dir output/factor --output processed_data information_coefficient group_returns diagnostics --cloud false
+core-manage apps factor --input-file factor.json --output-dir output/factor --output processed_data information_coefficient group_returns --cloud false
 core-manage apps backtest --input-file backtest.json --output-dir output/backtest --output trade_details daily_positions daily_portfolios daily_trading_statistics --cloud false
 core-manage apps optimization --input-file optimization.json --output-dir output/optimization --cloud false
 core-manage apps sensitivity --input-file sensitivity.json --output-dir output/sensitivity --cloud false
@@ -201,11 +200,9 @@ with analyze_factors(
 - `factor_processed.parquet`
 - `factor_information_coefficients.parquet`
 - `factor_group_returns.parquet`
-- `factor_diagnostics.parquet`
 
-访问结果属性时才会计算 IC、分组收益或诊断。IC 和分组收益按 `time` 横向拼接全部因子，
-其余列以因子名为前缀，例如 `close_pct_chg_ic`；诊断表在 DolphinDB 服务端聚合逐日有效样本数、
-实际分组范围、占用组数和最小/最大组样本，不下载完整预处理表。
+访问结果属性时才会计算 IC 或分组收益。后两张表按 `time` 横向拼接全部因子，
+其余列以因子名为前缀，例如 `close_pct_chg_ic`。
 
 回测输入文件示例：
 

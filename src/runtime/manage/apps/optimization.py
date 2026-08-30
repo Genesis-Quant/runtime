@@ -10,8 +10,7 @@ from runtime.utils.manage import (
     input_file_path,
     model_input,
     prepare_output_target,
-    write_parquet_result,
-    write_result_manifest,
+    write_parquet,
 )
 
 NAME = "optimization"
@@ -68,23 +67,14 @@ def run(
         if storage is not None:
             stack.enter_context(storage)
         result = stack.enter_context(optimize_backtest(**run_arguments))
-        written = {}
-        for algorithm in run_arguments["algorithms"]:
-            name = OptimizationAlgorithm(algorithm).value
-            filename = f"{name}.parquet"
-            written[name] = (
-                filename,
-                write_parquet_result(
-                    result.table(algorithm),
-                    filename,
-                    output_target=output_target,
-                    storage=storage,
-                ),
-            )
-        write_result_manifest(output_target, storage, written)
         outputs = [
-            result.location
-            for _, result in written.values()
+            write_parquet(
+                result.table(algorithm),
+                f"{OptimizationAlgorithm(algorithm).value}.parquet",
+                output_target=output_target,
+                storage=storage,
+            )
+            for algorithm in run_arguments["algorithms"]
         ]
     logger.success(
         f"已保存 {len(outputs)} 个参数调优结果到 {output_target}"

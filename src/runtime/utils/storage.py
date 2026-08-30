@@ -2,56 +2,18 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-import hashlib
 from tempfile import SpooledTemporaryFile
-from typing import Any, BinaryIO, Self
+from typing import Any, Self
 from urllib.parse import unquote, urlparse
 
 import boto3
 import pandas as pd
 from botocore.config import Config
-import pyarrow.parquet as pq
 
 from runtime.config import ObjectStorageSettings
 
 PARQUET_CONTENT_TYPE = "application/vnd.apache.parquet"
 SPOOL_MAX_SIZE = 64 * 1024 * 1024
-HASH_CHUNK_SIZE = 1024 * 1024
-RESULT_MANIFEST_FILENAME = ".arena-result-manifest.json"
-RESULT_MANIFEST_VERSION = 1
-MAX_RESULT_MANIFEST_SIZE = 1024 * 1024
-
-
-@dataclass(frozen=True)
-class ParquetColumnMetadata:
-    """One top-level Parquet column in physical file order."""
-
-    name: str
-    type: str
-    nullable: bool
-
-
-@dataclass(frozen=True)
-class ParquetContentMetadata:
-    """Content-derived metadata calculated once beside the writer."""
-
-    size: int
-    row_count: int
-    columns: tuple[ParquetColumnMetadata, ...]
-    sha256: str
-
-
-@dataclass(frozen=True)
-class StoredParquet:
-    """One written Parquet file and the immutable snapshot it produced."""
-
-    location: str
-    size: int
-    modified_at: datetime
-    snapshot_token: str | None
-    row_count: int
-    columns: tuple[ParquetColumnMetadata, ...]
-    sha256: str
 
 
 @dataclass(frozen=True)
@@ -188,21 +150,12 @@ class ObjectStorage:
 
     def upload_parquet(self, data: pd.DataFrame, key: str) -> str:
         """将 DataFrame 编码为 Parquet 并上传，返回 S3 URI。"""
-        return self.upload_parquet_result(data, key).location
-
-    def upload_parquet_result(
-        self,
-        data: pd.DataFrame,
-        key: str,
-    ) -> StoredParquet:
-        """Encode and upload one Parquet while retaining its audit metadata."""
         object_key = self.object_key(key)
         with SpooledTemporaryFile(
             max_size=SPOOL_MAX_SIZE,
             mode="w+b",
         ) as output:
             data.to_parquet(output, index=False)
-            metadata = parquet_content_metadata(output)
             output.seek(0)
             self.client.upload_fileobj(
                 output,
@@ -210,36 +163,6 @@ class ObjectStorage:
                 object_key,
                 ExtraArgs={"ContentType": PARQUET_CONTENT_TYPE},
             )
-        head = self.client.head_object(Bucket=self.bucket, Key=object_key)
-        size = int(head["ContentLength"])
-        if size != metadata.size:
-            raise OSError(
-                f"对象存储 Parquet 大小不一致：本地 {metadata.size} bytes，"
-                f"上传后 {size} bytes"
-            )
-        etag = str(head.get("ETag") or "").strip().strip('"')
-        version_id = str(head.get("VersionId") or "").strip()
-        if version_id == "null":
-            version_id = ""
-        return StoredParquet(
-            location=self.uri(object_key),
-            size=size,
-            modified_at=head["LastModified"],
-            snapshot_token=f"cloud:{etag}:{version_id}",
-            row_count=metadata.row_count,
-            columns=metadata.columns,
-            sha256=metadata.sha256,
-        )
-
-    def upload_json(self, data: bytes, key: str) -> str:
-        """Upload one UTF-8 JSON sidecar under the configured root folder."""
-        object_key = self.object_key(key)
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=object_key,
-            Body=data,
-            ContentType="application/json",
-        )
         return self.uri(object_key)
 
     def object_info(self, key: str) -> ObjectInfo:
@@ -287,31 +210,3 @@ class ObjectStorage:
     def __exit__(self, *args: object) -> bool:
         self.close()
         return False
-
-
-def parquet_content_metadata(source: BinaryIO) -> ParquetContentMetadata:
-    """Inspect a seekable Parquet stream and leave it rewound for reuse."""
-    source.seek(0)
-    digest = hashlib.sha256()
-    size = 0
-    while chunk := source.read(HASH_CHUNK_SIZE):
-        digest.update(chunk)
-        size += len(chunk)
-    source.seek(0)
-    parquet = pq.ParquetFile(source)
-    schema = parquet.schema_arrow
-    metadata = ParquetContentMetadata(
-        size=size,
-        row_count=parquet.metadata.num_rows,
-        columns=tuple(
-            ParquetColumnMetadata(
-                name=field.name,
-                type=str(field.type),
-                nullable=field.nullable,
-            )
-            for field in schema
-        ),
-        sha256=digest.hexdigest(),
-    )
-    source.seek(0)
-    return metadata

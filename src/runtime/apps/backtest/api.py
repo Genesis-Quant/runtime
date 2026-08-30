@@ -79,13 +79,6 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "coreBacktestCodesData",
 })
 BACKTEST_SESSION_MAX_TIME = 60 * 60
-STOCK_POOL_MEMBER = "stock_pool_member"
-STATIC_STOCK_POOL_MEMBER = {
-    "type": "DIRECT",
-    "op": "nullary.true",
-    "fields": {},
-    "params": {},
-}
 
 
 def backtest_industry_mapping() -> dict[str, str]:
@@ -97,36 +90,6 @@ def backtest_industry_mapping() -> dict[str, str]:
         elif code.endswith(".SH"):
             result[f"{code[:-3]}.XSHG"] = industry
     return result
-
-
-def managed_backtest_dataset_query(
-    parameters: BacktestParameters,
-) -> FactorQuery:
-    """Inject point-in-time membership without mutating either saved DSL source."""
-    dataset = parameters.dataset_query.model_dump(mode="json")
-    derivatives = dict(dataset["derivatives"])
-    if parameters.codes_query is None:
-        member: Any = STATIC_STOCK_POOL_MEMBER
-    else:
-        member = None
-        if STOCK_POOL_MEMBER in parameters.codes_query.filters:
-            codes_member = parameters.codes_query.derivatives.get(
-                STOCK_POOL_MEMBER
-            )
-            if codes_member is not None:
-                member = codes_member.model_dump(mode="json")
-        if member is None:
-            member = derivatives.get(STOCK_POOL_MEMBER)
-        if member is None:
-            member = STATIC_STOCK_POOL_MEMBER
-    derivatives[STOCK_POOL_MEMBER] = member
-    dataset["factors"] = [
-        factor
-        for factor in dataset["factors"]
-        if factor != STOCK_POOL_MEMBER
-    ]
-    dataset["derivatives"] = derivatives
-    return FactorQuery.model_validate(dataset)
 
 
 def load_backtest_environment(session: Any, *, log_progress: bool = True) -> None:
@@ -184,17 +147,11 @@ def prepare_backtest_session(
         {"source_ref": source_ref, "message_ref": message_ref},
         reserved=BACKTEST_RESERVED_REFERENCES | frozenset(CALLBACK_PARAMETER_COUNTS),
     )
-    execution_factors = [
-        factor
-        for factor in parameters.dataset_query.factors
-        if factor != STOCK_POOL_MEMBER
-    ]
+    execution_factors = list(parameters.dataset_query.factors)
     execution_factors.extend(factor for factor in DAILY_MESSAGE_FACTORS if factor not in execution_factors)
     if parameters.adj is not None and "adj_factor" not in execution_factors:
         execution_factors.append("adj_factor")
-    dataset_query = managed_backtest_dataset_query(parameters).model_copy(
-        update={"factors": execution_factors}
-    )
+    dataset_query = parameters.dataset_query.model_copy(update={"factors": execution_factors})
     benchmark = parameters.config.get("benchmark")
     synthetic_spread = parameters.config.get("syntheticSpread", 0.0)
     message_exists = has_session_variable(
