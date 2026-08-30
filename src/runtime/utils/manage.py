@@ -3,7 +3,12 @@
 import argparse
 from collections.abc import Callable, Mapping
 from contextlib import ExitStack
+from dataclasses import asdict
+from datetime import UTC, datetime
+import json
+import os
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 from pydantic import BaseModel
@@ -11,8 +16,13 @@ from pydantic import BaseModel
 from runtime.config import ArenaSettings
 from runtime.utils.result import SessionResult
 from runtime.utils.storage import (
+    MAX_RESULT_MANIFEST_SIZE,
     ObjectStorage,
     ObjectStorageConfigurationError,
+    RESULT_MANIFEST_FILENAME,
+    RESULT_MANIFEST_VERSION,
+    StoredParquet,
+    parquet_content_metadata,
 )
 
 
@@ -170,8 +180,24 @@ def write_parquet(
     storage: ObjectStorage | None,
 ) -> str:
     """将结果写入本地目录或对象存储。"""
+    return write_parquet_result(
+        data,
+        filename,
+        output_target=output_target,
+        storage=storage,
+    ).location
+
+
+def write_parquet_result(
+    data: Any,
+    filename: str,
+    *,
+    output_target: Path | str,
+    storage: ObjectStorage | None,
+) -> StoredParquet:
+    """Write one Parquet and return metadata bound to the written snapshot."""
     if storage is not None:
-        return storage.upload_parquet(
+        return storage.upload_parquet_result(
             data,
             f"{output_target}/{filename}",
         )
@@ -180,7 +206,93 @@ def write_parquet(
         raise TypeError("本地输出目标必须是 Path")
     output = output_target / filename
     data.to_parquet(output, index=False)
-    return str(output.resolve())
+    with output.open("rb") as source:
+        file_stat = os.fstat(source.fileno())
+        metadata = parquet_content_metadata(source)
+        after = os.fstat(source.fileno())
+    snapshot = (
+        file_stat.st_size,
+        file_stat.st_mtime_ns,
+        file_stat.st_ctime_ns,
+        getattr(file_stat, "st_ino", 0),
+    )
+    if snapshot != (
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
+        getattr(after, "st_ino", 0),
+    ) or metadata.size != file_stat.st_size:
+        raise OSError(f"Parquet 在生成结果清单时发生变化：{output}")
+    return StoredParquet(
+        location=str(output.resolve()),
+        size=file_stat.st_size,
+        modified_at=datetime.fromtimestamp(file_stat.st_mtime, UTC),
+        # A bind-mounted file can expose different inode/ctime values in the
+        # Worker and Backend containers. Size + mtime still bind the manifest
+        # to the freshly reset workspace output without defeating fast reads.
+        snapshot_token=None,
+        row_count=metadata.row_count,
+        columns=metadata.columns,
+        sha256=metadata.sha256,
+    )
+
+
+def write_result_manifest(
+    output_target: Path | str,
+    storage: ObjectStorage | None,
+    files: Mapping[str, tuple[str, StoredParquet]],
+) -> str:
+    """Persist the small output manifest only after every Parquet succeeded."""
+    payload = {
+        "version": RESULT_MANIFEST_VERSION,
+        "files": {
+            name: {
+                "filename": filename,
+                "size": result.size,
+                "modified_at": result.modified_at.isoformat(),
+                "snapshot_token": result.snapshot_token,
+                "row_count": result.row_count,
+                "columns": [asdict(column) for column in result.columns],
+                "sha256": result.sha256,
+            }
+            for name, (filename, result) in files.items()
+        },
+    }
+    data = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(data) > MAX_RESULT_MANIFEST_SIZE:
+        raise OSError("结果清单超过大小限制")
+    if storage is not None:
+        return storage.upload_json(
+            data,
+            f"{output_target}/{RESULT_MANIFEST_FILENAME}",
+        )
+    if not isinstance(output_target, Path):
+        raise TypeError("本地输出目标必须是 Path")
+    manifest = output_target / RESULT_MANIFEST_FILENAME
+    if manifest.is_symlink():
+        raise OSError("结果清单路径不能是符号链接")
+    temporary_path: Path | None = None
+    try:
+        with NamedTemporaryFile(
+            mode="wb",
+            dir=output_target,
+            prefix=f"{RESULT_MANIFEST_FILENAME}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(data)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        temporary_path.replace(manifest)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+    return str(manifest.resolve())
 
 
 def save_app_outputs(
@@ -197,15 +309,18 @@ def save_app_outputs(
             stack.enter_context(storage)
         result = stack.enter_context(result_factory())
         outputs: list[str] = []
+        manifest_files: dict[str, tuple[str, StoredParquet]] = {}
         for output_name in arguments.output:
             data = getattr(result, output_name)
-            outputs.append(
-                write_parquet(
-                    data,
-                    output_filenames[output_name],
-                    output_target=output_target,
-                    storage=storage,
-                )
+            filename = output_filenames[output_name]
+            written = write_parquet_result(
+                data,
+                filename,
+                output_target=output_target,
+                storage=storage,
             )
+            outputs.append(written.location)
+            manifest_files[output_name] = (filename, written)
+        write_result_manifest(output_target, storage, manifest_files)
         return outputs
 

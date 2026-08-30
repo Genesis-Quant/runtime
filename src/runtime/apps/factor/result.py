@@ -60,5 +60,21 @@ class FactorAnalysisResult(SessionResult):
             )
         """)
 
+    @property
+    def diagnostics(self) -> pd.DataFrame:
+        """在服务端聚合逐日样本覆盖和分组占用诊断。"""
+        logger.info("session.run: 计算因子样本与分组诊断")
+        return self.download(f"""
+            factor::factorDiagnostics(
+                {self.processed_ref},
+                coreFactorReturnColumns,
+                coreFactorColumns,
+                coreFactorGroupCount,
+                "time",
+                "code",
+                coreFactorMarketValueColumn
+            )
+        """)
+
 
 __all__ = ["FactorAnalysisResult"]

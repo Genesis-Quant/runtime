@@ -10,7 +10,8 @@ from runtime.utils.manage import (
     input_file_path,
     model_input,
     prepare_output_target,
-    write_parquet,
+    write_parquet_result,
+    write_result_manifest,
 )
 
 NAME = "sensitivity"
@@ -61,11 +62,17 @@ def run(
         if storage is not None:
             stack.enter_context(storage)
         result = stack.enter_context(analyze_backtest_sensitivity(**run_arguments))
-        output = write_parquet(
+        written = write_parquet_result(
             result.results,
             "results.parquet",
             output_target=output_target,
             storage=storage,
         )
+        write_result_manifest(
+            output_target,
+            storage,
+            {"results": ("results.parquet", written)},
+        )
+        output = written.location
     logger.success(f"已保存敏感性分析结果到 {output}")
     return 0

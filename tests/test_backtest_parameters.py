@@ -11,7 +11,11 @@ from pydantic import ValidationError
 from runtime import BacktestParameters
 from runtime.apps import BacktestParameters as AppsBacktestParameters
 from runtime.apps.backtest import BacktestParameters as BacktestAppParameters
-from runtime.apps.backtest.api import backtest_industry_mapping, load_backtest_environment
+from runtime.apps.backtest.api import (
+    backtest_industry_mapping,
+    load_backtest_environment,
+    managed_backtest_dataset_query,
+)
 from runtime.apps.optimization.api import build_walk_forward_windows
 from runtime.apps.optimization.schema import OptimizationSettings
 from runtime.database.compile.backtest.scripts import build_script
@@ -105,6 +109,85 @@ class BacktestParametersTests(unittest.TestCase):
         result = BacktestParameters.model_validate(payload)
 
         self.assertEqual(result.dataset_query.codes, [])
+
+    def test_static_stock_pool_injects_true_membership_at_execution(self) -> None:
+        validated = BacktestParameters.model_validate(parameters())
+
+        dataset = managed_backtest_dataset_query(validated)
+
+        self.assertNotIn(
+            "stock_pool_member",
+            validated.dataset_query.derivatives,
+        )
+        self.assertEqual(
+            dataset.derivatives["stock_pool_member"].model_dump(mode="json"),
+            {
+                "type": "DIRECT",
+                "op": "nullary.true",
+                "fields": {},
+                "params": {},
+            },
+        )
+
+    def test_dynamic_stock_pool_copies_point_in_time_membership(self) -> None:
+        payload = parameters()
+        payload["codes_query"] = {
+            **query([]),
+            "derivatives": {
+                "stock_pool_member": {
+                    "type": "DIRECT",
+                    "op": "binary.gt",
+                    "fields": {"left": "weight_000300SH", "right": 0},
+                    "params": {},
+                }
+            },
+            "filters": ["stock_pool_member"],
+        }
+        payload["dataset_query"]["codes"] = []
+        validated = BacktestParameters.model_validate(payload)
+
+        dataset = managed_backtest_dataset_query(validated)
+
+        self.assertEqual(
+            dataset.derivatives["stock_pool_member"].model_dump(mode="json"),
+            validated.codes_query.derivatives[
+                "stock_pool_member"
+            ].model_dump(mode="json"),
+        )
+
+    def test_dynamic_stock_pool_overrides_stale_dataset_membership(self) -> None:
+        payload = parameters()
+        payload["codes_query"] = {
+            **query([]),
+            "derivatives": {
+                "stock_pool_member": {
+                    "type": "DIRECT",
+                    "op": "binary.gt",
+                    "fields": {"left": "weight_000905SH", "right": 0},
+                    "params": {},
+                }
+            },
+            "filters": ["stock_pool_member"],
+        }
+        payload["dataset_query"]["derivatives"] = {
+            "stock_pool_member": {
+                "type": "DIRECT",
+                "op": "binary.gt",
+                "fields": {"left": "weight_000300SH", "right": 0},
+                "params": {},
+            }
+        }
+        payload["dataset_query"]["codes"] = []
+        validated = BacktestParameters.model_validate(payload)
+
+        dataset = managed_backtest_dataset_query(validated)
+
+        self.assertEqual(
+            dataset.derivatives["stock_pool_member"].model_dump(mode="json"),
+            validated.codes_query.derivatives[
+                "stock_pool_member"
+            ].model_dump(mode="json"),
+        )
 
     def test_all_fixed_callbacks_are_required(self) -> None:
         for callback in CALLBACKS:

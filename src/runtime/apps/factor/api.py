@@ -74,6 +74,11 @@ def analyze_factors(
             filtered_ref=FILTERED_REF,
             data_ref=INPUT_REF
         )
+        query_api.log_query_output_profile(
+            current_session,
+            INPUT_REF,
+            label="因子分析有效截面",
+        )
 
         upload_values = {
             "coreFactorColumns": np.asarray(parameters.factor_columns, dtype=str),
