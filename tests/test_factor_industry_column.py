@@ -120,6 +120,7 @@ def test_analyze_factors_uses_selected_industry_column(
 
     uploaded = session.upload.call_args.args[0]
     assert uploaded["coreFactorIndustryColumn"] == industry_column
+    assert uploaded["coreFactorTurnoverPeriods"].tolist() == [1]
     assert ("coreFactorCodeToIndustry" in uploaded) is uses_legacy_mapping
     query = build_query_table.call_args.args[0]
     assert (industry_column in query.factors) is not uses_legacy_mapping

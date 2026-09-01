@@ -80,6 +80,10 @@ def analyze_factors(
         upload_values = {
             "coreFactorColumns": np.asarray(parameters.factor_columns, dtype=str),
             "coreFactorReturnColumns": np.asarray(parameters.return_columns, dtype=str),
+            "coreFactorTurnoverPeriods": np.asarray(
+                sorted({spec.periods for spec in parameters.return_specs.values()}),
+                dtype=np.int32,
+            ),
             "coreFactorGroupCount": parameters.n_groups,
             "coreFactorSelectionCount": parameters.n_select,
             "coreFactorMarketValueColumn": parameters.market_value_column,

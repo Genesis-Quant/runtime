@@ -60,5 +60,21 @@ class FactorAnalysisResult(SessionResult):
             )
         """)
 
+    @property
+    def group_turnover(self) -> pd.DataFrame:
+        """计算各收益持有期的分组换手率与因子秩自相关。"""
+        logger.info("session.run: 计算全部因子的分组换手率")
+        return self.download(f"""
+            factor::factorGroupTurnover(
+                {self.processed_ref},
+                coreFactorColumns,
+                coreFactorTurnoverPeriods,
+                coreFactorGroupCount,
+                coreFactorSelectionCount,
+                "time",
+                "code"
+            )
+        """)
+
 
 __all__ = ["FactorAnalysisResult"]
