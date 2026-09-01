@@ -111,6 +111,7 @@ core-manage apps sensitivity --input-file sensitivity.json --output-dir output/s
 core-manage apps backtest --input-file backtest.json --output-dir jobs/backtest-1 --output daily_portfolios --cloud true
 core-manage workers --list-workers
 core-manage workers daily adj-factor --start-date 2025-01-01
+core-manage workers industry --start-date 2010-01-01
 core-manage workers daily --job-id incremental:1 --output-dir output/incremental --selected-workers daily,limit
 core-manage messages send --input-file output/incremental/message.json --channel console
 core-manage database compile --output-dir output

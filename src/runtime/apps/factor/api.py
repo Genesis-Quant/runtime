@@ -10,7 +10,7 @@ from runtime.utils import get_stock_metadata, logger
 
 from ..query import api as query_api
 from .result import FactorAnalysisResult
-from .schema import FactorAnalysisParameters
+from .schema import FactorAnalysisParameters, FactorIndustryColumn
 
 SOURCE_REF = "coreFactorSourceData"
 COMPUTED_REF = "coreFactorCOMPUTEDData"
@@ -36,6 +36,7 @@ def analyze_factors(
         n_select: int = 10,
         preprocess: bool = True,
         market_value_column: str = "circ_mv",
+        industry_column: FactorIndustryColumn = "industry",
 ) -> FactorAnalysisResult:
     """生成预处理因子表，并把后续分析交给惰性结果对象。"""
     parameters = FactorAnalysisParameters.model_validate({
@@ -48,6 +49,7 @@ def analyze_factors(
         "n_select": n_select,
         "preprocess": preprocess,
         "market_value_column": market_value_column,
+        "industry_column": industry_column,
     })
     owns_session = session is None
     current_session = create_session() if owns_session else session
@@ -81,9 +83,10 @@ def analyze_factors(
             "coreFactorGroupCount": parameters.n_groups,
             "coreFactorSelectionCount": parameters.n_select,
             "coreFactorMarketValueColumn": parameters.market_value_column,
+            "coreFactorIndustryColumn": parameters.industry_column,
         }
 
-        if parameters.preprocess:
+        if parameters.preprocess and parameters.industry_column == "industry":
             upload_values["coreFactorCodeToIndustry"] = get_stock_metadata()[2]
 
         current_session.upload(upload_values)
@@ -92,9 +95,19 @@ def analyze_factors(
         current_session.run("use factor")
 
         if parameters.preprocess:
-            logger.info("session.run: 执行 MAD 去极值、标准化、中性化和分组")
+            legacy_industry = parameters.industry_column == "industry"
+            industry_assignment = (
+                f'{INPUT_REF}["industry"] = '
+                f'coreFactorCodeToIndustry[{INPUT_REF}["code"]]'
+                if legacy_industry
+                else ""
+            )
+            logger.info(
+                "session.run: 执行 MAD 去极值、标准化、中性化和分组，"
+                f"行业列={parameters.industry_column}"
+            )
             current_session.run(f"""
-                {INPUT_REF}["industry"] = coreFactorCodeToIndustry[{INPUT_REF}["code"]]
+                {industry_assignment}
                 {PROCESSED_REF} = factor::factorPreprocess(
                     {INPUT_REF},
                     coreFactorColumns,
@@ -102,7 +115,7 @@ def analyze_factors(
                     "time",
                     "code",
                     coreFactorMarketValueColumn,
-                    "industry"
+                    coreFactorIndustryColumn
                 )
             """)
         else:

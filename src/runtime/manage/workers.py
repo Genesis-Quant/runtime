@@ -207,6 +207,7 @@ def create_workers(
     from runtime.workers import (
         FundAdjFactorWorker,
         FundDailyWorker,
+        IndustryWorker,
         IndexDailyWorker,
         IndexWeightWorker,
         StockAdjFactorWorker,
@@ -255,7 +256,9 @@ def create_workers(
 
     workers: list[Any] = []
     for name in names:
-        if name in date_types:
+        if name == "industry":
+            workers.append(IndustryWorker(**common))
+        elif name in date_types:
             workers.append(date_types[name](**date_arguments))
         elif name == "index-daily":
             if not index_codes:

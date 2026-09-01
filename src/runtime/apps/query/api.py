@@ -20,6 +20,7 @@ from runtime.utils import (
     validate_dolphindb_references,
 )
 from runtime.workers import available_factors
+from runtime.workers.industry import INDUSTRY_FACTORS
 from runtime.workers.stock_financial import FINANCIAL_FACTORS
 
 from .result import QueryResult
@@ -101,6 +102,11 @@ def build_query_table(
     if unknown := set(source_factors) - set(available_factors()):
         raise ValueError(f"查询包含 Worker 未声明的字段：{sorted(unknown)}")
     output_columns = [TIME_COLUMN, CODE_COLUMN, *query.factors, *query.derivatives]
+    seed_factors = [
+        factor
+        for factor in source_factors
+        if factor in INDUSTRY_FACTORS
+    ]
     market_codes, dates = load_market_axis(
         session,
         calculation_start,
@@ -115,6 +121,10 @@ def build_query_table(
         "coreQueryEnd": output_end + timedelta(days=1),
         "coreQueryCodes": np.asarray(codes, dtype=str),
         "coreQueryFactors": np.asarray(source_factors, dtype=str),
+        "coreQuerySeedFactors": np.asarray(
+            seed_factors,
+            dtype=str,
+        ),
         "coreQueryDates": dates.to_numpy(dtype="datetime64[ms]"),
 
         "coreDslDefinitionsJson": json.dumps(definitions, ensure_ascii=False, separators=(",", ":")),
@@ -139,7 +149,8 @@ def build_query_table(
                 coreQueryFactors,
                 coreQueryDates,
                 coreQueryStart,
-                coreQueryEnd
+                coreQueryEnd,
+                coreQuerySeedFactors
             )
         """)
 
@@ -172,7 +183,7 @@ def build_query_table(
                         {source_ref}.time
                     )
                 """)
-            elif factor in FINANCIAL_FACTORS:
+            elif factor in FINANCIAL_FACTORS or factor in INDUSTRY_FACTORS:
                 if log_progress:
                     logger.info(f"session.run: 前向填充 {source_ref}.{factor}")
                 session.run(f"""

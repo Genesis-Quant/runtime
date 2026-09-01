@@ -13,6 +13,21 @@ from runtime.utils import normalize_str, normalize_str_list
 
 from ..query.schema import FactorQuery
 
+FactorIndustryColumn = Literal[
+    "industry",
+    "industry_l0",
+    "industry_l1",
+    "industry_l2",
+    "industry_l3",
+]
+FACTOR_INDUSTRY_COLUMNS: tuple[FactorIndustryColumn, ...] = (
+    "industry",
+    "industry_l0",
+    "industry_l1",
+    "industry_l2",
+    "industry_l3",
+)
+
 
 class FactorReturnSpec(BaseModel):
     """定义一个分析收益列的收益口径和观测周期。"""
@@ -91,20 +106,33 @@ class FactorAnalysisParameters(BaseModel):
         description="用于中性化和分组收益加权的市值列。",
     )
 
+    industry_column: FactorIndustryColumn = Field(
+        default="industry",
+        description=(
+            "用于行业中性化的分类列；industry 为静态行业映射，"
+            "industry_l0 至 industry_l3 为动态行业分类。"
+        ),
+    )
+
     @model_validator(mode="before")
     @classmethod
     def add_required_query_columns(cls, data: Any) -> Any:
-        """在 FactorQuery 校验前补齐因子、收益率和市值列。"""
+        """在 FactorQuery 校验前补齐因子、收益率、市值和动态行业列。"""
         if not isinstance(data, dict):
             return data
         factor_columns = normalize_str_list(data.get("factor_columns"), "factor_columns", reject_duplicates=True)
         return_columns = normalize_str_list(data.get("return_columns"), "return_columns", reject_duplicates=True)
         market_value_column = normalize_str(data.get("market_value_column", "circ_mv"), "market_value_column")
+        industry_column = normalize_str(
+            data.get("industry_column", "industry"),
+            "industry_column",
+        )
         result: dict[str, Any] = {
             **data,
             "factor_columns": factor_columns,
             "return_columns": return_columns,
             "market_value_column": market_value_column,
+            "industry_column": industry_column,
         }
         dataset_query = data.get("dataset_query")
         if isinstance(dataset_query, FactorQuery):
@@ -118,6 +146,8 @@ class FactorAnalysisParameters(BaseModel):
         if not isinstance(factors, list) or not isinstance(derivatives, dict):
             return result
         required = [*factor_columns, *return_columns, market_value_column]
+        if data.get("preprocess", True) and industry_column != "industry":
+            required.append(industry_column)
         outputs = {name.strip() for name in factors if isinstance(name, str)} | {
             name.strip() for name in derivatives if isinstance(name, str)
         }
@@ -152,6 +182,14 @@ class FactorAnalysisParameters(BaseModel):
             raise ValueError(
                 "market_value_column 不能同时作为收益率列"
             )
+        if self.preprocess and self.industry_column in factor_set:
+            raise ValueError(
+                "industry_column 不能同时作为待分析因子"
+            )
+        if self.preprocess and self.industry_column in return_set:
+            raise ValueError(
+                "industry_column 不能同时作为收益率列"
+            )
 
         outputs = set(self.dataset_query.factors) | set(
             self.dataset_query.derivatives
@@ -166,7 +204,7 @@ class FactorAnalysisParameters(BaseModel):
                     "启用内置预处理时 dataset_query 不能包含分组列："
                     f"{sorted(overlap)}"
                 )
-            if "industry" in outputs:
+            if self.industry_column == "industry" and "industry" in outputs:
                 raise ValueError(
                     "dataset_query 不能定义由因子分析添加的行业列 'industry'"
                 )
@@ -285,7 +323,9 @@ def raise_historical_return_spec_error(column: str) -> None:
 
 
 __all__ = [
+    "FACTOR_INDUSTRY_COLUMNS",
     "FactorAnalysisParameters",
+    "FactorIndustryColumn",
     "FactorReturnSpec",
     "validate_historical_factor_analysis_parameters",
 ]

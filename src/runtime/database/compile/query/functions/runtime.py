@@ -322,7 +322,14 @@ EMPTY_FACTOR_TIMELINE = DolphinDBFunction(
 BUILD_FACTOR_SOURCE = DolphinDBFunction(
     module="query",
     definition="""
-    def build_factor_source(data, codes, factors, dates, start_time, end_time) {
+    def build_factor_source(
+            data,
+            codes,
+            factors,
+            dates,
+            start_time,
+            end_time,
+            seed_factors) {
         // 从统一长表完成筛选、交易日展开、事件时间线构造和长转宽。
         if (!is_table_form(data)) {
             throw "build_factor_source 的 data 必须是 table，实际为 " + typestr(data)
@@ -335,6 +342,19 @@ BUILD_FACTOR_SOURCE = DolphinDBFunction(
         }
         if (!is_vector_form(dates)) {
             throw "build_factor_source 的 dates 必须是时间向量"
+        }
+        if (!is_vector_form(seed_factors)) {
+            throw "build_factor_source 的 seed_factors 必须是 STRING 向量"
+        }
+        if (size(seed_factors) > 0 && type(seed_factors) != STRING) {
+            throw "build_factor_source 的 seed_factors 必须是 STRING 向量"
+        }
+        invalid_seed_factors = string(seed_factors)[
+            !(string(seed_factors) in string(factors))
+        ]
+        if (size(invalid_seed_factors) > 0) {
+            throw "seed_factors 不在 factors 中：" +
+                concat(invalid_seed_factors, ", ")
         }
         if (size(dates) == 0) return empty_factor_timeline(factors)
 
@@ -351,6 +371,26 @@ BUILD_FACTOR_SOURCE = DolphinDBFunction(
               and time < end_time
               and factor in symbol(factors)
               and code in symbol(codes)
+        if (size(seed_factors) > 0) {
+            historical = select timestamp(time) as time, code, factor, value
+                from data
+                where time < start_time
+                  and factor in symbol(seed_factors)
+                  and code in symbol(codes)
+                order by code, factor, time
+            latest = select
+                    last(time) as seed_time,
+                    last(value) as seed_value
+                from historical
+                group by code, factor
+            seeds = select
+                    seed_time as time,
+                    code,
+                    factor,
+                    seed_value as value
+                from latest
+            values = unionAll(values, seeds)
+        }
         events = select time, code, false as selected from values
         timeline = select max(selected) as selected
             from unionAll(universe, events)
