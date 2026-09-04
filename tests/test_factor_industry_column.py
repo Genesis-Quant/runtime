@@ -17,7 +17,7 @@ def factor_parameters(**updates: object) -> dict[str, object]:
             "end_date": "2024-01-31",
             "lookback": "P5D",
             "codes": [],
-            "factors": ["close"],
+            "factors": ["close", "circ_mv"],
             "derivatives": {
                 "future_return": {
                     "type": "TS",
@@ -43,14 +43,16 @@ def factor_parameters(**updates: object) -> dict[str, object]:
     return parameters
 
 
-def test_dynamic_industry_column_is_added_to_dataset_query() -> None:
-    parameters = FactorAnalysisParameters.model_validate(
-        factor_parameters(industry_column="industry_l2")
-    )
+def test_dynamic_industry_column_must_be_present_in_dataset_query() -> None:
+    with pytest.raises(ValidationError, match="industry_l2"):
+        FactorAnalysisParameters.model_validate(
+            factor_parameters(industry_column="industry_l2")
+        )
 
-    assert parameters.industry_column == "industry_l2"
-    assert "industry_l2" in parameters.dataset_query.factors
-    assert "industry" not in parameters.dataset_query.factors
+    data = factor_parameters(industry_column="industry_l2")
+    data["dataset_query"]["factors"].append("industry_l2")
+    parameters = FactorAnalysisParameters.model_validate(data)
+    assert parameters.dataset_query.factors == ["close", "circ_mv", "industry_l2"]
 
 
 def test_legacy_industry_mapping_does_not_add_query_column() -> None:
@@ -105,6 +107,8 @@ def test_analyze_factors_uses_selected_industry_column(
         )
 
     data = factor_parameters(industry_column=industry_column)
+    if not uses_legacy_mapping:
+        data["dataset_query"]["factors"].append(industry_column)
     analyze_factors(
         data["dataset_query"],
         data["factor_columns"],

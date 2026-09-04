@@ -2,13 +2,6 @@
 
 from runtime.database.compile import DolphinDBFunction
 
-from .lifecycle import (
-    CALLBACK_OR_DEFAULT,
-    NOOP_CONTEXT_CALLBACK,
-    NOOP_EVENT_CALLBACK,
-    NOOP_MESSAGE_CALLBACK,
-)
-
 RUN_BACKTEST = DolphinDBFunction(
     module="backtest",
     definition="""
@@ -16,7 +9,7 @@ RUN_BACKTEST = DolphinDBFunction(
         /*
         使用给定配置、完整消息表和全部生命周期回调创建并运行 Backtest 引擎。
 
-        函数先规范插件配置并为缺失的生命周期回调填入空函数，随后创建引擎、
+        函数先规范插件配置，随后使用全部必填生命周期回调创建引擎、
         追加行情消息并发送结束标记。合成快照按同一时间戳整批触发 onSnapshot；策略通过
         getLastData 或 getHistoryData 显式读取当前消息日期以前的数据。
         */
@@ -44,50 +37,18 @@ RUN_BACKTEST = DolphinDBFunction(
             }
         }
 
-        initialize = callback_or_default(
-            initialize_callback,
-            noop_context_callback
-        )
-        before_trading = callback_or_default(
-            before_trading_callback,
-            noop_context_callback
-        )
-        on_bar = callback_or_default(
-            on_bar_callback,
-            noop_message_callback
-        )
-        on_snapshot = callback_or_default(
-            on_snapshot_callback,
-            noop_message_callback
-        )
-        on_order = callback_or_default(
-            on_order_callback,
-            noop_event_callback
-        )
-        on_trade = callback_or_default(
-            on_trade_callback,
-            noop_event_callback
-        )
-        after_trading = callback_or_default(
-            after_trading_callback,
-            noop_context_callback
-        )
-        finalize = callback_or_default(
-            finalize_callback,
-            noop_context_callback
-        )
         engine = Backtest::createBacktestEngine(
             name,
             config,
             ,
-            initialize,
-            before_trading,
-            on_bar,
-            on_snapshot,
-            on_order,
-            on_trade,
-            after_trading,
-            finalize
+            initialize_callback,
+            before_trading_callback,
+            on_bar_callback,
+            on_snapshot_callback,
+            on_order_callback,
+            on_trade_callback,
+            after_trading_callback,
+            finalize_callback
         )
         try {
             Backtest::appendQuotationMsg(engine, message)
@@ -99,10 +60,4 @@ RUN_BACKTEST = DolphinDBFunction(
         return engine
     }
     """,
-    dependencies=(
-        CALLBACK_OR_DEFAULT,
-        NOOP_CONTEXT_CALLBACK,
-        NOOP_EVENT_CALLBACK,
-        NOOP_MESSAGE_CALLBACK,
-    ),
 )

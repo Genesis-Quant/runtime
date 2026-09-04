@@ -1,15 +1,14 @@
 """定义因子分析查询和预处理参数。"""
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_validator,
     model_validator,
 )
-
-from runtime.utils import normalize_str, normalize_str_list
 
 from ..query.schema import FactorQuery
 
@@ -35,11 +34,11 @@ class FactorReturnSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, validate_default=True)
 
     kind: Literal["simple", "log"] = Field(
-        default="simple",
+        ...,
         description="收益列口径；simple 为简单收益率，log 为对数收益率。",
     )
     periods: int = Field(
-        default=1,
+        ...,
         ge=1,
         description="单个收益观测覆盖的交易期数；大于 1 时不计算重叠分组收益的复利指标。",
     )
@@ -114,50 +113,23 @@ class FactorAnalysisParameters(BaseModel):
         ),
     )
 
-    @model_validator(mode="before")
+    @field_validator("factor_columns", "return_columns")
     @classmethod
-    def add_required_query_columns(cls, data: Any) -> Any:
-        """在 FactorQuery 校验前补齐因子、收益率、市值和动态行业列。"""
-        if not isinstance(data, dict):
-            return data
-        factor_columns = normalize_str_list(data.get("factor_columns"), "factor_columns", reject_duplicates=True)
-        return_columns = normalize_str_list(data.get("return_columns"), "return_columns", reject_duplicates=True)
-        market_value_column = normalize_str(data.get("market_value_column", "circ_mv"), "market_value_column")
-        industry_column = normalize_str(
-            data.get("industry_column", "industry"),
-            "industry_column",
-        )
-        result: dict[str, Any] = {
-            **data,
-            "factor_columns": factor_columns,
-            "return_columns": return_columns,
-            "market_value_column": market_value_column,
-            "industry_column": industry_column,
-        }
-        dataset_query = data.get("dataset_query")
-        if isinstance(dataset_query, FactorQuery):
-            query_data = dataset_query.model_dump(mode="python")
-        elif isinstance(dataset_query, dict):
-            query_data = dataset_query
-        else:
-            return result
-        factors = query_data.get("factors") or []
-        derivatives = query_data.get("derivatives") or {}
-        if not isinstance(factors, list) or not isinstance(derivatives, dict):
-            return result
-        required = [*factor_columns, *return_columns, market_value_column]
-        if data.get("preprocess", True) and industry_column != "industry":
-            required.append(industry_column)
-        outputs = {name.strip() for name in factors if isinstance(name, str)} | {
-            name.strip() for name in derivatives if isinstance(name, str)
-        }
-        merged = list(factors)
-        for name in required:
-            if name not in outputs:
-                merged.append(name)
-                outputs.add(name)
-        result["dataset_query"] = FactorQuery.model_validate({**query_data, "factors": merged})
-        return result
+    def validate_column_names(cls, value: list[str]) -> list[str]:
+        """拒绝需要 Runtime 猜测或规范化的列名。"""
+        if any(not name or name != name.strip() for name in value):
+            raise ValueError("列名不能为空或包含首尾空格")
+        if len(set(value)) != len(value):
+            raise ValueError("列名不能重复")
+        return value
+
+    @field_validator("market_value_column")
+    @classmethod
+    def validate_market_value_column(cls, value: str) -> str:
+        """要求调用方提交可直接执行的市值列名。"""
+        if value != value.strip():
+            raise ValueError("market_value_column 不能包含首尾空格")
+        return value
 
     @model_validator(mode="after")
     def validate_analysis_contract(self) -> "FactorAnalysisParameters":
@@ -194,6 +166,14 @@ class FactorAnalysisParameters(BaseModel):
         outputs = set(self.dataset_query.factors) | set(
             self.dataset_query.derivatives
         )
+        required = factor_set | return_set | {self.market_value_column}
+        if self.preprocess and self.industry_column != "industry":
+            required.add(self.industry_column)
+        if missing := required - outputs:
+            raise ValueError(
+                "dataset_query 缺少因子分析所需输出列："
+                f"{sorted(missing)}"
+            )
         generated = {
             f"{factor}_group"
             for factor in self.factor_columns
@@ -215,117 +195,9 @@ class FactorAnalysisParameters(BaseModel):
             )
         return self
 
-
-def validate_historical_factor_analysis_parameters(
-    data: Any,
-) -> FactorAnalysisParameters:
-    """校验已持久化参数，并仅为旧记录补充可精确推断的收益口径。"""
-    if isinstance(data, FactorAnalysisParameters):
-        return data
-    if not isinstance(data, dict) or "return_specs" in data:
-        return FactorAnalysisParameters.model_validate(data)
-
-    return_columns = normalize_str_list(
-        data.get("return_columns"),
-        "return_columns",
-        reject_duplicates=True,
-    )
-    return FactorAnalysisParameters.model_validate({
-        **data,
-        "return_specs": infer_historical_return_specs(
-            data.get("dataset_query"),
-            return_columns,
-        ),
-    })
-
-
-def infer_historical_return_specs(
-    dataset_query: Any,
-    return_columns: list[str],
-) -> dict[str, dict[str, Any]]:
-    query = (
-        dataset_query.model_dump(mode="python")
-        if isinstance(dataset_query, FactorQuery)
-        else dataset_query
-    )
-    derivatives = query.get("derivatives") if isinstance(query, dict) else None
-    return {
-        column: infer_historical_return_spec(
-            column,
-            derivatives.get(column) if isinstance(derivatives, dict) else None,
-        )
-        for column in return_columns
-    }
-
-
-def infer_historical_return_spec(
-    column: str,
-    node: Any,
-) -> dict[str, Any]:
-    """从 Runtime 曾生成的两类收益表达式中恢复收益口径。"""
-    if not isinstance(node, dict):
-        raise_historical_return_spec_error(column)
-    operation = node.get("op")
-    fields = node.get("fields")
-    params = node.get("params")
-    if operation == "unary.pct_change" and isinstance(params, dict):
-        configured = params.get("periods")
-        if (
-            isinstance(configured, int)
-            and not isinstance(configured, bool)
-            and configured != 0
-        ):
-            return {"kind": "simple", "periods": abs(configured)}
-        raise_historical_return_spec_error(column)
-    if operation == "unary.log" and isinstance(fields, dict):
-        periods = historical_return_expression_periods(fields.get("col"))
-        if periods is not None:
-            return {"kind": "log", "periods": periods}
-    raise_historical_return_spec_error(column)
-
-
-def historical_return_expression_periods(node: Any) -> int | None:
-    if not isinstance(node, dict) or node.get("op") != "binary.div":
-        return None
-    fields = node.get("fields")
-    if not isinstance(fields, dict):
-        return None
-    left = historical_shift(fields.get("left"))
-    right = historical_shift(fields.get("right"))
-    if left is None or right is None or left[0] != right[0]:
-        return None
-    distance = abs(left[1] - right[1])
-    return distance or None
-
-
-def historical_shift(node: Any) -> tuple[str, int] | None:
-    if not isinstance(node, dict) or node.get("op") != "unary.shift":
-        return None
-    fields = node.get("fields")
-    params = node.get("params")
-    column = fields.get("col") if isinstance(fields, dict) else None
-    periods = params.get("periods") if isinstance(params, dict) else None
-    if (
-        not isinstance(column, str)
-        or not column
-        or not isinstance(periods, int)
-        or isinstance(periods, bool)
-    ):
-        return None
-    return column, periods
-
-
-def raise_historical_return_spec_error(column: str) -> None:
-    raise ValueError(
-        f"历史因子分析收益列 {column!r} 缺少 return_specs，且无法从 "
-        "dataset_query.derivatives 精确推断；请显式补充 kind 和 periods"
-    )
-
-
 __all__ = [
     "FACTOR_INDUSTRY_COLUMNS",
     "FactorAnalysisParameters",
     "FactorIndustryColumn",
     "FactorReturnSpec",
-    "validate_historical_factor_analysis_parameters",
 ]
