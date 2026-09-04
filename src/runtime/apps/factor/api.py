@@ -131,6 +131,9 @@ def analyze_factors(
         return FactorAnalysisResult(
             session=current_session,
             parameters=parameters,
+            source_ref=SOURCE_REF,
+            computed_ref=COMPUTED_REF,
+            filtered_ref=FILTERED_REF,
             processed_ref=PROCESSED_REF,
         )
     except Exception:

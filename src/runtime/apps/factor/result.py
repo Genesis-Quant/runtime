@@ -17,13 +17,36 @@ class FactorAnalysisResult(SessionResult):
             *,
             session: Any,
             parameters: FactorAnalysisParameters,
+            source_ref: str,
+            computed_ref: str,
+            filtered_ref: str,
             processed_ref: str,
     ) -> None:
         super().__init__(session=session)
         self.parameters = parameters
         self.factor_columns = tuple(parameters.factor_columns)
         self.return_columns = tuple(parameters.return_columns)
+        self.source_ref = source_ref
+        self.computed_ref = computed_ref
+        self.filtered_ref = filtered_ref
         self.processed_ref = processed_ref
+
+    @property
+    def execution_statistics(self) -> pd.DataFrame:
+        """按交易日统计原始股票数及各过滤阶段剩余股票数。"""
+        logger.info("session.run: 统计 DSL 各过滤阶段的股票数量")
+        return self.download(f"""
+            factor::factorExecutionStatistics(
+                {self.source_ref},
+                {self.computed_ref},
+                {self.filtered_ref},
+                coreDslFilters,
+                coreOutputStart,
+                coreOutputEnd,
+                "time",
+                "code"
+            )
+        """)
 
     @property
     def processed_data(self) -> pd.DataFrame:

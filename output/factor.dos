@@ -186,6 +186,95 @@ def factorPreprocess(
     return workingTable
 }
 
+def factorExecutionStatistics(
+    sourceTable,
+    computedTable,
+    filteredTable,
+    filterCols,
+    startTime,
+    endTime,
+    timeCol="time",
+    codeCol="code") {
+    filterColNames = factorStringVector(filterCols)
+    requiredColumns = symbol([timeCol, codeCol])
+    factorCheckColumns(sourceTable, requiredColumns)
+    factorCheckColumns(computedTable, requiredColumns)
+    factorCheckColumns(filteredTable, requiredColumns)
+    if (size(filterColNames) > 0) {
+        factorCheckColumns(computedTable, symbol(filterColNames))
+    }
+
+    result =
+        <select count(*) as source_count
+         from sourceTable
+         where
+            _$timeCol >= startTime,
+            _$timeCol < endTime,
+            !isNull(_$codeCol)
+         group by _$timeCol>.eval()
+    result.rename!(symbol([timeCol])[0], `time)
+    result.sortBy!(`time)
+
+    timeSym = symbol([timeCol])[0]
+    codeSym = symbol([codeCol])[0]
+    computedMask = (
+        computedTable[timeSym] >= startTime &&
+        computedTable[timeSym] < endTime &&
+        !isNull(computedTable[codeSym])
+    )
+    if (size(filterColNames) > 0) {
+        for (index in 0 .. (size(filterColNames) - 1)) {
+            filterSym = symbol([string(filterColNames[index])])[0]
+            computedMask = computedMask && nullFill(
+                computedTable[filterSym],
+                false
+            )
+            stageRows = table(
+                computedTable[timeSym][computedMask] as time
+            )
+            stageCounts = select count(*) as stage_count
+                from stageRows
+                group by time
+            stageColumn = symbol([
+                "filter" + string(index) + "_count"
+            ])[0]
+            stageCounts.rename!(`stage_count, stageColumn)
+            result = lj(result, stageCounts, `time)
+            result[stageColumn] = long(
+                nullFill(result[stageColumn], 0)
+            )
+            filterNameColumn = symbol([
+                "filter" + string(index) + "_name"
+            ])[0]
+            result[filterNameColumn] = take(
+                string(filterColNames[index]),
+                result.rows()
+            )
+        }
+    }
+
+    filteredCounts =
+        <select count(*) as filtered_count
+         from filteredTable
+         where
+            _$timeCol >= startTime,
+            _$timeCol < endTime,
+            !isNull(_$codeCol)
+         group by _$timeCol>.eval()
+    filteredCounts.rename!(symbol([timeCol])[0], `time)
+    result = lj(result, filteredCounts, `time)
+    result[`filtered_count] = long(
+        nullFill(result[`filtered_count], 0)
+    )
+    result[`retention_rate] = iif(
+        result[`source_count] > 0,
+        double(result[`filtered_count]) \
+            double(result[`source_count]),
+        double(NULL)
+    )
+    return result
+}
+
 def factorInformationCoefficient(
     processedTable,
     returnCols,

@@ -7,9 +7,10 @@ from runtime.utils.manage import add_app_arguments, model_input, save_app_output
 
 NAME = "factor"
 HELP = "执行因子分析"
-DESCRIPTION = "执行因子预处理、IC、分组收益和换手率分析。"
+DESCRIPTION = "执行 DSL 过滤统计、因子预处理、IC、分组收益和换手率分析。"
 OUTPUT_FILENAMES = {
     "processed_data": "factor_processed.parquet",
+    "execution_statistics": "factor_execution_statistics.parquet",
     "information_coefficient": "factor_information_coefficients.parquet",
     "group_returns": "factor_group_returns.parquet",
     "group_turnover": "factor_group_turnover.parquet",
