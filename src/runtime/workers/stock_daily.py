@@ -3,7 +3,7 @@
 import pandas as pd
 
 from runtime.utils import CODE_COLUMN, TIME_COLUMN, get_codes, normalize_date
-from runtime.utils.ts_api import pro, ts
+from runtime.utils.ts_api import get_pro, ts
 
 from .base import DateWorker, StockWorker
 
@@ -25,7 +25,7 @@ def fetch_daily(
     """调用按交易日查询的行情接口，并转换为统一长表。"""
     current = normalize_date(current_date, "current_date")
     response = worker.retry(
-        lambda: getattr(pro, endpoint)(
+        lambda: getattr(get_pro(), endpoint)(
             trade_date=current.strftime("%Y%m%d"),
             fields=",".join(("ts_code", "trade_date", *worker.factors)),
         ),

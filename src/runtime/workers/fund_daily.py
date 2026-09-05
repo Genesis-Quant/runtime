@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from runtime.utils import TIME_COLUMN
-from runtime.utils.ts_api import pro
+from runtime.utils.ts_api import get_pro
 
 from .base import StockWorker
 
@@ -156,7 +156,7 @@ class FundDailyWorker(StockWorker):
         """分页获取一只基金的日线并转换为统一长表。"""
         return fetch_fund(
             self,
-            pro.fund_daily,
+            get_pro().fund_daily,
             "fund_daily",
             code,
             start_date,
@@ -194,7 +194,7 @@ class FundAdjFactorWorker(StockWorker):
         """分页获取一只基金的复权因子并转换为统一长表。"""
         return fetch_fund(
             self,
-            pro.fund_adj,
+            get_pro().fund_adj,
             "fund_adj",
             code,
             start_date,

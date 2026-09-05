@@ -33,9 +33,7 @@ if TYPE_CHECKING:
     from .throttle import RateLimiter
     from .ts_api import (
         get_codes,
-        get_pro,
         get_stock_metadata,
-        initialize_stock_metadata,
     )
 
 LAZY_EXPORTS = {
@@ -43,19 +41,8 @@ LAZY_EXPORTS = {
     "SessionResult": ("runtime.utils.result", "SessionResult"),
     "RateLimiter": ("runtime.utils.throttle", "RateLimiter"),
     "Retry": ("runtime.utils.retry", "Retry"),
-    "INDUSTRY_TO_SECTOR": ("runtime.utils.ts_api", "INDUSTRY_TO_SECTOR"),
     "get_codes": ("runtime.utils.ts_api", "get_codes"),
-    "get_pro": ("runtime.utils.ts_api", "get_pro"),
     "get_stock_metadata": ("runtime.utils.ts_api", "get_stock_metadata"),
-    "initialize_stock_metadata": (
-        "runtime.utils.ts_api",
-        "initialize_stock_metadata",
-    ),
-    "pro": ("runtime.utils.ts_api", "pro"),
-    "ts": ("runtime.utils.ts_api", "ts"),
-    "CODES": ("runtime.utils.ts_api", "CODES"),
-    "CODE_TO_INDUSTRY": ("runtime.utils.ts_api", "CODE_TO_INDUSTRY"),
-    "STOCK_INDUSTRIES": ("runtime.utils.ts_api", "STOCK_INDUSTRIES"),
 }
 
 __all__ = [
@@ -71,9 +58,7 @@ __all__ = [
     "VALUE_COLUMN",
     "WEIGHT_PREFIX",
     "get_codes",
-    "get_pro",
     "get_stock_metadata",
-    "initialize_stock_metadata",
     "index_weight_factor",
     "logger",
     "normalize_date",

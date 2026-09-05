@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from runtime.utils import TIME_COLUMN
-from runtime.utils.ts_api import pro
+from runtime.utils.ts_api import get_pro
 
 from .base import StockWorker
 
@@ -291,7 +291,7 @@ class StockBalanceSheetWorker(StockWorker):
         """获取一只股票的资产负债表。"""
         return fetch_financial(
             self,
-            pro.balancesheet,
+            get_pro().balancesheet,
             "balancesheet",
             code,
             start_date,
@@ -323,7 +323,7 @@ class StockIncomeWorker(StockWorker):
         """获取一只股票的利润表并计算报告期和 TTM 因子。"""
         return fetch_financial(
             self,
-            pro.income,
+            get_pro().income,
             "income",
             code,
             start_date,
@@ -356,7 +356,7 @@ class StockCashflowWorker(StockWorker):
         """获取一只股票的现金流量表并计算报告期和 TTM 因子。"""
         return fetch_financial(
             self,
-            pro.cashflow,
+            get_pro().cashflow,
             "cashflow",
             code,
             start_date,
@@ -389,7 +389,7 @@ class StockFinaIndicatorWorker(StockWorker):
         """获取一只股票的财务指标。"""
         return fetch_financial(
             self,
-            pro.fina_indicator,
+            get_pro().fina_indicator,
             "fina_indicator",
             code,
             start_date,

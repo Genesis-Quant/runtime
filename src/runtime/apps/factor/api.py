@@ -99,11 +99,11 @@ def analyze_factors(
         current_session.run("use factor")
 
         if parameters.preprocess:
-            legacy_industry = parameters.industry_column == "industry"
+            static_industry = parameters.industry_column == "industry"
             industry_assignment = (
                 f'{INPUT_REF}["industry"] = '
                 f'coreFactorCodeToIndustry[{INPUT_REF}["code"]]'
-                if legacy_industry
+                if static_industry
                 else ""
             )
             logger.info(
@@ -137,7 +137,7 @@ def analyze_factors(
             processed_ref=PROCESSED_REF,
         )
     except Exception:
-        logger.exception(f"因子分析失败")
+        logger.exception("因子分析失败")
 
         if owns_session:
             current_session.close()

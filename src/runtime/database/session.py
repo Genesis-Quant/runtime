@@ -100,7 +100,7 @@ class DeadlineSession:
         self.raw_session.close()
 
     def __getattr__(self, name: str) -> Any:
-        """保留 DolphinDB Session 非核心方法的兼容访问。"""
+        """将未包装的 DolphinDB Session 方法转发给底层连接。"""
         self.ensure_open()
         return getattr(self.raw_session, name)
 

@@ -7,7 +7,7 @@ import pandas as pd
 
 from runtime.config import INDEX_CODES
 from runtime.utils import TIME_COLUMN
-from runtime.utils.ts_api import pro
+from runtime.utils.ts_api import get_pro
 
 from .base import StockWorker
 from .stock_daily import STOCK_DAILY_FACTORS
@@ -44,7 +44,7 @@ class IndexDailyWorker(StockWorker):
     ) -> pd.DataFrame:
         """分页获取一个指数的日行情并转换为统一长表。"""
         response = self.paginator.fetch(
-            pro.index_daily,
+            get_pro().index_daily,
             params={
                 "ts_code": code,
                 "start_date": start_date.strftime("%Y%m%d"),

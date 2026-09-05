@@ -55,7 +55,7 @@ def test_dynamic_industry_column_must_be_present_in_dataset_query() -> None:
     assert parameters.dataset_query.factors == ["close", "circ_mv", "industry_l2"]
 
 
-def test_legacy_industry_mapping_does_not_add_query_column() -> None:
+def test_static_industry_mapping_does_not_add_query_column() -> None:
     parameters = FactorAnalysisParameters.model_validate(factor_parameters())
 
     assert parameters.industry_column == "industry"
@@ -70,7 +70,7 @@ def test_industry_column_rejects_unknown_value() -> None:
 
 
 @pytest.mark.parametrize(
-    ("industry_column", "uses_legacy_mapping"),
+    ("industry_column", "uses_static_mapping"),
     [
         ("industry", True),
         ("industry_l0", False),
@@ -79,7 +79,7 @@ def test_industry_column_rejects_unknown_value() -> None:
 )
 def test_analyze_factors_uses_selected_industry_column(
         industry_column: str,
-        uses_legacy_mapping: bool,
+        uses_static_mapping: bool,
         monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = Mock()
@@ -93,7 +93,7 @@ def test_analyze_factors_uses_selected_industry_column(
         build_query_table,
     )
 
-    if uses_legacy_mapping:
+    if uses_static_mapping:
         monkeypatch.setattr(
             "runtime.apps.factor.api.get_stock_metadata",
             lambda: ({}, {}, {"000001.SZ": "金融"}),
@@ -107,7 +107,7 @@ def test_analyze_factors_uses_selected_industry_column(
         )
 
     data = factor_parameters(industry_column=industry_column)
-    if not uses_legacy_mapping:
+    if not uses_static_mapping:
         data["dataset_query"]["factors"].append(industry_column)
     analyze_factors(
         data["dataset_query"],
@@ -125,12 +125,12 @@ def test_analyze_factors_uses_selected_industry_column(
     uploaded = session.upload.call_args.args[0]
     assert uploaded["coreFactorIndustryColumn"] == industry_column
     assert uploaded["coreFactorTurnoverPeriods"].tolist() == [1]
-    assert ("coreFactorCodeToIndustry" in uploaded) is uses_legacy_mapping
+    assert ("coreFactorCodeToIndustry" in uploaded) is uses_static_mapping
     query = build_query_table.call_args.args[0]
-    assert (industry_column in query.factors) is not uses_legacy_mapping
+    assert (industry_column in query.factors) is not uses_static_mapping
     scripts = "\n".join(call.args[0] for call in session.run.call_args_list)
     assert "coreFactorIndustryColumn" in scripts
     assert (
         'coreFactorInputData["industry"] = coreFactorCodeToIndustry'
         in scripts
-    ) is uses_legacy_mapping
+    ) is uses_static_mapping

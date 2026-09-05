@@ -10,7 +10,7 @@ from runtime.utils import (
     index_weight_factor,
     normalize_date,
 )
-from runtime.utils.ts_api import pro
+from runtime.utils.ts_api import get_pro
 
 from .base import DateWorker
 
@@ -59,7 +59,7 @@ class IndexWeightWorker(DateWorker):
         """获取当前日期可用的最近指数快照并生成非零权重。"""
         current = normalize_date(current_date, "current_date")
         response = self.retry(
-            lambda: pro.index_weight(
+            lambda: get_pro().index_weight(
                 index_code=self.index_code,
                 end_date=current.strftime("%Y%m%d"),
             ),

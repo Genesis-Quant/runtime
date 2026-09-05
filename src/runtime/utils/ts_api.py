@@ -10,7 +10,7 @@ from runtime.config import TUSHARE_TOKEN
 
 from .logging import logger
 
-INDUSTRY_TO_SECTOR = {
+_INDUSTRY_TO_SECTOR = {
     "煤炭开采": "能源",
     "石油加工": "能源",
     "石油开采": "能源",
@@ -139,7 +139,7 @@ def get_pro() -> Any:
     return client
 
 
-def load_stock_metadata() -> StockMetadata:
+def _load_stock_metadata() -> StockMetadata:
     """从 Tushare 加载全市场股票代码和行业映射。"""
     client = get_pro()
     stock_frames: list[pd.DataFrame] = []
@@ -186,7 +186,7 @@ def load_stock_metadata() -> StockMetadata:
     code_to_industry = dict(
         zip(
             stock_industries["code"],
-            stock_industries["industry"].map(INDUSTRY_TO_SECTOR).fillna("工业"),
+            stock_industries["industry"].map(_INDUSTRY_TO_SECTOR).fillna("工业"),
             strict=True,
         )
     )
@@ -194,44 +194,14 @@ def load_stock_metadata() -> StockMetadata:
     return codes, stock_industries, code_to_industry
 
 
-def initialize_stock_metadata() -> StockMetadata:
-    """在当前 Python 进程中初始化一次股票元数据。"""
+def get_stock_metadata() -> StockMetadata:
+    """首次读取时加载股票元数据，之后在当前 Python 进程中复用。"""
     global _stock_metadata
     if _stock_metadata is None:
-        _stock_metadata = load_stock_metadata()
+        _stock_metadata = _load_stock_metadata()
     return _stock_metadata
-
-
-def get_stock_metadata() -> StockMetadata:
-    """返回当前 Python 进程复用的股票元数据。"""
-    return initialize_stock_metadata()
 
 
 def get_codes() -> tuple[str, ...]:
     """返回按需加载的全市场股票代码。"""
     return get_stock_metadata()[0]
-
-
-class ProProxy:
-    """兼容原有 ``pro`` 导出的惰性 Tushare Pro 代理。"""
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(get_pro(), name)
-
-
-pro = ProProxy()
-
-
-def __getattr__(name: str) -> Any:
-    """兼容按需读取原有股票元数据常量。"""
-    if name not in {"CODES", "STOCK_INDUSTRIES", "CODE_TO_INDUSTRY"}:
-        raise AttributeError(
-            f"module {__name__!r} has no attribute {name!r}"
-        )
-    codes, stock_industries, code_to_industry = get_stock_metadata()
-    values = {
-        "CODES": codes,
-        "STOCK_INDUSTRIES": stock_industries,
-        "CODE_TO_INDUSTRY": code_to_industry,
-    }
-    return values[name]

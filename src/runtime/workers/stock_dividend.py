@@ -12,7 +12,7 @@ from runtime.database import (
     normalize_stock_dividends,
 )
 from runtime.utils import logger
-from runtime.utils.ts_api import pro
+from runtime.utils.ts_api import get_pro
 
 from .base import WideWorker
 
@@ -58,7 +58,7 @@ class StockDividendWorker(WideWorker):
     ) -> pd.DataFrame:
         """获取并清洗一只股票在股权登记日区间内的已实施分红。"""
         response = self.retry(
-            lambda: pro.dividend(
+            lambda: get_pro().dividend(
                 ts_code=code,
                 fields=",".join(self.SOURCE_COLUMNS),
             ),

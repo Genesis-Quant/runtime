@@ -19,7 +19,7 @@ from runtime.utils import (
     logger,
     normalize_date,
 )
-from runtime.utils.ts_api import pro
+from runtime.utils.ts_api import get_pro
 
 from .base import BaseWorker
 
@@ -175,7 +175,7 @@ class IndustryWorker(BaseWorker):
         frames: list[pd.DataFrame] = []
         for is_new in ("Y", "N"):
             frame = self.paginator.fetch(
-                pro.index_member_all,
+                get_pro().index_member_all,
                 params={
                     "is_new": is_new,
                     "fields": _MEMBER_FIELDS,

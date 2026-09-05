@@ -8,7 +8,7 @@ from runtime.utils import (
     TIME_COLUMN,
     normalize_date,
 )
-from runtime.utils.ts_api import pro
+from runtime.utils.ts_api import get_pro
 
 from .base import DateWorker
 
@@ -31,7 +31,7 @@ class StockSTWorker(DateWorker):
         """获取一个自然日的 ST 股票名单。"""
         current = normalize_date(current_date, "current_date")
         response = self.retry(
-            lambda: pro.stock_st(
+            lambda: get_pro().stock_st(
                 trade_date=current.strftime("%Y%m%d"),
                 fields="ts_code,trade_date",
             ),
