@@ -212,8 +212,9 @@ class FactorQuery(BaseModel):
                     f"{sorted(non_bool_on)}"
                 )
             if non_bool_operands := [
-                reference for reference in bool_references & derivative_names
-                if derivative_output_kind(self.derivatives[reference]) != "BOOL"
+                reference for reference in bool_references
+                if reference not in derivative_names
+                or derivative_output_kind(self.derivatives[reference]) != "BOOL"
             ]:
                 raise ValueError(
                     f"derivatives[{name!r}] 的逻辑操作数引用必须返回 BOOL："

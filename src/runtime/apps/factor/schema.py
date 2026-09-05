@@ -65,7 +65,10 @@ class FactorAnalysisParameters(BaseModel):
     factor_columns: list[str] = Field(
         ...,
         min_length=1,
-        description="需要评价的原始因子列或 DSL 手动预处理结果列。",
+        description=(
+            "需要评价的原始因子列或 DSL 手动预处理结果列；"
+            "分析时仅保留这些列在预处理后均非 NULL 的股票行。"
+        ),
     )
 
     return_columns: list[str] = Field(

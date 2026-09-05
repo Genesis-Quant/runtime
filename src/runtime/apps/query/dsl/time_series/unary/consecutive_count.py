@@ -6,7 +6,7 @@ from pydantic import Field
 
 
 from runtime.apps.query.dsl.base import TimeSeriesOperator
-from runtime.apps.query.dsl.fields import UnaryFields
+from runtime.apps.query.dsl.fields import BoolUnaryFields
 from runtime.apps.query.dsl.types import (
     OutputKind,
     StrictModel,
@@ -21,7 +21,7 @@ class TimeSeriesUnaryConsecutiveCountOperator(TimeSeriesOperator):
     """计算连续 true 数量。"""
 
     op: Literal['unary.consecutive_count'] = Field(..., description='计算连续 true 数量。')
-    fields: UnaryFields = Field(..., description="该算符严格定义的输入字段。")
+    fields: BoolUnaryFields = Field(..., description="该算符严格定义的 BOOL 输入字段。")
     params: TimeSeriesUnaryConsecutiveCountParams = Field(
         default_factory=TimeSeriesUnaryConsecutiveCountParams,
         description="该算符严格定义的参数。",

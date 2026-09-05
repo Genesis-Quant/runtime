@@ -1,6 +1,6 @@
 """汇总 factor DolphinDB 模块需要编译的函数。"""
 
-from .preprocess import FACTOR_PREPROCESS
+from .preprocess import FACTOR_FILTER_NULLS, FACTOR_PREPROCESS
 from .statistics import (
     FACTOR_EXECUTION_STATISTICS,
     FACTOR_GROUP_RETURNS,
@@ -9,6 +9,7 @@ from .statistics import (
 )
 
 FACTOR_FUNCTIONS = (
+    FACTOR_FILTER_NULLS,
     FACTOR_PREPROCESS,
     FACTOR_EXECUTION_STATISTICS,
     FACTOR_INFORMATION_COEFFICIENT,

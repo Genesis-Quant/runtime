@@ -6,7 +6,7 @@ from pydantic import Field
 
 
 from runtime.apps.query.dsl.base import TimeSeriesOperator
-from runtime.apps.query.dsl.fields import UnaryFields
+from runtime.apps.query.dsl.fields import BoolUnaryFields
 from runtime.apps.query.dsl.types import (
     OutputKind,
     StrictModel,
@@ -21,7 +21,7 @@ class TimeSeriesUnaryBarsSinceOperator(TimeSeriesOperator):
     """计算距最近 true 的观测数。"""
 
     op: Literal['unary.bars_since'] = Field(..., description='计算距最近 true 的观测数。')
-    fields: UnaryFields = Field(..., description="该算符严格定义的输入字段。")
+    fields: BoolUnaryFields = Field(..., description="该算符严格定义的 BOOL 输入字段。")
     params: TimeSeriesUnaryBarsSinceParams = Field(
         default_factory=TimeSeriesUnaryBarsSinceParams,
         description="该算符严格定义的参数。",

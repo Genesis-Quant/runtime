@@ -65,6 +65,7 @@ ROLLING_TRUE_COUNT = DolphinDBFunction(
     definition="""
     def rolling_true_count(value, window, min_periods) {
         // 将 NULL 按 false 处理，统计每个滚动窗口中的 true 数量。
+        if (type(value) != BOOL) throw "条件型算符的 col 必须是 BOOL"
         return msum(int(nullFill(value, false)), int(window), int(min_periods))
     }
     """
@@ -1232,7 +1233,7 @@ TS_TALIB_ATR = DolphinDBFunction(
         close : vector
             收盘价向量。
         time_period : int
-            技术指标观察周期，必须为正整数；预热期通常返回 NULL。
+            技术指标观察周期，必须为至少 2 的整数；预热期通常返回 NULL。
 
         Returns
         -------
@@ -2601,7 +2602,7 @@ TS_TALIB_NATR = DolphinDBFunction(
         close : vector
             收盘价向量。
         time_period : int
-            技术指标观察周期，必须为正整数；预热期通常返回 NULL。
+            技术指标观察周期，必须为至少 2 的整数；预热期通常返回 NULL。
 
         Returns
         -------
@@ -3864,8 +3865,8 @@ TS_UNARY_BARS_SINCE = DolphinDBFunction(
 
         Parameters
         ----------
-        col : vector
-            按时间升序排列的输入向量。
+        col : vector[BOOL]
+            按时间升序排列的条件向量；不接受价格等数值列。
 
         Returns
         -------
@@ -3889,6 +3890,7 @@ TS_UNARY_BARS_SINCE = DolphinDBFunction(
         >>> ts_unary_bars_since(bool([false, NULL, true, false, NULL]))
         [NULL, NULL, 0, 1, 2]
         */
+        if (type(col) != BOOL) throw "条件型算符的 col 必须是 BOOL"
         n = size(col)
         if (n == 0) return array(INT, 0, 0)
         positions = 0..(n - 1)
@@ -4013,12 +4015,12 @@ TS_UNARY_CONSECUTIVE_COUNT = DolphinDBFunction(
         /*
         统计当前位置连续为 true 的观测数。
 
-        true 使计数在上一位置基础上加 1，false 或 NULL 将计数重置为 0。
+        true 使计数在上一位置基础上加 1，false 将计数重置为 0，BOOL NULL 保持上一计数。
 
         Parameters
         ----------
-        col : vector
-            按时间升序排列的输入向量。
+        col : vector[BOOL]
+            按时间升序排列的条件向量；不接受价格等数值列。
 
         Returns
         -------
@@ -4043,6 +4045,7 @@ TS_UNARY_CONSECUTIVE_COUNT = DolphinDBFunction(
         >>> ts_unary_consecutive_count(bool([true, NULL, true, true, false]))
         [1, 1, 2, 3, 0]
         */
+        if (type(col) != BOOL) throw "条件型算符的 col 必须是 BOOL"
         return cumPositiveStreak(col)
     }
     """
@@ -5314,8 +5317,8 @@ TS_UNARY_ROLLING_ALL = DolphinDBFunction(
 
         Parameters
         ----------
-        col : vector
-            按时间升序排列的输入向量。
+        col : vector[BOOL]
+            按时间升序排列的条件向量；不接受价格等数值列。
         window : int
             正整数窗口长度。窗口包含当前位置以及此前 window - 1 个观测。
         min_periods : int or NULL, default NULL
@@ -5374,8 +5377,8 @@ TS_UNARY_ROLLING_ANY = DolphinDBFunction(
 
         Parameters
         ----------
-        col : vector
-            按时间升序排列的输入向量。
+        col : vector[BOOL]
+            按时间升序排列的条件向量；不接受价格等数值列。
         window : int
             正整数窗口长度。窗口包含当前位置以及此前 window - 1 个观测。
         min_periods : int or NULL, default NULL
@@ -6592,8 +6595,8 @@ TS_UNARY_ROLLING_TRUE_COUNT = DolphinDBFunction(
 
         Parameters
         ----------
-        col : vector
-            按时间升序排列的输入向量。
+        col : vector[BOOL]
+            按时间升序排列的条件向量；不接受价格等数值列。
         window : int
             正整数窗口长度。窗口包含当前位置以及此前 window - 1 个观测。
         min_periods : int or NULL, default NULL

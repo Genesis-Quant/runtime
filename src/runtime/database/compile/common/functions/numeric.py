@@ -19,7 +19,8 @@ DIVIDE_OR_NULL = DolphinDBFunction(
     definition="""
     def divide_or_null(left, right) {
         // 执行安全除法；分母为 0 或 NULL 的位置返回 NULL。
-        return iif(isNull(right) || right == 0, NULL, left / right)
+        denominator = iif(isNull(right) || right == 0, double(NULL), double(right))
+        return left / denominator
     }
     """
 )

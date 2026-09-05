@@ -16,7 +16,7 @@ from runtime.apps.query.dsl.types import (
 class TimeSeriesTalibAtrParams(StrictModel):
     """talib.atr 参数。"""
 
-    time_period: int = Field(..., ge=1, description="技术指标观察周期。")
+    time_period: int = Field(..., ge=2, description="技术指标观察周期，ta::atr 要求至少为 2。")
 
 
 class TimeSeriesTalibAtrOperator(TimeSeriesOperator):

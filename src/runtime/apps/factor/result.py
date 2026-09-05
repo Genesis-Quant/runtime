@@ -33,13 +33,13 @@ class FactorAnalysisResult(SessionResult):
 
     @property
     def execution_statistics(self) -> pd.DataFrame:
-        """按交易日统计原始股票数及各过滤阶段剩余股票数。"""
+        """按交易日统计 DSL 过滤及因子空值过滤后的剩余股票数。"""
         logger.info("session.run: 统计 DSL 各过滤阶段的股票数量")
         return self.download(f"""
             factor::factorExecutionStatistics(
                 {self.source_ref},
                 {self.computed_ref},
-                {self.filtered_ref},
+                {self.processed_ref},
                 coreDslFilters,
                 coreOutputStart,
                 coreOutputEnd,

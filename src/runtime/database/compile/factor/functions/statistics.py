@@ -96,7 +96,7 @@ FACTOR_EXECUTION_STATISTICS = DolphinDBFunction(
     def factorExecutionStatistics(
         sourceTable,
         computedTable,
-        filteredTable,
+        processedTable,
         filterCols,
         startTime,
         endTime,
@@ -106,7 +106,7 @@ FACTOR_EXECUTION_STATISTICS = DolphinDBFunction(
         requiredColumns = symbol([timeCol, codeCol])
         factorCheckColumns(sourceTable, requiredColumns)
         factorCheckColumns(computedTable, requiredColumns)
-        factorCheckColumns(filteredTable, requiredColumns)
+        factorCheckColumns(processedTable, requiredColumns)
         if (size(filterColNames) > 0) {
             factorCheckColumns(computedTable, symbol(filterColNames))
         }
@@ -162,7 +162,7 @@ FACTOR_EXECUTION_STATISTICS = DolphinDBFunction(
 
         filteredCounts =
             <select count(*) as filtered_count
-             from filteredTable
+             from processedTable
              where
                 _$timeCol >= startTime,
                 _$timeCol < endTime,
@@ -173,6 +173,13 @@ FACTOR_EXECUTION_STATISTICS = DolphinDBFunction(
         result[`filtered_count] = long(
             nullFill(result[`filtered_count], 0)
         )
+        factorFilterIndex = string(size(filterColNames))
+        result["filter" + factorFilterIndex + "_name"] = take(
+            "因子空值",
+            result.rows()
+        )
+        result["filter" + factorFilterIndex + "_count"] =
+            result[`filtered_count]
         result[`retention_rate] = iif(
             result[`source_count] > 0,
             double(result[`filtered_count]) \

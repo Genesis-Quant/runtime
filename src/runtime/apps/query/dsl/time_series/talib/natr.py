@@ -16,7 +16,7 @@ from runtime.apps.query.dsl.types import (
 class TimeSeriesTalibNatrParams(StrictModel):
     """talib.natr 参数。"""
 
-    time_period: int = Field(..., ge=1, description="技术指标观察周期。")
+    time_period: int = Field(..., ge=2, description="技术指标观察周期，底层 ATR/Wilder 要求至少 2。")
 
 
 class TimeSeriesTalibNatrOperator(TimeSeriesOperator):

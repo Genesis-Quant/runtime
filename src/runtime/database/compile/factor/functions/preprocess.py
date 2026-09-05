@@ -10,6 +10,23 @@ from .helpers import (
 )
 
 
+FACTOR_FILTER_NULLS = DolphinDBFunction(
+    module="factor",
+    definition=r"""
+    def factorFilterNulls(factorTable, factorCols) {
+        factorColNames = factorStringVector(factorCols)
+        factorCheckColumns(factorTable, symbol(factorColNames))
+        validMask = take(true, factorTable.rows())
+        for (factorCol in factorColNames) {
+            validMask = validMask && !isNull(factorTable[factorCol])
+        }
+        return factorTable[validMask]
+    }
+    """,
+    dependencies=(FACTOR_STRING_VECTOR, FACTOR_CHECK_COLUMNS),
+)
+
+
 FACTOR_PREPROCESS = DolphinDBFunction(
     module="factor",
     definition=r"""

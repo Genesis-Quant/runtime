@@ -98,6 +98,13 @@ def analyze_factors(
         logger.info("session.run: 加载 factor 模块")
         current_session.run("use factor")
 
+        logger.info("session.run: 保留分析因子共同非空的股票")
+        current_session.run(f"""
+            {INPUT_REF} = factor::factorFilterNulls(
+                {INPUT_REF}, coreFactorColumns
+            )
+        """)
+
         if parameters.preprocess:
             static_industry = parameters.industry_column == "industry"
             industry_assignment = (
@@ -112,21 +119,41 @@ def analyze_factors(
             )
             current_session.run(f"""
                 {industry_assignment}
-                {PROCESSED_REF} = factor::factorPreprocess(
-                    {INPUT_REF},
-                    coreFactorColumns,
-                    coreFactorGroupCount,
-                    "time",
-                    "code",
-                    coreFactorMarketValueColumn,
-                    coreFactorIndustryColumn
-                )
+                if ({INPUT_REF}.rows() == 0) {{
+                    {PROCESSED_REF} = {INPUT_REF}
+                    for (factorColumn in coreFactorColumns) {{
+                        {PROCESSED_REF}[factorColumn] =
+                            double({PROCESSED_REF}[factorColumn])
+                        addColumn(
+                            {PROCESSED_REF},
+                            factorColumn + "_group",
+                            INT
+                        )
+                    }}
+                }} else {{
+                    {PROCESSED_REF} = factor::factorPreprocess(
+                        {INPUT_REF},
+                        coreFactorColumns,
+                        coreFactorGroupCount,
+                        "time",
+                        "code",
+                        coreFactorMarketValueColumn,
+                        coreFactorIndustryColumn
+                    )
+                }}
             """)
         else:
             logger.info("session.run: 跳过内置预处理，直接使用 DSL 输出")
             current_session.run(f"{PROCESSED_REF} = {INPUT_REF}")
 
-        logger.success("因子预处理已在 DolphinDB 会话中生成")
+        logger.info("session.run: 过滤分析因子值为 NULL 的股票")
+        current_session.run(f"""
+            {PROCESSED_REF} = factor::factorFilterNulls(
+                {PROCESSED_REF}, coreFactorColumns
+            )
+        """)
+
+        logger.success("有效因子截面已在 DolphinDB 会话中生成")
 
         return FactorAnalysisResult(
             session=current_session,

@@ -134,3 +134,36 @@ def test_analyze_factors_uses_selected_industry_column(
         'coreFactorInputData["industry"] = coreFactorCodeToIndustry'
         in scripts
     ) is uses_static_mapping
+
+
+@pytest.mark.parametrize("preprocess", [True, False])
+def test_null_factor_filter_runs_after_processing_without_changing_dsl(
+        preprocess: bool,
+        monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = Mock()
+    data = factor_parameters(preprocess=preprocess)
+    if not preprocess:
+        data["dataset_query"]["factors"].append("close_group")
+    monkeypatch.setattr("runtime.apps.factor.api.redirect_session_output", lambda _: None)
+    monkeypatch.setattr("runtime.apps.factor.api.get_stock_metadata", lambda: ({}, {}, {}))
+    build_query = Mock()
+    monkeypatch.setattr("runtime.apps.factor.api.query_api.build_query_table", build_query)
+    result = analyze_factors(**data, session=session)
+
+    statements = [call.args[0] for call in session.run.call_args_list]
+    assert "coreFactorInputData = factor::factorFilterNulls(" in statements[1]
+    assert "coreFactorProcessedData" in statements[-2]
+    assert "coreFactorProcessedData = factor::factorFilterNulls(" in statements[-1]
+    assert "coreFactorProcessedData, coreFactorColumns" in statements[-1]
+    assert "coreFactorReturnColumns" not in statements[-1]
+    assert "coreFactorFilteredData" not in statements[-1]
+    assert build_query.call_args.args[0].filters == data["dataset_query"]["filters"]
+
+    result.execution_statistics
+    statistics_script = session.run.call_args.args[0]
+    assert result.processed_ref in statistics_script
+    assert result.filtered_ref not in statistics_script
+    for output in ("processed_data", "information_coefficient", "group_returns", "group_turnover"):
+        getattr(result, output)
+        assert result.processed_ref in session.run.call_args.args[0]

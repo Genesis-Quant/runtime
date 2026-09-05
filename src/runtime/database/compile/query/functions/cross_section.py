@@ -40,7 +40,7 @@ def cross_section_slope(left, right) {
     variance = covar(paired_left, paired_left)
     return iif(
         isNull(variance) || variance == 0,
-        NULL,
+        double(NULL),
         covar(paired_left, paired_right) / variance
     )
 }
@@ -1947,7 +1947,8 @@ CS_UNARY_VAR = DolphinDBFunction(
         >>> cs_unary_var(col, 1)
         [7.8, 7.8, 7.8, 7.8, 7.8]
         */
-        value = iif(int(ddof) == 0, varp(col), var(col))
+        // use ta 导入的 var 是移动方差；covar(col, col) 才是截面样本方差。
+        value = iif(int(ddof) == 0, varp(col), covar(col, col))
         return broadcast_like(value, col)
     }
     """,
