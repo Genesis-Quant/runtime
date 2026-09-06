@@ -95,7 +95,9 @@ class FactorAnalysisResult(SessionResult):
                 coreFactorGroupCount,
                 coreFactorSelectionCount,
                 "time",
-                "code"
+                "code",
+                (exec distinct timestamp(time) from {self.source_ref}
+                 where time >= coreOutputStart, time < coreOutputEnd)
             )
         """)
 

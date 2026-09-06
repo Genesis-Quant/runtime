@@ -30,8 +30,12 @@ BUILD_BACKTEST_MESSAGE = DolphinDBFunction(
             }
             adjustment = double(market_data.adj_factor)
             if (adj == "qfq") {
-                adjustment = adjustment /
-                    contextby(last, adjustment, market_data.code)
+                adjustmentHistory = select code, time, adj_factor
+                    from market_data order by code, time
+                adjustmentBasis = select last(adj_factor) as basis
+                    from adjustmentHistory group by code
+                basisByCode = dict(string(adjustmentBasis.code), double(adjustmentBasis.basis))
+                adjustment = adjustment / basisByCode[string(market_data.code)]
             }
         }
 

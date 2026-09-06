@@ -101,8 +101,9 @@ class BacktestParameters(BaseModel):
 
     risk_free_rate: float = Field(
         default=0.04,
+        gt=-1,
         allow_inf_nan=False,
-        description="计算 Sharpe 比率使用的年化无风险收益率。"
+        description="年化无风险收益率，必须大于 -1；Sharpe 与 Sortino 使用同一口径。"
     )
 
     utils: str = Field(

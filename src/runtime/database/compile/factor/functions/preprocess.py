@@ -85,6 +85,8 @@ FACTOR_PREPROCESS = DolphinDBFunction(
             if (size(crossSection) == 0) {
                 continue
             }
+            // Keep the regression and tie ordering independent of physical rows.
+            crossSection.sortBy!(symbol([codeCol]))
 
             for (factorCol in factorColNames) {
                 factorColSym = symbol([string(factorCol)])[0]
@@ -121,10 +123,15 @@ FACTOR_PREPROCESS = DolphinDBFunction(
                             matrix(double(industryValues == industries[i]))
                     }
                 }
-                if (size(y) <= cols(x)) {
+                design = matrix(take(1.0, size(y))) join x
+                singularValues = svd(design, false, false)
+                rankTolerance = max(singularValues) *
+                    max([rows(design), cols(design)]) * 2.220446049250313e-16
+                effectiveRank = sum(singularValues > rankTolerance)
+                if (size(y) <= effectiveRank) {
                     continue
                 }
-                beta = ols(y, x, true, 0)
+                beta = ols(y, x, true, 0, "svd")
                 fitted = beta[0] + beta[1] * mv
                 if (size(industries) > 1) {
                     for (i in 1 .. (size(industries) - 1)) {
@@ -135,19 +142,26 @@ FACTOR_PREPROCESS = DolphinDBFunction(
                 factorProcessedCol =
                     symbol([string(factorCol) + "_processed"])[0]
                 processedValues = workingTable[factorProcessedCol]
-                residual = factorZScore(y - fitted)
+                rawResidual = y - fitted
+                residualTolerance = max(abs(y)) *
+                    max([rows(design), cols(design)]) * 2.220446049250313e-16
+                if (!isValid(stdp(rawResidual)) || stdp(rawResidual) <= residualTolerance) {
+                    continue
+                }
+                residual = factorZScore(rawResidual)
                 processedValues[rowIds] = residual
                 workingTable[factorProcessedCol] = processedValues
 
                 validRows = table(
                     rowIds as factor_preprocess_row_id,
+                    string(crossSection[codeCol][validMask][regressionMask]) as factor_code,
                     residual as factor_value
                 )
                 validRows =
-                    select factor_preprocess_row_id, factor_value
+                    select factor_preprocess_row_id, factor_code, factor_value
                     from validRows
                     where isValid(factor_value)
-                    order by factor_value
+                    order by factor_value, factor_code
                 if (size(validRows) > 0) {
                     rankIndex = 0 .. (size(validRows) - 1)
                     groups = int(

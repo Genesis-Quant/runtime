@@ -5,6 +5,8 @@ from runtime.database.compile import DolphinDBFunction
 from .helpers import (
     FACTOR_CHECK_COLUMNS,
     FACTOR_EXTREME_WEIGHTED_RETURN,
+    FACTOR_EXTREME_RANKS,
+    FACTOR_VALIDATE_GROUPS,
     FACTOR_STRING_VECTOR,
     FACTOR_WEIGHTED_RETURN,
 )
@@ -224,6 +226,7 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
             processedFactorTable,
             symbol(returnColNames)
         )
+        factorValidateGroups(processedFactorTable, factorColNames, nGroups, timeCol, codeCol)
 
         result =
             <select distinct(_$timeCol) as time
@@ -252,7 +255,8 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
                                 sqlCol(mktmvSym),
                                 sqlCol(retSym),
                                 nSelect,
-                                true
+                                true,
+                                sqlCol(symbol([codeCol])[0])
                             ),
                             `bottom_ret
                         ),
@@ -263,7 +267,8 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
                                 sqlCol(mktmvSym),
                                 sqlCol(retSym),
                                 nSelect,
-                                false
+                                false,
+                                sqlCol(symbol([codeCol])[0])
                             ),
                             `top_ret
                         )
@@ -329,6 +334,7 @@ FACTOR_GROUP_RETURNS = DolphinDBFunction(
         FACTOR_CHECK_COLUMNS,
         FACTOR_WEIGHTED_RETURN,
         FACTOR_EXTREME_WEIGHTED_RETURN,
+        FACTOR_VALIDATE_GROUPS,
     ),
 )
 
@@ -343,7 +349,8 @@ FACTOR_GROUP_TURNOVER = DolphinDBFunction(
         nGroups,
         nSelect,
         timeCol="time",
-        codeCol="code") {
+        codeCol="code",
+        tradeDates=NULL) {
         if (nGroups < 2) {
             throw "nGroups must be at least 2"
         }
@@ -360,6 +367,13 @@ FACTOR_GROUP_TURNOVER = DolphinDBFunction(
             symbol([timeCol, codeCol])
         )
         factorCheckColumns(processedFactorTable, symbol(factorColNames))
+        factorValidateGroups(processedFactorTable, factorColNames, nGroups, timeCol, codeCol)
+        axisDates = tradeDates
+        if (typestr(tradeDates) == "VOID") {
+            axisDates = <exec _$timeCol from processedFactorTable>.eval()
+        }
+        factorDates = table(sort(distinct(timestamp(axisDates))) as time)
+        factorDates.sortBy!(`time)
 
         groupColumns = "group" + string(0 .. (nGroups - 1))
         result = table(
@@ -381,11 +395,9 @@ FACTOR_GROUP_TURNOVER = DolphinDBFunction(
                     double(_$factorCol) as factor_value
                 from processedFactorTable
                 where !isNull(_$factorCol)>.eval()
-            if (factorMembers.rows() > 0) {
+            if (factorDates.rows() > 0) {
                 factorMembers = select distinct time, code, factor_value
                     from factorMembers
-                factorDates = select distinct time from factorMembers
-                factorDates.sortBy!(`time)
                 groupMembers = <select
                         timestamp(_$timeCol) as time,
                         string(_$codeCol) as code,
@@ -412,20 +424,14 @@ FACTOR_GROUP_TURNOVER = DolphinDBFunction(
                 extremeRanks = select
                         time,
                         code,
-                        rank(
+                        factorExtremeRanks(
                             factor_value,
-                            true,
-                            ,
-                            true,
-                            `first,
-                            false
+                            code,
+                            true
                         ) as bottom_rank,
-                        rank(
+                        factorExtremeRanks(
                             factor_value,
-                            false,
-                            ,
-                            true,
-                            `first,
+                            code,
                             false
                         ) as top_rank
                     from factorMembers
@@ -455,9 +461,6 @@ FACTOR_GROUP_TURNOVER = DolphinDBFunction(
                     portfolioMembers,
                     topMembers
                 )
-                portfolioDates = select distinct time, portfolio_id
-                    from portfolioMembers
-                portfolioDates.sortBy!(`portfolio_id`time)
 
                 for (period in periodValues) {
                     rankDateMap = select
@@ -480,28 +483,7 @@ FACTOR_GROUP_TURNOVER = DolphinDBFunction(
                         where !isNull(previous_rank)
                         group by time
 
-                    portfolioDateMap = table(
-                        array(TIMESTAMP, 0) as time,
-                        array(INT, 0) as portfolio_id,
-                        array(TIMESTAMP, 0) as previous_time
-                    )
-                    for (portfolioId in 0 .. (nGroups + 1)) {
-                        portfolioPeriodDates = select
-                                time,
-                                portfolio_id
-                            from portfolioDates
-                            where portfolio_id == int(portfolioId)
-                        portfolioPeriodDates.sortBy!(`time)
-                        portfolioPeriodDates["previous_time"] = move(
-                            portfolioPeriodDates["time"],
-                            period
-                        )
-                        portfolioDateMap = unionAll(
-                            portfolioDateMap,
-                            portfolioPeriodDates
-                        )
-                    }
-                    currentMembers = lj(portfolioMembers, portfolioDateMap, ["time", "portfolio_id"])
+                    currentMembers = lj(portfolioMembers, rankDateMap, `time)
                     previousMembers = select
                             time as previous_time,
                             code,
@@ -555,6 +537,8 @@ FACTOR_GROUP_TURNOVER = DolphinDBFunction(
     dependencies=(
         FACTOR_STRING_VECTOR,
         FACTOR_CHECK_COLUMNS,
+        FACTOR_EXTREME_RANKS,
+        FACTOR_VALIDATE_GROUPS,
     ),
 )
 

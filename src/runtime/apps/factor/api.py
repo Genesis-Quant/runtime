@@ -151,6 +151,9 @@ def analyze_factors(
             {PROCESSED_REF} = factor::factorFilterNulls(
                 {PROCESSED_REF}, coreFactorColumns
             )
+            factor::factorValidateGroups(
+                {PROCESSED_REF}, coreFactorColumns, coreFactorGroupCount, "time", "code"
+            )
         """)
 
         logger.success("有效因子截面已在 DolphinDB 会话中生成")

@@ -47,6 +47,15 @@ def parameters() -> dict:
 
 
 class BacktestParametersTests(unittest.TestCase):
+    def test_risk_free_rate_compounding_domain(self) -> None:
+        for value in (-1, -1.01):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                BacktestParameters.model_validate({**parameters(), "risk_free_rate": value})
+        self.assertEqual(
+            BacktestParameters.model_validate({**parameters(), "risk_free_rate": -0.04}).risk_free_rate,
+            -0.04,
+        )
+
     def test_backtest_module_imports_factor_module(self) -> None:
         script = build_script()
 

@@ -101,6 +101,8 @@ def factorPreprocess(
         if (size(crossSection) == 0) {
             continue
         }
+        // Keep the regression and tie ordering independent of physical rows.
+        crossSection.sortBy!(symbol([codeCol]))
 
         for (factorCol in factorColNames) {
             factorColSym = symbol([string(factorCol)])[0]
@@ -137,10 +139,15 @@ def factorPreprocess(
                         matrix(double(industryValues == industries[i]))
                 }
             }
-            if (size(y) <= cols(x)) {
+            design = matrix(take(1.0, size(y))) join x
+            singularValues = svd(design, false, false)
+            rankTolerance = max(singularValues) *
+                max([rows(design), cols(design)]) * 2.220446049250313e-16
+            effectiveRank = sum(singularValues > rankTolerance)
+            if (size(y) <= effectiveRank) {
                 continue
             }
-            beta = ols(y, x, true, 0)
+            beta = ols(y, x, true, 0, "svd")
             fitted = beta[0] + beta[1] * mv
             if (size(industries) > 1) {
                 for (i in 1 .. (size(industries) - 1)) {
@@ -151,19 +158,26 @@ def factorPreprocess(
             factorProcessedCol =
                 symbol([string(factorCol) + "_processed"])[0]
             processedValues = workingTable[factorProcessedCol]
-            residual = factorZScore(y - fitted)
+            rawResidual = y - fitted
+            residualTolerance = max(abs(y)) *
+                max([rows(design), cols(design)]) * 2.220446049250313e-16
+            if (!isValid(stdp(rawResidual)) || stdp(rawResidual) <= residualTolerance) {
+                continue
+            }
+            residual = factorZScore(rawResidual)
             processedValues[rowIds] = residual
             workingTable[factorProcessedCol] = processedValues
 
             validRows = table(
                 rowIds as factor_preprocess_row_id,
+                string(crossSection[codeCol][validMask][regressionMask]) as factor_code,
                 residual as factor_value
             )
             validRows =
-                select factor_preprocess_row_id, factor_value
+                select factor_preprocess_row_id, factor_code, factor_value
                 from validRows
                 where isValid(factor_value)
-                order by factor_value
+                order by factor_value, factor_code
             if (size(validRows) > 0) {
                 rankIndex = 0 .. (size(validRows) - 1)
                 groups = int(
@@ -364,6 +378,9 @@ def factorInformationCoefficient(
 }
 
 def factorWeightedReturn(weight, ret) {
+    if (any(!isNull(weight) && weight < 0)) {
+        throw "市值权重不能为负数"
+    }
     valid = !isNull(weight) && !isNull(ret)
     validWeight = weight[valid]
     validReturn = ret[valid]
@@ -374,23 +391,51 @@ def factorWeightedReturn(weight, ret) {
     return sum(validWeight * validReturn) \ totalWeight
 }
 
+def factorExtremeRanks(values, codes, ascending) {
+    ranks = take(long(NULL), size(values))
+    if (size(values) == 0) return ranks
+    ranked = table(
+        long(0 .. (size(values) - 1)) as row_id,
+        double(values) as factor_value,
+        string(codes) as factor_code
+    )
+    ranked = select * from ranked where !isNull(factor_value)
+    ranked.sortBy!(`factor_value`factor_code, [ascending, ascending])
+    if (ranked.rows() > 0) {
+        ranks[ranked.row_id] = long(0 .. (ranked.rows() - 1))
+    }
+    return ranks
+}
+
 def factorExtremeWeightedReturn(
     factorValue,
     weight,
     ret,
     nSelect,
-    ascending) {
+    ascending,
+    codes) {
     selected = !isNull(factorValue) && (
-        rank(
-            factorValue,
-            ascending,
-            ,
-            true,
-            `first,
-            false
-        ) < int(nSelect)
+        factorExtremeRanks(factorValue, codes, ascending) < int(nSelect)
     )
     return factorWeightedReturn(weight[selected], ret[selected])
+}
+
+def factorValidateGroups(tb, factorCols, nGroups, timeCol="time", codeCol="code") {
+    for (factorCol in factorStringVector(factorCols)) {
+        groupCol = string(factorCol) + "_group"
+        factorCheckColumns(tb, symbol([factorCol, groupCol, timeCol, codeCol]))
+        groups = double(tb[groupCol])
+        invalid = !isNull(tb[factorCol]) && (
+            isNull(groups) || groups < 0 || groups >= nGroups || groups != floor(groups)
+        )
+        if (any(invalid)) {
+            sample = tb[invalid]
+            sample = sample[0:min(5, sample.rows())]
+            throw groupCol + " 必须是 [0, " + string(nGroups - 1) +
+                "] 内的整数；违规行数=" + string(sum(invalid)) +
+                "，日期=" + string(sample[timeCol]) + ", code=" + string(sample[codeCol])
+        }
+    }
 }
 
 def factorGroupReturns(
@@ -419,6 +464,7 @@ def factorGroupReturns(
         processedFactorTable,
         symbol(returnColNames)
     )
+    factorValidateGroups(processedFactorTable, factorColNames, nGroups, timeCol, codeCol)
 
     result =
         <select distinct(_$timeCol) as time
@@ -447,7 +493,8 @@ def factorGroupReturns(
                             sqlCol(mktmvSym),
                             sqlCol(retSym),
                             nSelect,
-                            true
+                            true,
+                            sqlCol(symbol([codeCol])[0])
                         ),
                         `bottom_ret
                     ),
@@ -458,7 +505,8 @@ def factorGroupReturns(
                             sqlCol(mktmvSym),
                             sqlCol(retSym),
                             nSelect,
-                            false
+                            false,
+                            sqlCol(symbol([codeCol])[0])
                         ),
                         `top_ret
                     )
@@ -526,7 +574,8 @@ def factorGroupTurnover(
     nGroups,
     nSelect,
     timeCol="time",
-    codeCol="code") {
+    codeCol="code",
+    tradeDates=NULL) {
     if (nGroups < 2) {
         throw "nGroups must be at least 2"
     }
@@ -543,6 +592,13 @@ def factorGroupTurnover(
         symbol([timeCol, codeCol])
     )
     factorCheckColumns(processedFactorTable, symbol(factorColNames))
+    factorValidateGroups(processedFactorTable, factorColNames, nGroups, timeCol, codeCol)
+    axisDates = tradeDates
+    if (typestr(tradeDates) == "VOID") {
+        axisDates = <exec _$timeCol from processedFactorTable>.eval()
+    }
+    factorDates = table(sort(distinct(timestamp(axisDates))) as time)
+    factorDates.sortBy!(`time)
 
     groupColumns = "group" + string(0 .. (nGroups - 1))
     result = table(
@@ -564,11 +620,9 @@ def factorGroupTurnover(
                 double(_$factorCol) as factor_value
             from processedFactorTable
             where !isNull(_$factorCol)>.eval()
-        if (factorMembers.rows() > 0) {
+        if (factorDates.rows() > 0) {
             factorMembers = select distinct time, code, factor_value
                 from factorMembers
-            factorDates = select distinct time from factorMembers
-            factorDates.sortBy!(`time)
             groupMembers = <select
                     timestamp(_$timeCol) as time,
                     string(_$codeCol) as code,
@@ -595,20 +649,14 @@ def factorGroupTurnover(
             extremeRanks = select
                     time,
                     code,
-                    rank(
+                    factorExtremeRanks(
                         factor_value,
-                        true,
-                        ,
-                        true,
-                        `first,
-                        false
+                        code,
+                        true
                     ) as bottom_rank,
-                    rank(
+                    factorExtremeRanks(
                         factor_value,
-                        false,
-                        ,
-                        true,
-                        `first,
+                        code,
                         false
                     ) as top_rank
                 from factorMembers
@@ -638,9 +686,6 @@ def factorGroupTurnover(
                 portfolioMembers,
                 topMembers
             )
-            portfolioDates = select distinct time, portfolio_id
-                from portfolioMembers
-            portfolioDates.sortBy!(`portfolio_id`time)
 
             for (period in periodValues) {
                 rankDateMap = select
@@ -663,28 +708,7 @@ def factorGroupTurnover(
                     where !isNull(previous_rank)
                     group by time
 
-                portfolioDateMap = table(
-                    array(TIMESTAMP, 0) as time,
-                    array(INT, 0) as portfolio_id,
-                    array(TIMESTAMP, 0) as previous_time
-                )
-                for (portfolioId in 0 .. (nGroups + 1)) {
-                    portfolioPeriodDates = select
-                            time,
-                            portfolio_id
-                        from portfolioDates
-                        where portfolio_id == int(portfolioId)
-                    portfolioPeriodDates.sortBy!(`time)
-                    portfolioPeriodDates["previous_time"] = move(
-                        portfolioPeriodDates["time"],
-                        period
-                    )
-                    portfolioDateMap = unionAll(
-                        portfolioDateMap,
-                        portfolioPeriodDates
-                    )
-                }
-                currentMembers = lj(portfolioMembers, portfolioDateMap, ["time", "portfolio_id"])
+                currentMembers = lj(portfolioMembers, rankDateMap, `time)
                 previousMembers = select
                         time as previous_time,
                         code,

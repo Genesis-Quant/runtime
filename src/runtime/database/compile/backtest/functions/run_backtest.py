@@ -10,7 +10,7 @@ RUN_BACKTEST = DolphinDBFunction(
         使用给定配置、完整消息表和全部生命周期回调创建并运行 Backtest 引擎。
 
         函数先规范插件配置，随后使用全部必填生命周期回调创建引擎、
-        追加行情消息并发送结束标记。合成快照按同一时间戳整批触发 onSnapshot；策略通过
+        追加行情消息并发送快照 END 消息。合成快照按同一时间戳整批触发 onSnapshot；策略通过
         getLastData 或 getHistoryData 显式读取当前消息日期以前的数据。
         */
         if (message.rows() == 0) {
@@ -52,7 +52,12 @@ RUN_BACKTEST = DolphinDBFunction(
         )
         try {
             Backtest::appendQuotationMsg(engine, message)
-            Backtest::appendEndMarker(engine)
+            // Flush the last timestamp batch using the snapshot protocol. END
+            // is a control message, not a quote and cannot provide liquidity.
+            lastRow = imax(message.timestamp)
+            endMessage = message[lastRow:(lastRow + 1)]
+            update endMessage set symbol="END", timestamp=timestamp+1
+            Backtest::appendQuotationMsg(engine, endMessage)
         } catch (error) {
             Backtest::dropBacktestEngine(engine)
             throw error

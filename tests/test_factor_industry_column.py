@@ -167,3 +167,6 @@ def test_null_factor_filter_runs_after_processing_without_changing_dsl(
     for output in ("processed_data", "information_coefficient", "group_returns", "group_turnover"):
         getattr(result, output)
         assert result.processed_ref in session.run.call_args.args[0]
+    turnover_script = session.run.call_args.args[0]
+    assert f"exec distinct timestamp(time) from {result.source_ref}" in turnover_script
+    assert "time >= coreOutputStart, time < coreOutputEnd" in turnover_script
