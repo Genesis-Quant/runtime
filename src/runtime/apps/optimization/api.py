@@ -17,7 +17,7 @@ from ..backtest.api import (
     execute_prepared_backtest,
     prepare_backtest_session,
 )
-from ..backtest.schema import Adj, BacktestParameters, CallbackName
+from ..backtest.schema import Adj, BacktestParameters, CallbackName, MarketSource
 from .algorithms import normalize_parameter_candidates, select_parameter
 from .result import OptimizationResult
 from .schema import (
@@ -42,6 +42,7 @@ def optimize_backtest(
         holding_period: str,
         *,
         session: Any | None = None,
+        market_source: MarketSource = "daily",
         codes_query: dict[str, Any] | None = None,
         utils: str = "",
         params: dict[str, Any] | None = None,
@@ -55,6 +56,7 @@ def optimize_backtest(
 ) -> OptimizationResult:
     """滚动调优参数，并为每种算法生成全部重复样本外净值路径。"""
     parameters = OptimizationParameters.model_validate({
+        "market_source": market_source,
         "dataset_query": dataset_query,
         "callbacks": callbacks,
         "parameter_space": parameter_space,

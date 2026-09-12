@@ -53,6 +53,8 @@ class SensitivityParameters(BacktestParameters, SensitivitySettings):
 
     @model_validator(mode="after")
     def validate_sensitivity_contract(self) -> "SensitivityParameters":
+        if self.market_source == "snapshot":
+            raise ValueError("真实快照模式暂不支持手续费分析和参数敏感性分析")
         base_commission = float(self.config["commission"])
         base_names = set(self.params)
         identities: set[str] = set()

@@ -176,6 +176,8 @@ class OptimizationParameters(BacktestParameters, OptimizationSettings):
 
     @model_validator(mode="after")
     def validate_optimization_contract(self) -> "OptimizationParameters":
+        if self.market_source == "snapshot":
+            raise ValueError("真实快照模式暂不支持参数调优")
         missing = sorted(set(self.parameter_space) - set(self.params))
         if missing:
             raise ValueError(f"parameter_space 只能选择 params 已定义的参数：{missing}")

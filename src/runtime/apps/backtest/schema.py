@@ -22,6 +22,7 @@ CallbackName: TypeAlias = Literal[
     "finalize",
 ]
 Adj: TypeAlias = Literal["hfq", "qfq"]
+MarketSource: TypeAlias = Literal["daily", "snapshot"]
 CALLBACK_PARAMETER_COUNTS = {
     "initialize": 1,
     "beforeTrading": 1,
@@ -63,6 +64,11 @@ class BacktestParameters(BaseModel):
     """保存 Python 回测入口完成解析和规范化后的参数。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, validate_default=True)
+
+    market_source: MarketSource = Field(
+        default="daily",
+        description="daily 使用日线合成快照；snapshot 使用 StockSnapshot 原始五档快照，不复权、不处理分红除权。",
+    )
 
     config: dict[str, Any] = Field(
         default_factory=dict,
@@ -122,6 +128,15 @@ class BacktestParameters(BaseModel):
     @model_validator(mode="after")
     def validate_dataset_query_contract(self) -> "BacktestParameters":
         """校验股票范围和框架保留列。"""
+        if self.market_source == "snapshot":
+            if overlap := self.dataset_query.derivatives.keys() & {"pre_close", "up_limit", "down_limit"}:
+                raise ValueError(f"真实快照参考价格必须来自 CoreData，不能被派生列覆盖：{sorted(overlap)}")
+            if self.adj is not None:
+                raise ValueError("真实快照使用原价撮合，adj 必须为 null")
+            if self.config.get("syntheticSpread", 0.0) != 0:
+                raise ValueError("真实快照使用实际盘口，syntheticSpread 必须为 0")
+            if "stockDividend" in self.config:
+                raise ValueError("真实快照第一版不处理分红除权，不能传入 stockDividend")
         if self.adj is not None:
             if "adj_factor" in self.dataset_query.derivatives:
                 raise ValueError("adj 不允许使用名为 adj_factor 的派生因子")
@@ -218,5 +233,6 @@ __all__ = [
     "BacktestParameters",
     "CALLBACK_PARAMETER_COUNTS",
     "CallbackName",
+    "MarketSource",
     "backtest_symbol",
 ]

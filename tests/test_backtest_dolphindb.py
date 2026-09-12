@@ -11,6 +11,7 @@ from runtime.database import create_session
 from runtime.database.compile.backtest.functions.build_backtest_message import BUILD_BACKTEST_MESSAGE
 from runtime.database.compile.backtest.functions.run_backtest import RUN_BACKTEST
 from runtime.database.compile.backtest.functions.return_summary import STANDARDIZE_RETURN_SUMMARY
+from runtime.database.compile.script import collect_functions
 
 
 @pytest.fixture(scope="module")
@@ -23,7 +24,7 @@ def dolphin():
             if (!("MatchingEngineSimulator" in (exec plugin from getLoadedPlugins()))) loadPlugin("MatchingEngineSimulator")
             if (!("Backtest" in (exec plugin from getLoadedPlugins()))) loadPlugin("Backtest")
         ''')
-        for function in [BUILD_BACKTEST_MESSAGE, RUN_BACKTEST, STANDARDIZE_RETURN_SUMMARY]:
+        for function in collect_functions([BUILD_BACKTEST_MESSAGE, RUN_BACKTEST, STANDARDIZE_RETURN_SUMMARY]):
             session.run(function.definition)
         session.run('''
             def auditInit(mutable ctx) {

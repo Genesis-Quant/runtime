@@ -47,6 +47,14 @@ def parameters() -> dict:
 
 
 class BacktestParametersTests(unittest.TestCase):
+    def test_market_source_defaults_and_conflicts(self):
+        self.assertEqual(BacktestParameters.model_validate(parameters()).market_source, "daily")
+        payload = {**parameters(), "market_source": "snapshot", "adj": None, "config": {"syntheticSpread": 0}}
+        self.assertEqual(BacktestParameters.model_validate(payload).market_source, "snapshot")
+        for changes in ({"adj": "qfq"}, {"config": {"syntheticSpread": 0.01}}, {"config": {"stockDividend": []}}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValidationError, "真实快照"):
+                BacktestParameters.model_validate({**payload, **changes})
+
     def test_risk_free_rate_compounding_domain(self) -> None:
         for value in (-1, -1.01):
             with self.subTest(value=value), self.assertRaises(ValidationError):

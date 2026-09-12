@@ -13,7 +13,7 @@ from ..backtest.api import (
     execute_prepared_backtest,
     prepare_backtest_session,
 )
-from ..backtest.schema import Adj, CallbackName
+from ..backtest.schema import Adj, CallbackName, MarketSource
 from .result import SensitivityResult
 from .schema import (
     SensitivityAnalysisType,
@@ -31,6 +31,7 @@ def analyze_backtest_sensitivity(
         cases: list[SensitivityCase | dict[str, Any]],
         *,
         session: Any | None = None,
+        market_source: MarketSource = "daily",
         codes_query: dict[str, Any] | None = None,
         utils: str = "",
         params: dict[str, Any] | None = None,
@@ -41,6 +42,7 @@ def analyze_backtest_sensitivity(
 ) -> SensitivityResult:
     """只准备一次完整区间数据，并依次执行全部敏感性组合。"""
     parameters = SensitivityParameters.model_validate({
+        "market_source": market_source,
         "dataset_query": dataset_query,
         "callbacks": callbacks,
         "analysis_type": analysis_type,

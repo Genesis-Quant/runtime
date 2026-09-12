@@ -1,4 +1,4 @@
-"""实现日频回测命令。"""
+"""实现日线合成快照和真实快照回测命令。"""
 
 import argparse
 from typing import Any
@@ -6,8 +6,8 @@ from typing import Any
 from runtime.utils.manage import add_app_arguments, model_input, save_app_outputs
 
 NAME = "backtest"
-HELP = "执行日频回测"
-DESCRIPTION = "执行日频回测。"
+HELP = "执行策略回测"
+DESCRIPTION = "使用日线合成快照或 StockSnapshot 真实五档快照执行策略回测。"
 OUTPUT_FILENAMES = {
     "trade_details": "trade_details.parquet",
     "daily_positions": "daily_positions.parquet",

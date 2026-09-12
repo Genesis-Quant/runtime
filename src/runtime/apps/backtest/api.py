@@ -1,4 +1,4 @@
-"""使用因子 DSL 日线构造开收盘单档合成快照并运行 Backtest 策略。"""
+"""使用日线合成或真实五档快照运行 Backtest 策略。"""
 
 from typing import Any
 from uuid import uuid4
@@ -23,6 +23,7 @@ from .schema import (
     Adj,
     BacktestParameters,
     CallbackName,
+    MarketSource,
     backtest_symbol,
 )
 
@@ -63,6 +64,11 @@ BACKTEST_RESERVED_REFERENCES = QUERY_RESERVED_REFERENCES | frozenset({
     "getParam",
     "getIndustry",
     "getTradeDates",
+    "getMinuteHistory",
+    "coreBacktestSnapshotState",
+    "coreBacktestSnapshotTable",
+    "coreBacktestSnapshotReference",
+    "coreBacktestMarketSource",
     "coreBacktestEngine",
     "coreLoadedPlugins",
     "coreBacktestComputedData",
@@ -142,19 +148,34 @@ def prepare_backtest_session(
         message_ref: str = MESSAGE_REF,
         log_progress: bool = True,
 ) -> BacktestParameters:
-    """在一个 session 中一次性生成完整区间数据、消息表和策略函数。"""
+    """准备日线数据和策略函数；真实快照仅保留表引用，执行时分块读取。"""
     validate_dolphindb_references(
         {"source_ref": source_ref, "message_ref": message_ref},
         reserved=BACKTEST_RESERVED_REFERENCES | frozenset(CALLBACK_PARAMETER_COUNTS),
     )
+    # 默认缓存由本入口持有。切换行情来源时不能复用另一模式准备的列或消息；
+    # 显式传入的 source_ref 仍归调用者管理。
+    if has_session_variable(session, "coreBacktestMarketSource", log_progress=False):
+        previous_source = session.run("coreBacktestMarketSource")
+        if previous_source != parameters.market_source:
+            refs = [message_ref, CODES_SOURCE_REF, BENCHMARK_SOURCE_REF]
+            if source_ref == SOURCE_REF:
+                refs.append(source_ref)
+            for ref in refs:
+                if has_session_variable(session, ref, log_progress=False):
+                    session.run(f"undef(`{ref}, VAR)")
     execution_factors = list(parameters.dataset_query.factors)
-    execution_factors.extend(factor for factor in DAILY_MESSAGE_FACTORS if factor not in execution_factors)
+    message_factors = (
+        ("pre_close", "up_limit", "down_limit")
+        if parameters.market_source == "snapshot" else DAILY_MESSAGE_FACTORS
+    )
+    execution_factors.extend(factor for factor in message_factors if factor not in execution_factors)
     if parameters.adj is not None and "adj_factor" not in execution_factors:
         execution_factors.append("adj_factor")
     dataset_query = parameters.dataset_query.model_copy(update={"factors": execution_factors})
     benchmark = parameters.config.get("benchmark")
     synthetic_spread = parameters.config.get("syntheticSpread", 0.0)
-    message_exists = has_session_variable(
+    message_exists = parameters.market_source == "daily" and has_session_variable(
         session,
         message_ref,
         log_progress=log_progress,
@@ -222,6 +243,7 @@ def prepare_backtest_session(
             logger.info(f"复用回测数据和消息表 {message_ref}")
 
     session.upload({
+        "coreBacktestMarketSource": parameters.market_source,
         "coreBacktestCodes": np.asarray(dataset_query.codes, dtype=str),
         "coreBacktestAnnualTradingDays": parameters.annual_trading_days,
         "coreBacktestRiskFreeRate": parameters.risk_free_rate,
@@ -238,6 +260,27 @@ def prepare_backtest_session(
     if log_progress:
         logger.info(f"session.run: 定义回调函数 {list(parameters.callbacks)}")
     session.run("\n".join(parameters.callbacks.values()))
+
+    if parameters.market_source == "snapshot":
+        # 行情参考数据必须来自未过滤表；filters 只限制策略可选截面。
+        session.run(f"""
+            coreBacktestSnapshotTable = loadTable("dfs://StockSnapshot", "snapshot")
+            coreBacktestSnapshotReference = select time,code,pre_close,up_limit,down_limit from {source_ref}
+            coreBacktestAvailableTradeDates = exec distinct date(time)
+                from coreBacktestSnapshotReference order by date(time)
+            coreBacktestCodes = exec distinct code from coreBacktestSnapshotReference
+            coreBacktestSnapshotState = dict(STRING,ANY)
+            coreBacktestSnapshotState["enabled"] = false
+            {BENCHMARK_MESSAGE_REF} = table(1:0,
+                `symbol`symbolSource`timestamp`lastPrice`upLimitPrice`downLimitPrice`totalBidQty`totalOfferQty`bidPrice`bidQty`offerPrice`offerQty`prevClosePrice,
+                [SYMBOL,SYMBOL,TIMESTAMP,DOUBLE,DOUBLE,DOUBLE,LONG,LONG,DOUBLE[],LONG[],DOUBLE[],LONG[],DOUBLE])
+        """)
+        if benchmark is not None:
+            session.run(f"""
+                {BENCHMARK_MESSAGE_REF} = backtest::build_backtest_message({BENCHMARK_DATA_REF}, NULL, 0.0)
+                coreBacktestCodes = coreBacktestCodes[string(coreBacktestCodes)!=coreBacktestBenchmark]
+            """)
+        return parameters.model_copy(update={"dataset_query": dataset_query})
 
     if not message_exists:
         if log_progress:
@@ -336,6 +379,22 @@ def execute_prepared_backtest(
     run_params = parameters.params if params is None else params
     if run_params:
         session.upload({"coreBacktestParams": run_params})
+    if parameters.market_source == "snapshot":
+        session.run(f"""
+            coreBacktestSnapshotState = dict(STRING,ANY)
+            coreBacktestSnapshotState["enabled"] = false
+            coreBacktestTradeDates = coreBacktestAvailableTradeDates[
+                coreBacktestAvailableTradeDates >= date(coreBacktestStartDate) &&
+                coreBacktestAvailableTradeDates <= date(coreBacktestEndDate)
+            ]
+            coreBacktestEngine = backtest::run_snapshot_backtest(
+                coreBacktestName, coreBacktestConfig, coreBacktestSnapshotTable,
+                coreBacktestSnapshotReference, coreBacktestCodes, coreBacktestTradeDates, {BENCHMARK_MESSAGE_REF},
+                initialize, beforeTrading, onBar, onSnapshot, onOrder, onTrade, afterTrading, finalize
+            )
+        """)
+        return engine_name
+    session.run('coreBacktestSnapshotState = dict(STRING,ANY); coreBacktestSnapshotState["enabled"] = false')
     run_message_ref = message_ref
     message_statement = ""
     if output_start != query_start or output_end != query_end:
@@ -399,6 +458,7 @@ def run_backtest(
         callbacks: dict[CallbackName, str],
         *,
         session: Any | None = None,
+        market_source: MarketSource = "daily",
         codes_query: dict[str, Any] | None = None,
         utils: str = "",
         params: dict[str, Any] | None = None,
@@ -410,8 +470,9 @@ def run_backtest(
         source_ref: str = SOURCE_REF,
         message_ref: str = MESSAGE_REF,
 ) -> BacktestResult:
-    """使用日线合成的开收盘快照回测，并把结果会话移交给惰性结果。"""
+    """使用所选行情来源回测，并把结果会话移交给惰性结果。"""
     parameters = BacktestParameters.model_validate({
+        "market_source": market_source,
         "dataset_query": dataset_query,
         "callbacks": callbacks,
         "utils": utils,
